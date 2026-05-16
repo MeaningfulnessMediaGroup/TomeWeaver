@@ -32,3 +32,7 @@ history.json
 !requirements.txt
 !prologue.txt
 !epilogue.txt
+
+Story - *.bat
+!Story - Mallow the Cat.bat
+!Story - The Tomb of the Sunken King.bat
