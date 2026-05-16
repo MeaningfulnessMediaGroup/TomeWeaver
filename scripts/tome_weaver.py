@@ -110,8 +110,14 @@ echo   Loading Adventure: %ADVENTURE_FOLDER%
 echo ===================================================
 echo.
 
+:: Navigate up two directories to the TomeWeaver root
+cd /d "%~dp0\\..\\.."
+
+
 if exist "venv\\Scripts\\activate.bat" (
     call venv\\Scripts\\activate.bat
+) else (
+    echo [WARNING] Virtual environment not found. Attempting global Python...
 )
 
 python scripts/tome_weaver.py "adventures\\%ADVENTURE_FOLDER%"

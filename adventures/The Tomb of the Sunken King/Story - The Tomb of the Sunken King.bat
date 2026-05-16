@@ -9,8 +9,8 @@ setlocal EnableDelayedExpansion
 :: the ADVENTURE_PATH and ADVENTURE_NAME variable below.
 :: ---------------------------------------------------------
 
-set "ADVENTURE_PATH=adventures\Mallow the Cat"
-set "ADVENTURE_NAME=Mallow the Cat"
+set "ADVENTURE_PATH=adventures\The Tomb of the Sunken King"
+set "ADVENTURE_NAME=The Tomb of the Sunken King"
  
  
 title TomeWeaver: %ADVENTURE_NAME%
@@ -20,6 +20,9 @@ echo   Launching TomeWeaver Engine
 echo   Adventure: %ADVENTURE_NAME%
 echo ===================================================
 echo.
+
+cd ..
+cd ..
 
 :: 1. Verify Python is installed and accessible
 python --version >nul 2>&1
