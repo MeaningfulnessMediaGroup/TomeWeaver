@@ -41,7 +41,6 @@ These commands can be typed directly into the prompt at any time. They are categ
 | `undo` | Reverts the game state back to the previous turn. If you make a choice and don't like where the story went, this takes you back so you can choose again. |
 | `redo` | Discards the AI's current text and forces it to generate a completely new response for your last action. Use this if the AI hallucinates or writes a boring response. |
 | `fix: [instruction]` | Keeps the current turn, but sends it back to the AI with a strict instruction to edit a specific detail. <br>• *Example:* `fix: change the rusty dagger to a glowing blue sword.` <br>• *Example:* `fix: make the dialogue sound more aggressive.` |
-| `novelize` | Triggers the "Narrative Bridge" batch processor. The engine scans your history and instructs the AI to weave your mechanical choices into seamless prose so the export reads like a real book. |
 | `restart` | Deletes your current history and restarts the adventure from the beginning. *(Note: This cannot be undone).* |
 
 ### Developer Tools
