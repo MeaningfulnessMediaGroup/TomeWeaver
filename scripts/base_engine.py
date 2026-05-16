@@ -23,6 +23,11 @@ from llm import get_llm_response, generate_recap, generate_narrative_bridge
 # ---------------------------------------------------------
 
 class BaseEngine:
+
+    # ---------------------------------------------------------
+    # CONSTRUCTOR
+    # ---------------------------------------------------------
+
     def __init__(self, adv_dir, setup_data):
         self.adv_dir = Path(adv_dir)
         self.setup_data = setup_data
@@ -48,13 +53,15 @@ class BaseEngine:
         with open(prompt_file, "r", encoding="utf-8") as f:
             self.system_prompt_text = f.read()
 
+        # 1. Load History
         self.history = load_json_safely(self.history_file, "history.json") if self.history_file.exists() else []
         
-        # Protect ledger integrity from manual edits
+        # 2. Load Chapters (CRITICAL: Must happen before any save_state triggers)
+        self.chapters = self.load_chapters()
+        
+        # 3. Protect ledger integrity from manual edits
         if self.history:
             self.resync_master_clock()
-            
-        self.chapters = self.load_chapters()
         
         self.is_campaign = False
         self.allow_manual_chapters = True
@@ -70,6 +77,11 @@ class BaseEngine:
         # If enabled, automatically process any missing bridges on launch
         if ENGINE_CONFIG.get("instant_novelizer", False):
             self.novelize_history(silent=True)
+
+    
+    # ---------------------------------------------------------
+    # FIX DUPLICATE OR OUT-OF-ORDER TURN NUMBERING
+    # ---------------------------------------------------------
 
     def resync_master_clock(self):
         """

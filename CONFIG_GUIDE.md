@@ -211,6 +211,7 @@ Use this for open-ended "What if?" simulations and player-driven exploration whe
 TomeWeaver allows you to inject complex lore and logic directly into the configuration. Because the entire JSON is passed to the LLM in every prompt, the AI will respect the relationships, traits, and specific instructions you define. Here are two examples using the fields `family` and `instructions` but you can add any valid structured data to the configuration.
 
 **Example 1: Social Connections & Family Bloodlines**
+
 By adding a `family` or `connections` object, the AI will know exactly who characters are if they are mentioned, and can even introduce them naturally into the story.
 
 ```json
@@ -227,6 +228,7 @@ By adding a `family` or `connections` object, the AI will know exactly who chara
 ```
 
 **Example 2: Narrative Instructions**
+
 You can provide an `instructions` array to force the AI to follow specific literary styles, perspectives, or pacing rules.
 
 ```json

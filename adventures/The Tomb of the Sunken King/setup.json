@@ -32,7 +32,7 @@
         }
     ],
 	"narrative": {
-		"prologue": "expand",
+		"prologue": "as_is",
 		"epilogue": "as_is"
 	},
 	"allow_cheats": true
