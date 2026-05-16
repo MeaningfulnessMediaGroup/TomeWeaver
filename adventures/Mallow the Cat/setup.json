@@ -1,0 +1,16 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+    "can_die": false,
+    "title": "Mallow the Cat",
+    "tone": "Whimsical, comedic, overly dramatic from a feline perspective, cozy.",
+    "goal": "Assert total dominance over the Hawthorne Estate, thwart the neighborhood squirrel mafia, and find the fabled Sunbeam of Infinite Warmth.",
+    "setting": "The Hawthorne Estate, a sprawling, slightly eccentric Victorian mansion with a wild, overgrown garden.",
+    "main_character": "Mallow (A fluffy, slightly overweight marshmallow-white ragdoll house cat. Highly judgmental, food-motivated, and surprisingly agile when startled).",
+    "starting_situation": "Waking up from a 14-hour nap on the forbidden velvet armchair to discover an absolute tragedy: the food bowl is only half-full, and a strange, tough-looking tabby cat is sitting on your garden fence.",
+	"allow_cheats": true,
+	"narrative": {
+		"prologue": "as_is",
+		"epilogue": "generate"
+	}
+}

@@ -1,0 +1,39 @@
+{
+	"mode": "campaign",
+    "track_inventory": true,
+	"can_die": true,
+    "title": "The Heist of the Ruby Skull",
+    "tone": "Gritty, tense, low-fantasy",
+    "main_character": "Kaelen, a master thief.",
+	"lore_and_rules": "The Tomb is cursed. Magic items glow when near danger. Kaelen is mortal and must rely on stealth and tools rather than brute strength.",
+	"starting_inventory": "[Status] Health: Good. Items: Short sword, Backpack (2 rations, bottle of water), Rope (30ft), Torch (unlit). State: Mischievious.",
+	"plot_outline":[
+        {
+            "title": "The City Gates",
+            "setting": "The slums outside the walls of Oakhaven. Midnight.",
+            "pov": "Kaelen",
+            "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
+            "obstacles": "The guards are highly alert. Kaelen has no money for a bribe."
+        },
+        {
+            "title": "The Noble's Estate",
+            "setting": "The courtyard of Lord Vane's massive estate.",
+            "pov": "Kaelen",
+            "time": "Later that night",
+            "goal": "Break into the manor and locate the safe holding the Ruby Skull.",
+            "obstacles": "Locked doors, patrolling guard dogs, trap runes on the windows."
+        },
+        {
+            "title": "The Escape",
+            "setting": "The rooftops of Oakhaven.",
+            "pov": "Kaelen",
+            "goal": "Escape the city with the Ruby Skull before the guards catch you.",
+            "obstacles": "Slippery shingles, guards shooting crossbows, a rival thief trying to steal the skull."
+        }
+    ],
+	"narrative": {
+		"prologue": "expand",
+		"epilogue": "as_is"
+	},
+	"allow_cheats": false
+}

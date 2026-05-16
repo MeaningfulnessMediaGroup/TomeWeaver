@@ -1,0 +1,18 @@
+[
+    {
+        "story_text": "Mallow stretched languidly, his fluffy body sinking deeper into the forbidden velvet armchair as he emerged from a luxurious fourteen-hour slumber. The warmth of the sun had begun its descent across the room, casting golden rays over Mallow's marshmallow-white fur. He sighed contentedly... until he opened one lazy eye and focused on his food bowl with dawning horror.",
+        "pov_character": "Mallow",
+        "location": "The Hawthorne Estate - Sitting Room",
+        "input_type": "choice",
+        "choices": [
+            "Look out the window and notice a strange tabby cat lounging on the garden fence, clearly plotting its next move.",
+            "Leap from the armchair to check if there's any chance of more cat treats in a hidden place... anywhere at all.",
+            "Give an ear-splitting meow in protest at such cruel food shortages, hoping to catch the attention of Mrs. Hawthorne.",
+            "Stare menacingly at the food bowl, willing it to magically refill itself with just the power of feline mind control. (Spoiler: It won't.)"
+        ],
+        "text_prompt": null,
+        "is_game_over": false,
+        "turn": 1,
+        "player_choice": null
+    }
+]

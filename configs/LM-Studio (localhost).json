@@ -1,0 +1,8 @@
+{
+    "api_url": "http://localhost:1234/v1/chat/completions",
+    "api_key": "",
+    "model": "loaded-model",
+    "temperature_base": 0.8,
+	"max_retries": 6,
+	"context_window": 8
+}

@@ -1,0 +1,7 @@
+# TomeWeaver Core Dependencies
+
+# For handling API requests to LM Studio, OpenAI, OpenRouter, etc.
+requests>=2.31.0
+
+# For cross-platform terminal coloring and styling
+colorama>=0.4.6

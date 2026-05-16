@@ -1,0 +1,12 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+	"can_die": false,
+    "title": "The Default Adventure",
+    "tone": "Mysterious, atmospheric, fast-paced",
+    "goal": "Survive the night and find a way out.",
+    "setting": "An abandoned sci-fi research facility on a frozen moon.",
+    "main_character": "Subject 84 (Amnesiac, agile, cautious)",
+    "starting_situation": "Waking up in a cryo-pod with alarms blaring.",
+	"allow_cheats": true
+}
