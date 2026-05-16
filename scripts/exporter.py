@@ -3,17 +3,20 @@ TomeWeaver: Story Exporter Module
 ---------------------------------
 Compiles the chronological game ledger (history.json) into a human-readable 
 novel format (TXT, MD, or HTML). Weaves player choices into seamless prose 
-using AI-generated string bridges.
+using AI-generated string bridges. Includes a Debug Mode to print both actions and bridges.
 """
 
 import html
 import re
+from config import ENGINE_CONFIG
 
 def export_story(adv_dir, setup_data, history, chapters, export_type, use_novelization=True):
     title = setup_data.get("title", "The Adventure")
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     
     ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
+    
+    is_debug = ENGINE_CONFIG.get("debug_novelizer", False)
 
     # --- 1. COMPILE NARRATIVE BEATS ---
     chapter_content = []
@@ -37,13 +40,22 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
                 choice = t.get("player_choice")
                 if choice and not any(ui in str(choice) for ui in ui_commands):
                     
-                    # Look ahead to see if the next turn has a bridge for this action
+                    next_bridge = None
                     if use_novelization and i + 1 < len(history) and "narrative_bridge" in history[i+1]:
                         next_bridge = history[i+1]["narrative_bridge"]
                         
-                        if next_bridge: # If the string is not empty
-                            c_beats.append({"type": "bridge", "text": next_bridge.strip()})
-                        # If next_bridge == "", we do nothing! The action is already in the prose.
+                        if is_debug:
+                            # DEBUG MODE: Show both the raw action and the resulting bridge state
+                            c_beats.append({"type": "choice", "text": str(choice)})
+                            if next_bridge and next_bridge not in ["[OK]", "[FAILED]"]:
+                                c_beats.append({"type": "bridge", "text": f"[DEBUG BRIDGE]: {next_bridge.strip()}"})
+                            elif next_bridge in ["[OK]", "[FAILED]"]:
+                                c_beats.append({"type": "bridge", "text": f"[DEBUG STATUS]: {next_bridge}"})
+                        else:
+                            # NORMAL NOVELIZED MODE: Show only the generated bridge
+                            if next_bridge and next_bridge not in ["[OK]", "[FAILED]"]:
+                                c_beats.append({"type": "bridge", "text": next_bridge.strip()})
+                            # If [OK] or [FAILED], do nothing
                     else:
                         # Interactive Mode / Un-novelized fallback
                         c_beats.append({"type": "choice", "text": str(choice)})
@@ -58,7 +70,7 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
         for c in chapter_content:
             lines.extend([f"Chapter {c['num']}: {c['title']}", "-" * 10])
             for beat in c['beats']:
-                if beat["type"] == "choice": lines.append(f"\n[ {beat['text']} ]\n")
+                if beat["type"] == "choice": lines.append(f"\n[ Action: {beat['text']} ]\n")
                 elif beat["type"] == "bridge": lines.append(f"\n{beat['text']}\n")
                 else: lines.append(beat["text"] + "\n")
             lines.append("\n")
@@ -70,7 +82,7 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
         for c in chapter_content:
             lines.append(f"## Chapter {c['num']}: {c['title']}\n")
             for beat in c['beats']:
-                if beat["type"] == "choice": lines.append(f"\n**[ {beat['text']} ]**\n\n")
+                if beat["type"] == "choice": lines.append(f"\n**[ Action: {beat['text']} ]**\n\n")
                 elif beat["type"] == "bridge": lines.append(f"*{beat['text']}*\n\n")
                 else: lines.append(beat["text"] + "\n\n")
         output = "\n".join(lines)
@@ -85,7 +97,7 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
             ".toc{background:#f9f9f9;padding:20px;border-radius:8px;margin-bottom:40px;}",
             "p{text-indent:1.5em;margin-bottom:15px;text-align:justify;}",
             ".choice{text-align:center;font-weight:bold;margin:30px 0;color:#555;}",
-            ".bridge{font-style:italic;margin-bottom:15px;text-indent:1.5em;}",
+            ".bridge{font-style:italic;margin-bottom:15px;text-indent:1.5em;color:#1e40af;}",
             "</style></head><body>",
             f"<h1>{html.escape(title)}</h1>"
         ]
@@ -98,7 +110,7 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
         for c in chapter_content:
             html_parts.append(f"<h2 id=\"chapter-{c['num']}\">Chapter {c['num']}: {html.escape(c['title'])}</h2>")
             for beat in c['beats']:
-                if beat["type"] == "choice": html_parts.append(f"<div class=\"choice\">[ {html.escape(beat['text'])} ]</div>")
+                if beat["type"] == "choice": html_parts.append(f"<div class=\"choice\">[ Action: {html.escape(beat['text'])} ]</div>")
                 elif beat["type"] == "bridge": html_parts.append(f"<p class=\"bridge\">{html.escape(beat['text'])}</p>")
                 else: html_parts.append(f"<p>{html.escape(beat['text'])}</p>")
         

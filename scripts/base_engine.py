@@ -75,9 +75,9 @@ class BaseEngine:
 
         # --- INSTANT NOVELIZER: STARTUP CATCH-UP ---
         # If enabled, automatically process any missing bridges on launch
-        #if ENGINE_CONFIG.get("instant_novelizer", False):
+        if ENGINE_CONFIG.get("instant_novelizer", False):
             # Pass silent=False so the user sees the progress bar during startup
-        #    self.novelize_history(silent=False)
+            self.novelize_history(silent=False)
 
     
     # ---------------------------------------------------------
@@ -174,6 +174,8 @@ class BaseEngine:
             print(f"{Fore.YELLOW}chapter      {Fore.WHITE}: Opens Wizard to transition to a new Chapter.")
         print(f"{Fore.YELLOW}export       {Fore.WHITE}: Export the story to TXT, MD, or HTML.")
         #print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
+        if not self.is_campaign:
+            print(f"{Fore.YELLOW}expand: [txt]{Fore.WHITE}: Expands your summary/notes into full prose for the next turn.")
         print(f"{Fore.YELLOW}clear        {Fore.WHITE}: Clears the screen and redraws the current turn.")
         print(f"{Fore.YELLOW}reload       {Fore.WHITE}: Reloads history/config from disk (useful after manual edits).")
         print(f"{Fore.YELLOW}redo         {Fore.WHITE}: Rerolls the current turn completely.")
@@ -202,12 +204,22 @@ class BaseEngine:
         ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
 
         for i in range(1, len(self.history)):
+        
             current_turn = self.history[i]
             prev_turn = self.history[i-1]
             action = prev_turn.get("player_choice")
             
-            # Skip if bridge exists, no action taken, or if it was a UI command
-            if "narrative_bridge" in current_turn or not action or any(ui in str(action) for ui in ui_commands):
+            # Skip if action is missing or a UI command
+            if not action or any(ui in str(action) for ui in ui_commands):
+                continue
+                
+            # We ONLY process if the key is missing, empty ("", {}), or marked as [FAILED]
+            # This allows the engine to auto-heal legacy saves that used empty strings.
+            existing_bridge = current_turn.get("narrative_bridge")
+            
+            # If a bridge exists and it is NOT empty and NOT [FAILED], we skip it.
+            # This protects valid prose and [OK] tags from being overwritten.
+            if existing_bridge and existing_bridge not in ["[FAILED]", "", {}]:
                 continue
                 
             # CRITICAL CHECK: Do not bridge across Chapter boundaries (Intentional jump-cuts)
@@ -220,11 +232,11 @@ class BaseEngine:
             
             bridge_data = generate_narrative_bridge(prev_turn, action, current_turn)
             
-            if bridge_data == "OK":
-                current_turn["narrative_bridge"] = "" # Empty string means processed, but no text needed
-            elif isinstance(bridge_data, str) and bridge_data:
+            if bridge_data:
+                # bridge_data will be a string: either the prose, "[OK]", or "[FAILED]"
                 current_turn["narrative_bridge"] = bridge_data
-                processed_count += 1
+                if bridge_data not in ["[OK]", "[FAILED]"]:
+                    processed_count += 1
             
             self.save_state()
 
@@ -483,30 +495,6 @@ class BaseEngine:
                 self.history.append(turn_data)
                 self.save_state()
 
-                # --- INSTANT NOVELIZER ---
-                if ENGINE_CONFIG.get("instant_novelizer", False) and len(self.history) > 1:
-                    if "narrative_bridge" not in turn_data:
-                        prev_turn = self.history[-2]
-                        action = prev_turn.get("player_choice")
-                        ui_cmds = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
-                        
-                        is_chapter_jump = str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter"
-                        
-                        if action and not is_chapter_jump and not any(ui in str(action) for ui in ui_cmds):
-                            # Display clear progress matching the manual command
-                            print(f"Novelizing Turn {turn_data['turn']}...                ", end="\r")
-                            
-                            from llm import generate_narrative_bridge
-                            bridge_data = generate_narrative_bridge(prev_turn, action, turn_data)
-                            
-                            if bridge_data == "OK":
-                                turn_data["narrative_bridge"] = ""
-                            elif isinstance(bridge_data, str) and bridge_data:
-                                turn_data["narrative_bridge"] = bridge_data
-                            
-                            self.save_state()
-                            # Clear the line before hitting the TUI render
-                            print(" " * 50, end="\r")
 
             # ---------------------------------------------------------
             # 4. RENDER TERMINAL USER INTERFACE (TUI)
@@ -552,6 +540,30 @@ class BaseEngine:
                 # Render custom text input prompt (e.g. for naming things or solving riddles)
                 print(f"{Fore.GREEN}{turn_data.get('text_prompt', 'Enter text: ')}")
 
+            # --- INSTANT NOVELIZER (BACKGROUND-FEEL UX) ---
+            # By running this AFTER rendering the text but BEFORE asking for input, 
+            # the user can read the generated story while the LLM works on the bridge.
+            if not resuming_turn and turn_data:
+                if ENGINE_CONFIG.get("instant_novelizer", False) and len(self.history) > 1:
+                    if "narrative_bridge" not in turn_data:
+                        prev_turn = self.history[-2]
+                        action = prev_turn.get("player_choice")
+                        ui_cmds = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
+                        
+                        is_chapter_jump = str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter"
+                        
+                        if action and not is_chapter_jump and not any(ui in str(action) for ui in ui_cmds):
+                            print(f"\n{Style.DIM}[System: Weaving narrative bridge...]{Style.RESET_ALL}", end="\r")
+                            from llm import generate_narrative_bridge
+                            bridge_data = generate_narrative_bridge(prev_turn, action, turn_data)
+                            
+                            if bridge_data:
+                                turn_data["narrative_bridge"] = bridge_data
+                            self.save_state()
+                            
+                            # Clear the "Weaving..." message so the input prompt looks clean
+                            print(" " * 50, end="\r")
+            
             # ---------------------------------------------------------
             # 5. INPUT HANDLING (AUTOPILOT / TEST MODE)
             # ---------------------------------------------------------
@@ -611,8 +623,8 @@ class BaseEngine:
                     # --- GENERIC COMMAND MATCHER ---
                     # To add new commands in the future, just add the full word to this registry list!
                     engine_cmds = [
-                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 
-                        'recap', 'summary', 'export', 'redo', 'undo', 'fix', 'chapter'
+                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 'novelize',
+                        'recap', 'summary', 'export', 'redo', 'undo', 'fix', 'chapter', 'expand'
                     ]
                     
                     # Only attempt prefix matching if it's a single word and not already an exact match
@@ -661,9 +673,22 @@ class BaseEngine:
                         log_event(self.adv_dir, "Command: UNDO (User backtracked)")
                         action_cmd = 'undo'
                         break
-                    #elif cmd_key == 'novelize':
-                    #    self.novelize_history()
-                    #    continue
+                    elif cmd_key == 'novelize':
+                        self.novelize_history()
+                        continue
+                    elif cmd_key == 'expand':
+                        if self.is_campaign:
+                            print(f"\n{Fore.RED}[System] The 'expand' command is only available in Sandbox Mode!{Style.RESET_ALL}")
+                            continue
+                        
+                        # If user typed 'exp' without the colon, prompt them for the text
+                        if not cmd_val:
+                            cmd_val = input(f"{Fore.YELLOW}What should the AI expand? {Style.RESET_ALL}").strip()
+                        if cmd_val:
+                            player_choice = f"EXPAND: {cmd_val}"
+                            break
+                        else:
+                            continue
                     elif cmd_key == 'fix':
                         if not self.allow_fix_command:
                             print(f"\n{Fore.RED}[System] The 'fix' command is disabled!{Style.RESET_ALL}")
@@ -713,13 +738,17 @@ class BaseEngine:
                 from exporter import export_story
                 exp_choice = input(f"{Fore.YELLOW}1. TXT  2. MD  3. HTML\nChoose Format (1-3): {Style.RESET_ALL}").strip()
                 if exp_choice in ['1', '2', '3']:
-                    #style_choice = input(f"{Fore.YELLOW}1. Novelized (Seamless prose)  2. Interactive (Show choices)\nChoose Style (1-2): {Style.RESET_ALL}").strip()
-                    #if style_choice in ['1', '2']:
-                        #use_nov = (style_choice == '1')
-                        use_nov = False
-                        path = export_story(self.adv_dir, self.setup_data, self.history, self.chapters, int(exp_choice), use_novelization=use_nov)
-                        print(f"{Fore.GREEN}Exported to: {path}")
-                        time.sleep(2)
+                    
+                    use_nov = False
+                    if ENGINE_CONFIG.get("debug_novelizer", False):
+                        style_choice = input(f"{Fore.YELLOW}1. Novelized (Seamless prose)  2. Interactive (Show choices)\nChoose Style (1-2): {Style.RESET_ALL}").strip()
+                        if style_choice in ['1', '2']:
+                            use_nov = (style_choice == '1')
+
+                    path = export_story(self.adv_dir, self.setup_data, self.history, self.chapters, int(exp_choice), use_novelization=use_nov)
+                    print(f"{Fore.GREEN}Exported to: {path}")
+                    time.sleep(2)
+
                 continue
                 
             elif action_cmd == 'reload':

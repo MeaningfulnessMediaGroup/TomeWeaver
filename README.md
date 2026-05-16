@@ -141,6 +141,7 @@ You also have access to powerful "Director" commands to shape the narrative, edi
 *   `undo`: Roll back the last turn.
 *   `redo`: Reroll the current AI response.
 *   `fix: [instruction]`: Instruct the AI to edit the current turn (e.g., `fix: make it raining`).
+*   `expand: [notes]`: *(Sandbox Only)* Co-write with the AI! Instruct it to expand your summary into full prose.
 *   `export`: Save your adventure to a readable TXT, Markdown, or HTML file.
 *   `restart`: Wipe progress and start from Turn 0.
 

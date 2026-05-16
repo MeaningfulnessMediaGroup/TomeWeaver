@@ -110,13 +110,26 @@ class SandboxEngine(BaseEngine):
 
         # --- BRANCH: NORMAL GAMEPLAY ---
         else:
-            base_instruction = (
-                f"Based on the latest action, generate the next turn in JSON format.\n"
-                f"*** MANDATORY RULES ***:\n"
-                f"1. Write 3 to 5 detailed paragraphs.\n"
-                f"2. Provide 3 to 6 choices.\n"
-                f"3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}"
-            )
+            last_action = completed_history[-1]['player_choice'] if completed_history else ""
+            
+            if last_action.startswith("EXPAND:"):
+                expand_txt = last_action[7:].strip()
+                base_instruction = (
+                    f"CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of rich, descriptive prose:\n"
+                    f"'{expand_txt}'\n"
+                    f"*** MANDATORY RULES ***:\n"
+                    f"1. Write 3 to 5 detailed paragraphs.\n"
+                    f"2. Provide 3 to 6 choices.\n"
+                    f"3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}"
+                )
+            else:
+                base_instruction = (
+                    f"Based on the latest action, generate the next turn in JSON format.\n"
+                    f"*** MANDATORY RULES ***:\n"
+                    f"1. Write 3 to 5 detailed paragraphs.\n"
+                    f"2. Provide 3 to 6 choices.\n"
+                    f"3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}"
+                )
             
             if active_chapter.get("start_turn") == target_turn and target_turn > 1:
                 base_instruction = f"CRITICAL OVERRIDE: Begin Chapter {active_chapter['chapter_number']}: {active_chapter['title']}. Write a smooth introductory scene establishing the setting. Do not conclude anything. Provide 3 to 6 choices.{test_rule}{req_str}"

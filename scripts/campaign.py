@@ -161,23 +161,46 @@ class CampaignEngine(BaseEngine):
         else:
             # --- NORMAL TURN HANDLING ---
             win_choice = "Conclude the Story" if is_final_chapter else "Complete the Chapter"
-                        
-            base_instruction = (
-                f"Generate the next turn in JSON format. Write 1 to 3 paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}\n\n"
-                f"*** MANDATORY PROSE RULES ***:\n"
-                f"1. Write 3 to 5 LONG paragraphs. Do NOT be brief.\n"
-                f"2. Describe the smells, sounds, and the character's internal dread/excitement.\n"
-                f"3. Use evocative, literary language.\n\n"
-                f"*** MANDATORY CHOICE RULES ***:\n"
-                f"1. Provide EXACTLY 3 to 6 choices.\n"
-                f"2. Even if the goal is clear, add exploratory choices (e.g., 'Search the area', 'Check equipment').\n"
-                f"3. Choices MUST be SHORT (Max 15 words) and focus only on the ACTION, not the result.\n"
-                f"4. Use active verbs (e.g., 'Examine...', 'Run...', 'Attempt...').\n\n"
-                f"5. If achieved, choices MUST only be ['{win_choice}'].\n\n"
-                f"*** CRITICAL GOAL CHECK ***:\n"
-                f"1. In 'goal_progress', list every requirement of the GOAL ('{goal_text}') and mark it as [DONE] or [PENDING].\n"
-                f"2. If and ONLY IF every part of the goal is marked [DONE], set 'chapter_goal_achieved' to true. Otherwise, it MUST be false.\n"
-            )
+            
+            last_action = completed_history[-1]['player_choice'] if completed_history else ""
+            
+            if last_action.startswith("EXPAND:"):
+                expand_txt = last_action[7:].strip()
+                base_instruction = (
+                    f"CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of cinematic, rich prose:\n"
+                    f"'{expand_txt}'\n\n"
+                    f"Provide 3 to 6 choices.{test_rule}{req_str}\n\n"
+                    f"*** MANDATORY PROSE RULES ***:\n"
+                    f"1. Write 3 to 5 LONG paragraphs. Do NOT be brief.\n"
+                    f"2. Describe the smells, sounds, and the character's internal dread/excitement.\n"
+                    f"3. Use evocative, literary language.\n\n"
+                    f"*** MANDATORY CHOICE RULES ***:\n"
+                    f"1. Provide EXACTLY 3 to 6 choices.\n"
+                    f"2. Even if the goal is clear, add exploratory choices (e.g., 'Search the area', 'Check equipment').\n"
+                    f"3. Choices MUST be SHORT (Max 15 words) and focus only on the ACTION, not the result.\n"
+                    f"4. Use active verbs (e.g., 'Examine...', 'Run...', 'Attempt...').\n\n"
+                    f"5. If achieved, choices MUST only be ['{win_choice}'].\n\n"
+                    f"*** CRITICAL GOAL CHECK ***:\n"
+                    f"1. In 'goal_progress', list every requirement of the GOAL ('{goal_text}') and mark it as [DONE] or [PENDING].\n"
+                    f"2. If and ONLY IF every part of the goal is marked [DONE], set 'chapter_goal_achieved' to true. Otherwise, it MUST be false.\n"
+                )
+            else:
+                base_instruction = (
+                    f"Generate the next turn in JSON format. Write 1 to 3 paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}\n\n"
+                    f"*** MANDATORY PROSE RULES ***:\n"
+                    f"1. Write 3 to 5 LONG paragraphs. Do NOT be brief.\n"
+                    f"2. Describe the smells, sounds, and the character's internal dread/excitement.\n"
+                    f"3. Use evocative, literary language.\n\n"
+                    f"*** MANDATORY CHOICE RULES ***:\n"
+                    f"1. Provide EXACTLY 3 to 6 choices.\n"
+                    f"2. Even if the goal is clear, add exploratory choices (e.g., 'Search the area', 'Check equipment').\n"
+                    f"3. Choices MUST be SHORT (Max 15 words) and focus only on the ACTION, not the result.\n"
+                    f"4. Use active verbs (e.g., 'Examine...', 'Run...', 'Attempt...').\n\n"
+                    f"5. If achieved, choices MUST only be ['{win_choice}'].\n\n"
+                    f"*** CRITICAL GOAL CHECK ***:\n"
+                    f"1. In 'goal_progress', list every requirement of the GOAL ('{goal_text}') and mark it as [DONE] or [PENDING].\n"
+                    f"2. If and ONLY IF every part of the goal is marked [DONE], set 'chapter_goal_achieved' to true. Otherwise, it MUST be false.\n"
+                )
 
             # --- COLD OPEN OVERRIDE (Chapter Transitions) ---
             # Check p_style here as well to trigger the cold open on Turn 1 if skipping prologue

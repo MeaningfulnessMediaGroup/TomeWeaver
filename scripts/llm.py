@@ -460,35 +460,51 @@ def generate_recap(setup_data, history):
         return f"Failed to generate recap: {str(e)}"
         
         
-def generate_narrative_bridge(prev_turn, action, current_turn):
+
+def generate_narrative_bridge(prev_turn, action, current_turn, debug=False):
     """
-    Forces the AI to generate a single, isolated sentence describing the 
-    player's action without any reference to the surrounding text.
+    Context-Aware Tense Converter with Mechanical Retry Loop.
+    Searches the next scene to see if the action is already resolved. 
+    If not, it mechanically converts the player's command into a single sentence.
+    Includes strict length and regurgitation validators with a 3-attempt retry loop.
     """
+    import sys
+    import time
     import requests
+    from colorama import Fore, Style
     from config import ENGINE_CONFIG
     
-    p_text = prev_turn.get("story_text", "")
-    c_text = current_turn.get("story_text", "")
+    c_text = current_turn.get("story_text", "").strip()
+    turn_num = current_turn.get("turn", "?")
+    pov = current_turn.get("pov_character", "The protagonist")
     
+    if ENGINE_CONFIG.get("debug_novelizer", False): debug = True
+
+    def log_status(msg):
+        if debug:
+            print(f"{Style.DIM}Novelizing Turn {turn_num}: {msg}{Style.RESET_ALL}")
+        else:
+            sys.stdout.write(f"\r{Style.DIM}Novelizing Turn {turn_num}: {msg}{Style.RESET_ALL}")
+            sys.stdout.write(" " * max(0, 70 - len(msg)))
+            sys.stdout.flush()
+
     system_prompt = (
-        "You are a strict narrative parser. Your only job is to convert a "
-        "player's short command into a single, descriptive past-tense sentence."
+        "You are a strict narrative parser. You follow instructions exactly and output only what is requested."
     )
     
     user_prompt = (
-        f"PREVIOUS SCENE: {p_text[-300:]}\n" # Only show the very end for context
-        f"NEXT SCENE: {c_text[:300]}\n\n" # Only show the very beginning
-        f"PLAYER COMMAND: {action}\n\n"
+        f"CHARACTER: {pov}\n"
+        f"ACTION TAKEN: {action}\n\n"
+        f"NEXT SCENE:\n{c_text}\n\n"
         "TASK:\n"
-        "1. Read the NEXT SCENE. Is the PLAYER COMMAND already described or resolved in the text?\n"
-        "2. If it is already resolved, reply ONLY with the exact text: [OK]\n"
-        "3. If it is NOT resolved, rewrite the PLAYER COMMAND into a single, descriptive, past-tense sentence "
-        "that bridges the two scenes.\n"
-        "4. DO NOT copy text from either scene. DO NOT explain your reasoning.\n\n"
-        "EXAMPLE:\n"
-        "Command: climb tree\n"
-        "Output: Realizing the danger, Kaelen quickly scrambled up the nearest ancient oak."
+        "1. Read the NEXT SCENE. Does it explicitly state that the CHARACTER performed the ACTION TAKEN?\n"
+        "2. If YES, reply ONLY with the exact text: [OK]\n"
+        "3. If NO (the scene skips directly to the result), rewrite the ACTION TAKEN into a single, third-person sentence.\n"
+        "4. CRITICAL: Your sentence MUST match the tense (past or present) used in the NEXT SCENE.\n"
+        "5. Output ONLY the sentence. Do not copy text from the scene. Do not explain.\n\n"
+        "EXAMPLES IF NO:\n"
+        "Action: climb the tree (If scene is past tense) -> Kaelen climbed the tree.\n"
+        "Action: climb the tree (If scene is present tense) -> Kaelen climbs the tree."
     )
 
     messages = [
@@ -500,25 +516,58 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
     if ENGINE_CONFIG.get("api_key", "").strip():
         headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
     
-    payload = {
-        "model": ENGINE_CONFIG.get("model"),
-        "messages": messages,
-        "temperature": 0.2, # Extremely low temperature for strict adherence
-        "max_tokens": 80    # Hard limit to prevent paragraph generation
-    }
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        log_status(f"Converting action to prose (Attempt {attempt+1}/{max_attempts})...")
+        
+        payload = {
+            "model": ENGINE_CONFIG.get("model"),
+            "messages": messages,
+            "temperature": 0.1 + (attempt * 0.2), # Slightly increase temp on retries
+            "max_tokens": 60 
+        }
 
-    try:
-        response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=45)
-        raw = response.json()['choices'][0]['message']['content'].strip()
-        
-        if "[OK]" in raw.upper():
-            return "OK"
+        try:
+            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+            raw_bridge = response.json()['choices'][0]['message']['content'].strip()
             
-        # Clean up any accidental quotes or "Output:" prefixes
-        raw = raw.replace("Output:", "").strip('\'" \n')
-        
-        return raw
-        
-    except Exception as e:
-        print(f"\n[Bridge Generation Failed: {e}]", end="")
-        return None
+            if "[OK]" in raw_bridge.upper():
+                log_status(f"{Fore.GREEN}[OK] Already seamless")
+                return "[OK]"
+                
+            # Clean up common LLM artifacts
+            raw_bridge = raw_bridge.replace("Output:", "").strip('\'" \n')
+            if raw_bridge and raw_bridge[0].isdigit() and raw_bridge[1] in [".", ")"]:
+                raw_bridge = raw_bridge[2:].strip()
+            
+            # --- MECHANICAL VALIDATORS ---
+            # 1. Regurgitation Guard
+            if raw_bridge in c_text and len(raw_bridge) > 10:
+                if debug: print(f"   {Fore.RED}[REJECTED] Copied next scene: {raw_bridge}{Style.RESET_ALL}")
+                messages.append({"role": "assistant", "content": raw_bridge})
+                messages.append({"role": "user", "content": "REJECTED: You copied text from the NEXT SCENE. Convert the ACTION TAKEN into a NEW, single sentence."})
+                continue
+                
+            # 2. Length Guard
+            if len(raw_bridge) > 350:
+                if debug: print(f"   {Fore.RED}[REJECTED] Too long ({len(raw_bridge)} chars): {raw_bridge[:100]}...{Style.RESET_ALL}")
+                messages.append({"role": "assistant", "content": raw_bridge})
+                messages.append({"role": "user", "content": "REJECTED: Your response is too long. Output ONLY ONE short sentence."})
+                continue
+                
+            # If it passes validation, we are done!
+            if debug:
+                print(f"   {Fore.CYAN}[GENERATED]: {raw_bridge}{Style.RESET_ALL}")
+                
+            log_status(f"{Fore.GREEN}[OK] Bridge Created")
+            return raw_bridge
+            
+        except requests.exceptions.RequestException as e:
+            log_status(f"{Fore.RED}[WARNING] API Error on attempt {attempt+1}")
+            if attempt < max_attempts - 1:
+                time.sleep(2)
+                continue
+            return "[FAILED]"
+            
+    log_status(f"{Fore.RED}[FAILED] Max retries reached")
+    return "[FAILED]"
