@@ -3,6 +3,11 @@
     "api_key": "",
     "model": "loaded-model",
     "temperature_base": 0.8,
-	"max_retries": 6,
-	"context_window": 8
+    "max_retries": 10,
+    "context_window": 10,
+    "max_query_per_minute": 0,
+    "max_tokens": 2000,
+	"logging_enabled": true,
+    "log_verbose": false, 
+    "log_raw_json_on_failure": true
 }

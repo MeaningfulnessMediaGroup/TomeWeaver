@@ -40,6 +40,31 @@ The `engine_config.json` file in the root directory manages the global behavior 
 | **`log_verbose`** | If `true`, the engine logs the full JSON prompts sent to the AI (useful for prompt engineering). |
 | **`log_raw_json_on_failure`** | Logs the raw, un-sanitized string when the AI fails to produce valid JSON to help diagnose model issues. |
 
+***Refer to the configs directory to see samples of a few configuration files for the supported (tested) Cloud AI LLM.
+
+### 🛡️ Understanding the "Fortress" Retry System
+
+Local LLMs (especially smaller 8B models) will occasionally hallucinate, break strict JSON formatting, or get stuck in linguistic loops. TomeWeaver is designed to be highly resilient against this, acting as a "Fortress" around the game state.
+
+Here is how the engine handles failures based on your `max_retries` setting:
+
+**1. The Self-Healing Loop**
+If the LLM returns invalid JSON (e.g., missing a quote, unescaped dialogue, or omitting a mandatory key like `"is_game_over"`), the engine intercepts it.
+* It first attempts to run the **Surgical Sanitizer** to auto-fix the text without burning an API call.
+* If the surgery fails, it triggers a **Retry**.
+
+**2. The AI Feedback Loop**
+On a Retry, the engine does not just resend the prompt. It dynamically appends the Python error to the prompt (e.g., *"Your previous JSON was invalid. Error: Expecting ',' delimiter. Please fix."*). This teaches the AI exactly what it broke so it can correct itself.
+
+**3. Temperature Escalation**
+If the AI gets stuck in a repetitive loop (starting 3 turns in a row with the exact same 4 words), the engine will reject the turn and trigger a Retry. With each retry, the engine slightly raises the `temperature` to forcefully bump the AI out of its rut.
+
+**4. Critical Failure (Engine Stop)**
+If the engine hits the `max_retries` limit (default is 10) and the LLM *still* cannot produce a valid, schema-compliant JSON object, **TomeWeaver will safely halt**. 
+* The engine will print a `Critical Error: Max retries exceeded` message and close.
+* **Your game state is perfectly safe.** Because the engine only saves *valid* turns to `history.json`, your save file is never corrupted by the failure.
+* To resume, simply review the `session_log.txt` to see why the AI was failing, tweak your `setup.json` or system prompt if necessary, and launch the game again. It will pick up exactly where you left off.
+
 ---
 
 ### 🗺️ Adventure Configuration (`setup.json`)

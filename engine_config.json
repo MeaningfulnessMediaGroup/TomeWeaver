@@ -4,7 +4,7 @@
     "model": "loaded-model",
     "temperature_base": 0.8,
     "max_retries": 10,
-    "context_window": 20,
+    "context_window": 10,
     "max_query_per_minute": 0,
     "max_tokens": 2000,
 	"logging_enabled": true,
