@@ -93,8 +93,6 @@ TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI 
 
 ---
 
-## ⌨️ In-Game Commands
-
 ## ⌨️ Gameplay & In-Game Commands
 
 Playing TomeWeaver is as simple as typing the number of your desired choice. However, the engine is highly flexible. Instead of a number, you can type **any custom action or dialogue** (e.g., *"I draw my sword and demand to know who sent them!"*), and the AI will adapt the story instantly.
@@ -114,13 +112,23 @@ You also have access to powerful "Director" commands to shape the narrative, edi
 
 ---
 
-## 📖 How to Build an Adventure
+## 📖 The Adventure "Cartridge" System
 
-TomeWeaver uses a simple folder-based "Cartridge" system. A new adventure requires:
-*   `setup.json`: Defines the world, tone, and character.
-*   `system_prompt.txt`: The core rules for your Game Master.
-*   `prologue.txt` (Optional): The fixed opening of your story.
-*   `epilogue.txt` (Optional): The fixed ending of your story.
+TomeWeaver treats every adventure as a self-contained folder. You can easily share your worlds or back up your saves just by zipping the folder.
+
+### Core Configuration Files (Author Created)
+To build a new adventure, you only need to create these files:
+*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics.
+*   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
+*   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
+*   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.
+*   `start_turn.json` *(Optional)*: A "Story Seed." Provide a pre-generated, hand-crafted Turn 1 JSON object to guarantee players begin with a specific, high-quality hook and set of choices.
+
+### Engine State Files (Auto-Generated)
+As you play, TomeWeaver automatically generates and manages these files to maintain the game state:
+*   `history.json`: The master ledger. A perfect chronological record of every turn, AI response, player choice, and narrative bridge.
+*   `chapters.json`: The pacing metadata. Tracks where chapters begin and end, and stores Wizard overrides (like POV or Time jumps).
+*   `session_log.txt`: The "Flight Recorder." A diagnostic log of every API call, retry, and raw JSON output for debugging your prompts.
 
 ---
 
