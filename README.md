@@ -55,41 +55,79 @@ TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI 
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
-*   **Python 3.10+**
-*   **LM Studio** (for local play) or an **API Key** for cloud providers.
+*   **Python 3.10+** (Ensure Python is added to your system PATH)
+*   **An LLM Provider:** 
+    *   **Local:** [LM Studio](https://lmstudio.ai/) (Recommended for privacy and zero cost).
+    *   **Cloud:** OpenAI, OpenRouter, or Gemini (API Key required).
 
-### Quick Start
+
+### ⚙️ Configure your LLM
+Before anything, edit the `engine_config.json` file in the root directory to point to your chosen AI provider.
+
+**For LM Studio (Default):**
+```json
+{
+  "api_url": "http://localhost:1234/v1/chat/completions",
+  "model": "loaded-model"
+}
+```
+
+### Option A: Windows (Automated Setup)
+We provide an automated setup script that creates an isolated virtual environment and generates your Master Launcher.
+
+1.  **Clone or Download the Repo:**
+    ```cmd
+    git clone https://github.com/dobrado76/TomeWeaver.git
+    cd TomeWeaver
+    ```
+2.  **Run the Installer:**
+    Double-click the `setup.bat` file in the root directory. 
+3.  **Launch the Engine:**
+    Double-click the newly generated `Start_TomeWeaver.bat`. This opens the **Main Menu Wizard**, allowing you to select an existing story or create a new one.
+
+
+### Option B: macOS / Linux / Manual Setup
+If you are on a UNIX-based system or prefer setting up your environment manually:
+
 1.  **Clone the Repo:**
     ```bash
     git clone https://github.com/dobrado76/TomeWeaver.git
     cd TomeWeaver
     ```
-2.  **Install Dependencies:**
+2.  **Create and Activate a Virtual Environment:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+3.  **Install Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Configure your LLM:**
-    Edit `engine_config.json` in the root folder.
-    
-    **For LM Studio:**
-    ```json
-    {
-      "api_url": "http://localhost:1234/v1/chat/completions",
-      "model": "loaded-model"
-    }
-    ```
-    **For OpenRouter:**
-    ```json
-    {
-      "api_url": "https://openrouter.ai/api/v1/chat/completions",
-      "api_key": "your-key-here",
-      "model": "anthropic/claude-3.5-sonnet"
-    }
-    ```
-4.  **Launch an Adventure:**
+4.  **Launch the Main Menu:**
+    *(Ensure your virtual environment is active before running)*
     ```bash
-    python scripts/tome_weaver.py adventures/my_story
+    python scripts/tome_weaver.py
     ```
+
+---
+
+## 📖 How to Build an Adventure
+
+TomeWeaver treats every adventure as a self-contained "Cartridge" (a folder inside `/adventures`). 
+
+**The Easiest Way to Start:**
+1. Open the Main Menu (`Start_TomeWeaver.bat`).
+2. Select **[Start a New Story]**.
+3. Type a title. The engine will automatically generate the folder, create a desktop-friendly `.bat` shortcut (e.g., `Story - My Epic Tale.bat`), and prompt you to choose between Campaign or Sandbox mode.
+4. Open your new `adventures/Your_Title/setup.json` file to define your world, tone, and character.
+5. Double-click your new `Story - Your_Title.bat` shortcut to play!
+
+### Core Configuration Files
+*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics.
+*   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
+*   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
+*   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.
+*   `start_turn.json` *(Optional)*: A "Story Seed." Provide a pre-generated Turn 1 JSON object to guarantee players begin with a specific, high-quality hook and set of choices.
 
 ---
 

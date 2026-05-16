@@ -1,3 +1,11 @@
+"""
+TomeWeaver: LLM Communication and JSON Sanitization Module
+----------------------------------------------------------
+Handles all interactions with local and cloud Large Language Models.
+Includes the 'Fortress' JSON sanitizer, schema validation, rate-limiting,
+and specialized narrative tools (Recap, Novelizer Bridge).
+"""
+
 import json
 import requests
 import re
@@ -7,10 +15,17 @@ from colorama import Fore, Style
 from config import ENGINE_CONFIG
 from logger import log_llm_interaction
 
-_request_timestamps =[]
+# ---------------------------------------------------------
+# GLOBALS & RATE LIMITING
+# ---------------------------------------------------------
 
+_request_timestamps = []
 
 def enforce_rate_limit():
+    """
+    Implements a sliding-window rate limiter to prevent HTTP 429 errors 
+    when using strict cloud providers (like OpenRouter).
+    """
     global _request_timestamps
     try:
         max_qpm = ENGINE_CONFIG.get("max_query_per_minute", 0)
@@ -23,8 +38,10 @@ def enforce_rate_limit():
         return
 
     current_time = time.time()
+    # Keep only timestamps from the last 60 seconds
     _request_timestamps = [t for t in _request_timestamps if current_time - t < 60.0]
 
+    # If we hit the limit, calculate how long to sleep until the oldest request expires
     if len(_request_timestamps) >= max_qpm:
         oldest_request = _request_timestamps[0]
         sleep_duration = 60.0 - (current_time - oldest_request)
@@ -33,11 +50,16 @@ def enforce_rate_limit():
             time.sleep(sleep_duration)
             print(" " * 70, end="\r") 
             
+            # Recalculate window after sleeping
             current_time = time.time()
             _request_timestamps = [t for t in _request_timestamps if current_time - t < 60.0]
 
     _request_timestamps.append(current_time)
 
+
+# ---------------------------------------------------------
+# SCHEMA VALIDATION
+# ---------------------------------------------------------
 
 def validate_turn_schema(data, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False):
     """
@@ -108,6 +130,10 @@ def validate_turn_schema(data, is_campaign=False, track_inventory=False, can_die
     return data, None
 
 
+# ---------------------------------------------------------
+# THE "FORTRESS" JSON SANITIZER
+# ---------------------------------------------------------
+
 def sanitize_json(raw):
     """
     Main entry point for JSON repair. Extracts the JSON block and applies
@@ -152,7 +178,6 @@ def sanitize_json(raw):
     )
 
     # 4. Apply State-Machine: Handle rogue internal quotes and literal newlines
-    # (Calls the unchanged _repair_json_quotes_and_newlines function)
     block = _repair_json_quotes_and_newlines(block)
 
     # 5. Iterative Surgical Repair
@@ -174,6 +199,7 @@ def sanitize_json(raw):
             continue
             
     return block
+
 
 def _attempt_surgical_fix(block, e):
     """
@@ -292,7 +318,11 @@ def _repair_json_quotes_and_newlines(raw_str):
     return ''.join(out)
 
 
-def is_repetitive(prev_text, new_text, num_words=4): # Reduced from 6 to 4
+def is_repetitive(prev_text, new_text, num_words=4):
+    """
+    Loop Detection. Compares the first N words of the new story text 
+    with the previous turn. If identical, the AI is likely stuck in a loop.
+    """
     if not prev_text or not new_text: return False
     
     # Clean text: remove punctuation and lowercase
@@ -303,13 +333,18 @@ def is_repetitive(prev_text, new_text, num_words=4): # Reduced from 6 to 4
     start_prev = clean_prev[:num_words]
     start_new = clean_new[:num_words]
     
-    # If the first 4 words are identical, the AI is likely stuck in a loop
     if len(start_prev) >= num_words and start_prev == start_new:
         return True
         
     return False
 
+
+# ---------------------------------------------------------
+# LLM API COMMUNICATION
+# ---------------------------------------------------------
+
 def extract_api_error(response):
+    """Safely parses HTTP error objects returned by cloud LLM APIs."""
     try:
         err_json = response.json()
         if isinstance(err_json, list):
@@ -324,9 +359,16 @@ def extract_api_error(response):
         return response.text
 
     
-# --- THE FIX: Added is_test_mode to the parameters ---
 def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False):
+    """
+    Master API request function. Handles payload construction, exponential 
+    temperature scaling (to break loops), API dispatch, and passes the 
+    raw response to the JSON Sanitizer.
+    """
     temp_base = ENGINE_CONFIG.get("temperature_base", 0.8)
+    
+    # Increase temperature on retries to force the AI out of a rut.
+    # If using 'fix:', we drop the temperature to ensure surgical compliance.
     temp = 0.3 + (attempt * 0.1) if is_fix_mode else min(1.5, temp_base + (attempt * 0.2))
         
     payload = {
@@ -336,6 +378,7 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
         "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)
     }
     
+    # Optional parameters for OpenAI-compatible endpoints
     api_url = ENGINE_CONFIG.get("api_url", "")
     if "generativelanguage.googleapis.com" not in api_url:
         payload["frequency_penalty"] = 0.3
@@ -358,10 +401,12 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
         clean_json = sanitize_json(raw)
         
         try:
+            # Parse the heavily sanitized string
             data = json.loads(clean_json, strict=False)
             validated, err = validate_turn_schema(data, is_campaign, track_inventory, can_die, is_test_mode)
             
             if validated:
+                # Catch linguistic loops (AI starting with the exact same 4 words)
                 if prev_story_text and not is_fix_mode and is_repetitive(prev_story_text, validated["story_text"]):
                     err_loop = "Linguistic loop detected"
                     log_llm_interaction(adv_dir, messages, raw, error=err_loop, attempt=attempt+1)
@@ -370,6 +415,7 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
                 log_llm_interaction(adv_dir, messages, raw, attempt=attempt+1)
                 return validated, None, raw
             
+            # Schema failed validation
             log_llm_interaction(adv_dir, messages, raw, error=err, attempt=attempt+1)
             return None, err, raw
                 
@@ -380,17 +426,28 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
     except Exception as e:
         log_llm_interaction(adv_dir, messages, "CONNECTION_FAILURE", error=str(e), attempt=attempt+1)
         return None, str(e), ""
-        
+
+
+# ---------------------------------------------------------
+# NARRATIVE GENERATORS
+# ---------------------------------------------------------
+
 def generate_recap(setup_data, history):
+    """
+    Summarizes the entire adventure history to date. Useful for readers 
+    or for loading context into long-term memory solutions.
+    """
     history_text = "".join([f"{t.get('story_text', '')}\nPlayer Action: {t.get('player_choice', '')}\n\n" for t in history[:-1]])[-15000:]
     adv_title = setup_data.get('title', 'The Adventure')
     messages =[
         {"role": "system", "content": f"Summarize the events of '{adv_title}'. Focus on the main plot, key events, and current situation."},
         {"role": "user", "content": "Adventure log:\n\n" + history_text + "\n\nWrite the recap."}
     ]
+    
     headers = {"Content-Type": "application/json"}
     if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
     payload = {"model": ENGINE_CONFIG.get("model", "loaded-model"), "messages": messages, "temperature": 0.5, "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)}
+    
     try:
         enforce_rate_limit()
         response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
@@ -401,7 +458,6 @@ def generate_recap(setup_data, history):
         return response.json()['choices'][0]['message']['content'].strip()
     except Exception as e:
         return f"Failed to generate recap: {str(e)}"
-        
         
         
 def generate_narrative_bridge(prev_turn, action, current_turn):
@@ -441,7 +497,6 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
     ]
 
     # Use a low temperature for surgical consistency
-    # We use the existing get_llm_response but with a flag or a simplified call
     headers = {"Content-Type": "application/json"}
     if ENGINE_CONFIG.get("api_key", "").strip():
         headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
@@ -460,8 +515,7 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
         if "[OK]" in raw.upper():
             return "OK"
             
-        # Standardize and validate the bridge JSON
-        from llm import sanitize_json
+        # Standardize and validate the bridge JSON using our own fortress
         clean_json = sanitize_json(raw)
         return json.loads(clean_json)
     except:

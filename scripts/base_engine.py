@@ -109,7 +109,16 @@ class BaseEngine:
             log_event(self.adv_dir, f"SYSTEM: Master Clock resynced (Anchor: {start_num}).")
             self.save_state()
 
+
+    # ---------------------------------------------------------
+    # STATE & FILE MANAGEMENT
+    # ---------------------------------------------------------
+
     def load_chapters(self):
+        """
+        Loads the chapters.json file. If it does not exist, it initializes 
+        a default chapter structure to track pacing and transitions.
+        """
         chapters_file = self.adv_dir / "chapters.json"
         if not chapters_file.exists():
             initial_chapters = [{
@@ -123,13 +132,41 @@ class BaseEngine:
             return initial_chapters
         return load_json_safely(chapters_file, "chapters.json")
 
+
     def save_state(self):
+        """
+        Commits the current history and chapters state to the disk, 
+        ensuring that player progress is safely and persistently stored.
+        """
         with open(self.history_file, "w", encoding="utf-8") as f:
             json.dump(self.history, f, indent=4)
         with open(self.adv_dir / "chapters.json", "w", encoding="utf-8") as f:
             json.dump(self.chapters, f, indent=4)
 
+
+    def get_next_turn_number(self):
+        """Returns the next sequential turn number based on the history ledger."""
+        if not self.history:
+            return 0  # Start at Turn 0 for the Introduction
+        
+        last_turn = self.history[-1]
+        try:
+            # We cast to int just in case a previous bug put a string in the ledger
+            return int(last_turn.get("turn", 0)) + 1
+        except (ValueError, TypeError):
+            # If the ledger is corrupted, we fallback to length as a last resort
+            return len(self.history)
+
+
+    # ---------------------------------------------------------
+    # NARRATIVE & UTILITY COMMANDS
+    # ---------------------------------------------------------
+
     def print_help_menu(self):
+        """
+        Prints the interactive command menu to the terminal.
+        Dynamically shows or hides commands based on the active engine configuration.
+        """
         print(f"\n{Fore.CYAN}--- COMMAND MENU ---")
         print(f"{Fore.YELLOW}[Custom Action]{Fore.WHITE}: Type a custom action directly into the prompt!")
         if self.allow_manual_chapters:
@@ -145,6 +182,7 @@ class BaseEngine:
         print(f"{Fore.YELLOW}restart      {Fore.WHITE}: Wipes all progress and restarts the adventure.")
         print(f"{Fore.YELLOW}test         {Fore.WHITE}: Engages Autopilot mode to auto-select the best choice.")
         print(f"{Fore.CYAN}--------------------\n")
+
 
     def novelize_history(self, silent=False):
         """
@@ -186,28 +224,39 @@ class BaseEngine:
             print(f"\n{Fore.YELLOW}All turns are already novelized.{Style.RESET_ALL}")
             time.sleep(1)
 
+
+    # ---------------------------------------------------------
+    # ABSTRACT ENGINE HOOKS (Implemented by Subclasses)
+    # ---------------------------------------------------------
+
     def build_messages(self, target_turn):
+        """
+        Constructs the LLM prompt payload.
+        Must be implemented by the specific child class (Sandbox or Campaign).
+        """
         raise NotImplementedError("Must be implemented by child class")
 
+
     def post_generation_hook(self, turn_data):
+        """
+        Allows child classes to inject specific logic (like chapter transitions 
+        or goal checking) immediately after the LLM generates a valid turn.
+        """
         pass 
 
-    def process_custom_command(self, ui_lower, user_input):
-        return False, None 
 
-    def get_next_turn_number(self):
-        """Returns the next sequential turn number based on the history ledger."""
-        if not self.history:
-            return 0  # Start at Turn 0 for the Introduction
+    def process_custom_command(self, ui_lower, user_input):
+        """
+        Allows child classes to intercept and handle mode-specific user commands 
+        (e.g., the Chapter Wizard in Sandbox mode).
+        """
+        return False, None
         
-        last_turn = self.history[-1]
-        try:
-            # We cast to int just in case a previous bug put a string in the ledger
-            return int(last_turn.get("turn", 0)) + 1
-        except (ValueError, TypeError):
-            # If the ledger is corrupted, we fallback to length as a last resort
-            return len(self.history)
-    
+        
+    # ---------------------------------------------------------
+    # GAME ENGINE CORE LOOP
+    # ---------------------------------------------------------
+        
     def play(self):
         """
         The core Game Loop of TomeWeaver.

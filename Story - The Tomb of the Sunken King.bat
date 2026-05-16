@@ -21,8 +21,7 @@ echo   Adventure: %ADVENTURE_NAME%
 echo ===================================================
 echo.
 
-
-:: 1. Verify Python is installed and accessible in the system PATH
+:: 1. Verify Python is installed and accessible
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Python is not installed or not added to your system PATH.
@@ -32,13 +31,21 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: 2. Launch the engine
+:: 2. Activate Virtual Environment (If it exists)
+:: This ensures the engine uses the isolated packages installed via setup.bat
+if exist "venv\Scripts\activate.bat" (
+    call venv\Scripts\activate.bat
+) else (
+    echo [WARNING] Virtual environment not found. 
+    echo Did you run 'setup.bat' first? Attempting to use global Python...
+    echo.
+)
+
+:: 3. Launch the engine
 :: Pass the folder path of the specific adventure to the python script
-:: You can change folder to any folder name you want to generate a new story from scratch.
 python scripts/tome_weaver.py "%ADVENTURE_PATH%"
 
-
-:: 3. Graceful exit/pause handling
+:: 4. Graceful exit/pause handling
 if %errorlevel% neq 0 (
     echo.
     echo [SYSTEM] The engine exited with an error. See details above.

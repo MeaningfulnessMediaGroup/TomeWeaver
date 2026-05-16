@@ -1,5 +1,18 @@
+"""
+TomeWeaver: Story Exporter Module
+---------------------------------
+Compiles the chronological game ledger (history.json) into a human-readable 
+novel format (TXT, MD, or HTML). If 'narrative bridges' have been generated, 
+this module acts as a compiler, applying the surgical prose patches to 
+create a seamless reading experience.
+"""
+
 import html
 import re
+
+# ---------------------------------------------------------
+# EXPORTER COMPILER
+# ---------------------------------------------------------
 
 def export_story(adv_dir, setup_data, history, chapters, export_type):
     """
@@ -17,30 +30,62 @@ def export_story(adv_dir, setup_data, history, chapters, export_type):
         "Export", "Undo", "Quit", "Cheat Death"
     ]
 
+    # --- 1. COMPILE NARRATIVE BEATS ---
     chapter_content = []
     for c in chapters:
         if c["start_turn"] is None: continue 
         end = c["end_turn"] if c.get("end_turn") is not None else len(history)
         
         c_beats = []
-        for t in history:
+        for i, t in enumerate(history):
             if c["start_turn"] <= t["turn"] <= end:
-                # 1. Add the AI's story text
-                if t.get("story_text"):
-                    paragraphs = [p.strip() for p in t["story_text"].replace("\\n", "\n").split('\n') if p.strip()]
+                
+                story_text = t.get("story_text", "")
+                bridge = t.get("narrative_bridge")
+                
+                # Apply Intro Patch (if previous turn generated a bridge)
+                if bridge and bridge.get("intro_patch"):
+                    patch = bridge["intro_patch"]
+                    if story_text.strip().startswith(patch["remove"]) and patch["remove"]:
+                        story_text = patch["replace"] + story_text.lstrip()[len(patch["remove"]):]
+
+                # Add the AI's story text paragraphs
+                if story_text:
+                    paragraphs = [p.strip() for p in story_text.replace("\\n", "\n").split('\n') if p.strip()]
                     for p in paragraphs:
                         c_beats.append({"type": "story", "text": p})
                 
-                # 2. Add the Player's choice as a narrative bridge
+                # Look ahead to the next turn to check for an Outro Patch and Action Bridge
                 choice = t.get("player_choice")
                 if choice and not any(ui in str(choice) for ui in ui_commands):
-                    c_beats.append({"type": "action", "text": choice})
+                    
+                    next_bridge = None
+                    if i + 1 < len(history):
+                        next_bridge = history[i+1].get("narrative_bridge")
+                        
+                    # If the AI generated a seamless prose bridge
+                    if next_bridge and next_bridge.get("action_text"):
+                        # Apply Outro Patch to the LAST story beat we just added
+                        patch = next_bridge.get("outro_patch")
+                        if patch and c_beats and c_beats[-1]["text"].endswith(patch["remove"]) and patch["remove"]:
+                            c_beats[-1]["text"] = c_beats[-1]["text"].rstrip()[:-len(patch["remove"])] + patch["replace"]
+                        
+                        # Add the seamless Action Bridge
+                        c_beats.append({"type": "action", "text": next_bridge["action_text"]})
+                        
+                    # Fallback to the classic "Game Log" bracketed format
+                    else:
+                        c_beats.append({"type": "action", "text": f"[ {choice} ]"})
         
         chapter_content.append({
             "num": c["chapter_number"], 
             "title": c["title"], 
             "beats": c_beats
         })
+
+    # ---------------------------------------------------------
+    # 2. FORMAT AND WRITE TO DISK
+    # ---------------------------------------------------------
 
     # --- EXPORT FORMATTING: TEXT ---
     if export_type == 1: 
@@ -50,7 +95,7 @@ def export_story(adv_dir, setup_data, history, chapters, export_type):
             lines.extend([f"Chapter {c['num']}: {c['title']}", "-" * 10])
             for beat in c['beats']:
                 if beat["type"] == "action":
-                    lines.append(f"\n[ {beat['text']} ]\n")
+                    lines.append(f"\n{beat['text']}\n") if "narrative_bridge" in history[0] else lines.append(f"\n[ {beat['text']} ]\n")
                 else:
                     lines.append(beat["text"] + "\n")
             lines.append("\n")
