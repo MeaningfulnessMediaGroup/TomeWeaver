@@ -213,6 +213,7 @@ TomeWeaver allows you to inject complex lore and logic directly into the configu
 **Example 1: Social Connections & Family Bloodlines**
 By adding a `family` or `connections` object, the AI will know exactly who characters are if they are mentioned, and can even introduce them naturally into the story.
 
+```json
 "family": {
   "mother": "Liana, a retired herbalist with a secret past.",
   "father": "Bram, missing for ten years.",
@@ -223,11 +224,12 @@ By adding a `family` or `connections` object, the AI will know exactly who chara
   "pet": "Mallow, his friendly but protective 7 years old cat.",
   "friend": "Antoine, 30yo. Best friend. Knows the city's sewers perfectly."
 }
-
+```
 
 **Example 2: Narrative Instructions**
 You can provide an `instructions` array to force the AI to follow specific literary styles, perspectives, or pacing rules.
 
+```json
 "instructions": [
     "Always maintain a first-person perspective from the main character's POV.",
     "Incorporate vivid descriptions of physical sensations (smells, temperature, heart rate).",
@@ -235,3 +237,4 @@ You can provide an `instructions` array to force the AI to follow specific liter
     "Progress the story by offering increasingly difficult and critical choices.",
     "Focus on the thrill of discovery and the atmosphere of the environment."
 ]
+```
