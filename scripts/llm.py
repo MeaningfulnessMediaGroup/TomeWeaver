@@ -462,33 +462,33 @@ def generate_recap(setup_data, history):
         
 def generate_narrative_bridge(prev_turn, action, current_turn):
     """
-    Acts as a professional editor. Evaluates the transition between two turns.
-    If a gap exists, it generates a narrative bridge and surgical patches.
-    If the prose is already seamless, it returns "[OK]".
+    Forces the AI to generate a single, isolated sentence describing the 
+    player's action without any reference to the surrounding text.
     """
-    # We only send the end of the previous turn and the start of the current to focus the AI.
-    p_last = prev_turn["story_text"].split('\n')[-1]
-    c_first = current_turn["story_text"].split('\n')[0]
+    import requests
+    from config import ENGINE_CONFIG
+    
+    p_text = prev_turn.get("story_text", "")
+    c_text = current_turn.get("story_text", "")
     
     system_prompt = (
-        "You are a professional book editor. Your goal is to ensure a seamless narrative flow "
-        "between two scenes by bridging the player's choice into the prose. "
-        "You must output valid JSON."
+        "You are a strict narrative parser. Your only job is to convert a "
+        "player's short command into a single, descriptive past-tense sentence."
     )
     
     user_prompt = (
-        f"PREVIOUS SCENE END: {p_last}\n"
-        f"PLAYER ACTION: {action}\n"
-        f"NEXT SCENE START: {c_first}\n\n"
+        f"PREVIOUS SCENE: {p_text[-300:]}\n" # Only show the very end for context
+        f"NEXT SCENE: {c_text[:300]}\n\n" # Only show the very beginning
+        f"PLAYER COMMAND: {action}\n\n"
         "TASK:\n"
-        "1. Evaluate if the PLAYER ACTION is already naturally described in the NEXT SCENE START.\n"
-        "2. If it is already seamless, reply ONLY with the text: [OK]\n"
-        "3. If there is a jump-cut, provide a JSON bridge object with these keys:\n"
-        "   - 'action_text': 1-2 sentences describing the action and transition.\n"
-        "   - 'outro_patch': {'remove': 'exact text to cut from end of previous scene', 'replace': 'new text'}\n"
-        "   - 'intro_patch': {'remove': 'exact text to cut from start of next scene', 'replace': 'new text'}\n\n"
-        "Note: Patches are optional. Use them only if the transition requires editing the existing prose. "
-        "Otherwise, leave 'remove' and 'replace' as empty strings."
+        "1. Read the NEXT SCENE. Is the PLAYER COMMAND already described or resolved in the text?\n"
+        "2. If it is already resolved, reply ONLY with the exact text: [OK]\n"
+        "3. If it is NOT resolved, rewrite the PLAYER COMMAND into a single, descriptive, past-tense sentence "
+        "that bridges the two scenes.\n"
+        "4. DO NOT copy text from either scene. DO NOT explain your reasoning.\n\n"
+        "EXAMPLE:\n"
+        "Command: climb tree\n"
+        "Output: Realizing the danger, Kaelen quickly scrambled up the nearest ancient oak."
     )
 
     messages = [
@@ -496,7 +496,6 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
         {"role": "user", "content": user_prompt}
     ]
 
-    # Use a low temperature for surgical consistency
     headers = {"Content-Type": "application/json"}
     if ENGINE_CONFIG.get("api_key", "").strip():
         headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
@@ -504,19 +503,22 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
     payload = {
         "model": ENGINE_CONFIG.get("model"),
         "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 500
+        "temperature": 0.2, # Extremely low temperature for strict adherence
+        "max_tokens": 80    # Hard limit to prevent paragraph generation
     }
 
     try:
-        response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+        response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=45)
         raw = response.json()['choices'][0]['message']['content'].strip()
         
         if "[OK]" in raw.upper():
             return "OK"
             
-        # Standardize and validate the bridge JSON using our own fortress
-        clean_json = sanitize_json(raw)
-        return json.loads(clean_json)
-    except:
-        return None # Fallback to no bridge if API fails
+        # Clean up any accidental quotes or "Output:" prefixes
+        raw = raw.replace("Output:", "").strip('\'" \n')
+        
+        return raw
+        
+    except Exception as e:
+        print(f"\n[Bridge Generation Failed: {e}]", end="")
+        return None

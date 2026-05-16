@@ -32,11 +32,8 @@ Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stag
 *   **Surgical Repair:** Uses error-coordinate metadata to "patch" missing quotes or trailing commas.
 *   **Truncation Recovery:** If the AI hits its token limit mid-sentence, the engine auto-balances the JSON so you can continue playing without a crash.
 
-### 4. Self-Healing Master Clock
-Never worry about manual edit errors. Every time an adventure launches, TomeWeaver performs a **Master Clock Resync**, ensuring all turn indices are perfectly sequential to protect chapter and bridge logic.
-
-### 5. Storybook Compiler (Export)
-Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine "compiles" the story on the fly, merging your prose and narrative bridges into a fluid, professional-grade storybook.
+### 4. Storybook Compiler (Export)
+Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
 ---
 
@@ -144,7 +141,6 @@ You also have access to powerful "Director" commands to shape the narrative, edi
 *   `undo`: Roll back the last turn.
 *   `redo`: Reroll the current AI response.
 *   `fix: [instruction]`: Instruct the AI to edit the current turn (e.g., `fix: make it raining`).
-*   `novelize`: Weave your mechanical choices into seamless prose.
 *   `export`: Save your adventure to a readable TXT, Markdown, or HTML file.
 *   `restart`: Wipe progress and start from Turn 0.
 

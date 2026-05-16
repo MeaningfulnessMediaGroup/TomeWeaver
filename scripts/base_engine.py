@@ -75,8 +75,9 @@ class BaseEngine:
 
         # --- INSTANT NOVELIZER: STARTUP CATCH-UP ---
         # If enabled, automatically process any missing bridges on launch
-        if ENGINE_CONFIG.get("instant_novelizer", False):
-            self.novelize_history(silent=True)
+        #if ENGINE_CONFIG.get("instant_novelizer", False):
+            # Pass silent=False so the user sees the progress bar during startup
+        #    self.novelize_history(silent=False)
 
     
     # ---------------------------------------------------------
@@ -172,8 +173,9 @@ class BaseEngine:
         if self.allow_manual_chapters:
             print(f"{Fore.YELLOW}chapter      {Fore.WHITE}: Opens Wizard to transition to a new Chapter.")
         print(f"{Fore.YELLOW}export       {Fore.WHITE}: Export the story to TXT, MD, or HTML.")
-        print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
+        #print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
         print(f"{Fore.YELLOW}clear        {Fore.WHITE}: Clears the screen and redraws the current turn.")
+        print(f"{Fore.YELLOW}reload       {Fore.WHITE}: Reloads history/config from disk (useful after manual edits).")
         print(f"{Fore.YELLOW}redo         {Fore.WHITE}: Rerolls the current turn completely.")
         print(f"{Fore.YELLOW}undo         {Fore.WHITE}: Goes back in time one turn.")
         if self.allow_fix_command:
@@ -188,7 +190,10 @@ class BaseEngine:
         """
         Iterates through history to find turns missing a narrative bridge.
         Calls the LLM to generate surgical patches for seamless prose.
+        Skips transitions that cross chapter boundaries, as those are intentional jump-cuts.
         """
+        from llm import generate_narrative_bridge
+        
         if not silent:
             print(f"\n{Fore.CYAN}--- NOVELIZER: SEAMLESS PROSE GENERATION ---")
             print(f"{Style.DIM}Checking history for narrative gaps...{Style.RESET_ALL}")
@@ -201,7 +206,13 @@ class BaseEngine:
             prev_turn = self.history[i-1]
             action = prev_turn.get("player_choice")
             
+            # Skip if bridge exists, no action taken, or if it was a UI command
             if "narrative_bridge" in current_turn or not action or any(ui in str(action) for ui in ui_commands):
+                continue
+                
+            # CRITICAL CHECK: Do not bridge across Chapter boundaries (Intentional jump-cuts)
+            # If the action that ended the previous turn triggered a chapter start, skip it.
+            if str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter":
                 continue
             
             if not silent:
@@ -210,8 +221,8 @@ class BaseEngine:
             bridge_data = generate_narrative_bridge(prev_turn, action, current_turn)
             
             if bridge_data == "OK":
-                current_turn["narrative_bridge"] = {}
-            elif isinstance(bridge_data, dict):
+                current_turn["narrative_bridge"] = "" # Empty string means processed, but no text needed
+            elif isinstance(bridge_data, str) and bridge_data:
                 current_turn["narrative_bridge"] = bridge_data
                 processed_count += 1
             
@@ -264,6 +275,7 @@ class BaseEngine:
         user input, and the rendering of the Terminal User Interface (TUI).
         """
         from logger import log_event
+        from config import load_json_safely
         clear_screen()
         print(f"{Fore.CYAN}Loading Adventure: {self.setup_data.get('title', 'Unknown')}...")
         
@@ -346,7 +358,6 @@ class BaseEngine:
                     seed_file = self.adv_dir / "start_turn.json"
 
                     if is_at_start and seed_file.exists():
-                        from config import load_json_safely
                         seed_data = load_json_safely(seed_file, "start_turn.json")
                         
                         # Handle case where user renamed history.json (a list) to start_turn.json
@@ -369,7 +380,7 @@ class BaseEngine:
                 print(f"{Style.DIM}{status_str}{Style.RESET_ALL}", end="\r")
                 
                 # Construct the massive prompt (System Rules + World Setup + Recent History)
-                base_messages = self.build_messages(len(self.history) + 1)
+                base_messages = self.build_messages(self.get_next_turn_number())
                 prev_story = next((t["story_text"] for t in reversed(self.history) if t.get("story_text")), None)
 
                 err = None
@@ -479,17 +490,23 @@ class BaseEngine:
                         action = prev_turn.get("player_choice")
                         ui_cmds = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
                         
-                        if action and not any(ui in str(action) for ui in ui_cmds):
-                            print(f"{Style.DIM}Weaving narrative bridge...{Style.RESET_ALL}", end="\r")
-                            # Explicitly import the newly added LLM bridge generator
+                        is_chapter_jump = str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter"
+                        
+                        if action and not is_chapter_jump and not any(ui in str(action) for ui in ui_cmds):
+                            # Display clear progress matching the manual command
+                            print(f"Novelizing Turn {turn_data['turn']}...                ", end="\r")
+                            
                             from llm import generate_narrative_bridge
                             bridge_data = generate_narrative_bridge(prev_turn, action, turn_data)
                             
                             if bridge_data == "OK":
-                                turn_data["narrative_bridge"] = {}
-                            elif isinstance(bridge_data, dict):
+                                turn_data["narrative_bridge"] = ""
+                            elif isinstance(bridge_data, str) and bridge_data:
                                 turn_data["narrative_bridge"] = bridge_data
+                            
                             self.save_state()
+                            # Clear the line before hitting the TUI render
+                            print(" " * 50, end="\r")
 
             # ---------------------------------------------------------
             # 4. RENDER TERMINAL USER INTERFACE (TUI)
@@ -587,8 +604,29 @@ class BaseEngine:
                         cmd_key = ui_clean.lower()
                         cmd_val = ""
 
+                    # Single-character hardcoded aliases
+                    if cmd_key == '?': cmd_key = 'help'
+                    if cmd_key == 'q': cmd_key = 'quit'
+
+                    # --- GENERIC COMMAND MATCHER ---
+                    # To add new commands in the future, just add the full word to this registry list!
+                    engine_cmds = [
+                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 
+                        'recap', 'summary', 'export', 'redo', 'undo', 'fix', 'chapter'
+                    ]
+                    
+                    # Only attempt prefix matching if it's a single word and not already an exact match
+                    if " " not in cmd_key and cmd_key not in engine_cmds:
+                        matches = [c for c in engine_cmds if c.startswith(cmd_key)]
+                        if len(matches) == 1:
+                            cmd_key = matches[0] # Auto-resolve to the full command!
+                        elif len(matches) > 1:
+                            print(f"\n{Fore.YELLOW}Ambiguous command '{cmd_key}'. Did you mean: {', '.join(matches)}?{Style.RESET_ALL}")
+                            continue
+                    # -------------------------------
+
                     # Map raw input to Engine Actions
-                    if cmd_key in ['q', 'quit', 'exit']:
+                    if cmd_key in ['quit', 'exit']:
                         print(f"\n{Fore.YELLOW}State saved successfully. See you next time!")
                         sys.exit(0)
                     elif cmd_key in ['?', 'help']:
@@ -603,6 +641,9 @@ class BaseEngine:
                     elif cmd_key == 'restart':
                         log_event(self.adv_dir, "Command: RESTART ADVENTURE")
                         action_cmd = 'restart'
+                        break
+                    elif cmd_key == 'reload':
+                        action_cmd = 'reload'
                         break
                     elif cmd_key in ['recap', 'summary']:
                         print(f"\n{Style.DIM}Generating recap, please wait...")
@@ -620,9 +661,9 @@ class BaseEngine:
                         log_event(self.adv_dir, "Command: UNDO (User backtracked)")
                         action_cmd = 'undo'
                         break
-                    elif cmd_key == 'novelize':
-                        self.novelize_history()
-                        continue
+                    #elif cmd_key == 'novelize':
+                    #    self.novelize_history()
+                    #    continue
                     elif cmd_key == 'fix':
                         if not self.allow_fix_command:
                             print(f"\n{Fore.RED}[System] The 'fix' command is disabled!{Style.RESET_ALL}")
@@ -633,7 +674,7 @@ class BaseEngine:
                         break
 
                     # Allow child engines (like Sandbox) to intercept custom commands (e.g. Chapter transitions)
-                    handled, p_choice = self.process_custom_command(cmd_key, user_input)
+                    handled, p_choice = self.process_custom_command(cmd_key, cmd_val)
                     if handled:
                         if p_choice: player_choice = p_choice
                         break
@@ -670,11 +711,24 @@ class BaseEngine:
             
             elif action_cmd == 'export':
                 from exporter import export_story
-                exp_choice = input(f"{Fore.YELLOW}1. TXT  2. MD  3. HTML\nChoose (1-3): {Style.RESET_ALL}").strip()
+                exp_choice = input(f"{Fore.YELLOW}1. TXT  2. MD  3. HTML\nChoose Format (1-3): {Style.RESET_ALL}").strip()
                 if exp_choice in ['1', '2', '3']:
-                    path = export_story(self.adv_dir, self.setup_data, self.history, self.chapters, int(exp_choice))
-                    print(f"{Fore.GREEN}Exported to: {path}")
-                    time.sleep(2)
+                    #style_choice = input(f"{Fore.YELLOW}1. Novelized (Seamless prose)  2. Interactive (Show choices)\nChoose Style (1-2): {Style.RESET_ALL}").strip()
+                    #if style_choice in ['1', '2']:
+                        #use_nov = (style_choice == '1')
+                        use_nov = False
+                        path = export_story(self.adv_dir, self.setup_data, self.history, self.chapters, int(exp_choice), use_novelization=use_nov)
+                        print(f"{Fore.GREEN}Exported to: {path}")
+                        time.sleep(2)
+                continue
+                
+            elif action_cmd == 'reload':
+                print(f"{Style.DIM}Reloading all configuration and history files...{Style.RESET_ALL}")
+                self.setup_data = load_json_safely(self.adv_dir / "setup.json", "setup.json")
+                self.history = load_json_safely(self.history_file, "history.json") if self.history_file.exists() else []
+                self.chapters = self.load_chapters()
+                if self.history:
+                    self.resync_master_clock()
                 continue
                 
             elif action_cmd == 'restart':

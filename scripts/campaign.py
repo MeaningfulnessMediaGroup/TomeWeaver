@@ -324,12 +324,12 @@ class CampaignEngine(BaseEngine):
     # CUSTOM COMMAND HANDLER
     # ---------------------------------------------------------
     
-    def process_custom_command(self, ui_lower, user_input):
+    def process_custom_command(self, cmd_key, cmd_val):
         """
         Overrides the BaseEngine command handler to block manual chapter 
         transitions, enforcing strict plot-driven gameplay.
         """
-        if ui_lower.startswith('chapter'):
+        if cmd_key == 'chapter':
             print(f"{Fore.RED}You are in Campaign Mode. Chapters advance automatically based on plot goals!")
             return True, None
         return False, None

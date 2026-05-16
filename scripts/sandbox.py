@@ -161,20 +161,19 @@ class SandboxEngine(BaseEngine):
     # CUSTOM COMMAND HANDLER
     # ---------------------------------------------------------
     
-    def process_custom_command(self, ui_lower, user_input):
+    def process_custom_command(self, cmd_key, cmd_val):
         """
         Intercepts Sandbox-specific commands (like the Chapter Wizard) 
         from the user input before it hits the standard action parser.
         """
-        if ui_lower == 'chapter' or ui_lower.startswith('chapter:'):
+        if cmd_key == 'chapter':
             pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
             if pending:
                 print(f"{Fore.RED}A chapter transition is already pending! Undo to cancel it.")
                 return True, None
                 
             print(f"\n{Fore.CYAN}=== NEW CHAPTER WIZARD ===")
-            preset_title = user_input[8:].strip() if ui_lower.startswith('chapter:') else ""
-            c_title = preset_title if preset_title else input(f"{Fore.YELLOW}Chapter Title: {Style.RESET_ALL}").strip()
+            c_title = cmd_val if cmd_val else input(f"{Fore.YELLOW}Chapter Title: {Style.RESET_ALL}").strip()
             
             if not c_title:
                 print(f"{Fore.RED}Title cannot be empty.")

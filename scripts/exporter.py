@@ -2,120 +2,79 @@
 TomeWeaver: Story Exporter Module
 ---------------------------------
 Compiles the chronological game ledger (history.json) into a human-readable 
-novel format (TXT, MD, or HTML). If 'narrative bridges' have been generated, 
-this module acts as a compiler, applying the surgical prose patches to 
-create a seamless reading experience.
+novel format (TXT, MD, or HTML). Weaves player choices into seamless prose 
+using AI-generated string bridges.
 """
 
 import html
 import re
 
-# ---------------------------------------------------------
-# EXPORTER COMPILER
-# ---------------------------------------------------------
-
-def export_story(adv_dir, setup_data, history, chapters, export_type):
-    """
-    Exports the adventure history into a readable format.
-    Includes player choices as narrative bridges, while filtering out 
-    mechanical UI choices (like 'Start Chapter' or 'Restart').
-    """
+def export_story(adv_dir, setup_data, history, chapters, export_type, use_novelization=True):
     title = setup_data.get("title", "The Adventure")
-    # Clean title for filename compatibility
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     
-    # List of mechanical choices that should NOT appear in a narrative book
-    ui_commands = [
-        "Start Chapter:", "Conclude the Story", "Restart", 
-        "Export", "Undo", "Quit", "Cheat Death"
-    ]
+    ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
 
     # --- 1. COMPILE NARRATIVE BEATS ---
     chapter_content = []
     for c in chapters:
-        if c["start_turn"] is None: continue 
+        if c.get("start_turn") is None: continue 
+        
         end = c["end_turn"] if c.get("end_turn") is not None else len(history)
         
         c_beats = []
         for i, t in enumerate(history):
             if c["start_turn"] <= t["turn"] <= end:
                 
-                story_text = t.get("story_text", "")
-                bridge = t.get("narrative_bridge")
-                
-                # Apply Intro Patch (if previous turn generated a bridge)
-                if bridge and bridge.get("intro_patch"):
-                    patch = bridge["intro_patch"]
-                    if story_text.strip().startswith(patch["remove"]) and patch["remove"]:
-                        story_text = patch["replace"] + story_text.lstrip()[len(patch["remove"]):]
-
                 # Add the AI's story text paragraphs
+                story_text = t.get("story_text", "")
                 if story_text:
                     paragraphs = [p.strip() for p in story_text.replace("\\n", "\n").split('\n') if p.strip()]
                     for p in paragraphs:
                         c_beats.append({"type": "story", "text": p})
                 
-                # Look ahead to the next turn to check for an Outro Patch and Action Bridge
+                # Handle the transition to the next turn
                 choice = t.get("player_choice")
                 if choice and not any(ui in str(choice) for ui in ui_commands):
                     
-                    next_bridge = None
-                    if i + 1 < len(history):
-                        next_bridge = history[i+1].get("narrative_bridge")
+                    # Look ahead to see if the next turn has a bridge for this action
+                    if use_novelization and i + 1 < len(history) and "narrative_bridge" in history[i+1]:
+                        next_bridge = history[i+1]["narrative_bridge"]
                         
-                    # If the AI generated a seamless prose bridge
-                    if next_bridge and next_bridge.get("action_text"):
-                        # Apply Outro Patch to the LAST story beat we just added
-                        patch = next_bridge.get("outro_patch")
-                        if patch and c_beats and c_beats[-1]["text"].endswith(patch["remove"]) and patch["remove"]:
-                            c_beats[-1]["text"] = c_beats[-1]["text"].rstrip()[:-len(patch["remove"])] + patch["replace"]
-                        
-                        # Add the seamless Action Bridge
-                        c_beats.append({"type": "action", "text": next_bridge["action_text"]})
-                        
-                    # Fallback to the classic "Game Log" bracketed format
+                        if next_bridge: # If the string is not empty
+                            c_beats.append({"type": "bridge", "text": next_bridge.strip()})
+                        # If next_bridge == "", we do nothing! The action is already in the prose.
                     else:
-                        c_beats.append({"type": "action", "text": f"[ {choice} ]"})
+                        # Interactive Mode / Un-novelized fallback
+                        c_beats.append({"type": "choice", "text": str(choice)})
         
-        chapter_content.append({
-            "num": c["chapter_number"], 
-            "title": c["title"], 
-            "beats": c_beats
-        })
+        if c_beats:
+            chapter_content.append({"num": c["chapter_number"], "title": c["title"], "beats": c_beats})
 
-    # ---------------------------------------------------------
-    # 2. FORMAT AND WRITE TO DISK
-    # ---------------------------------------------------------
-
-    # --- EXPORT FORMATTING: TEXT ---
+    # --- 2. FILE FORMATTING (TXT, MD, HTML) ---
     if export_type == 1: 
         ext = ".txt"
         lines = [f"===============\n-==   {title}   ==-\n===============\n"]
         for c in chapter_content:
             lines.extend([f"Chapter {c['num']}: {c['title']}", "-" * 10])
             for beat in c['beats']:
-                if beat["type"] == "action":
-                    lines.append(f"\n{beat['text']}\n") if "narrative_bridge" in history[0] else lines.append(f"\n[ {beat['text']} ]\n")
-                else:
-                    lines.append(beat["text"] + "\n")
+                if beat["type"] == "choice": lines.append(f"\n[ {beat['text']} ]\n")
+                elif beat["type"] == "bridge": lines.append(f"\n{beat['text']}\n")
+                else: lines.append(beat["text"] + "\n")
             lines.append("\n")
         output = "\n".join(lines)
         
-    # --- EXPORT FORMATTING: MARKDOWN ---
     elif export_type == 2:  
         ext = ".md"
         lines = [f"# {title}\n"]
         for c in chapter_content:
             lines.append(f"## Chapter {c['num']}: {c['title']}\n")
             for beat in c['beats']:
-                if beat["type"] == "action":
-                    # Bold Italic centered-look for the action bridge
-                    lines.append(f"\n*** {beat['text']} ***\n\n")
-                else:
-                    lines.append(beat["text"] + "\n\n")
+                if beat["type"] == "choice": lines.append(f"\n**[ {beat['text']} ]**\n\n")
+                elif beat["type"] == "bridge": lines.append(f"*{beat['text']}*\n\n")
+                else: lines.append(beat["text"] + "\n\n")
         output = "\n".join(lines)
         
-    # --- EXPORT FORMATTING: HTML ---
     elif export_type == 3:  
         ext = ".html"
         html_parts = [
@@ -125,13 +84,12 @@ def export_story(adv_dir, setup_data, history, chapters, export_type):
             "h1{text-align:center;border-bottom:2px solid #222;padding-bottom:10px;}",
             ".toc{background:#f9f9f9;padding:20px;border-radius:8px;margin-bottom:40px;}",
             "p{text-indent:1.5em;margin-bottom:15px;text-align:justify;}",
-            ".action{text-align:center;font-style:italic;font-weight:bold;margin:30px 0;color:#555;}",
-            ".action::before, .action::after { content: ' — '; }",
+            ".choice{text-align:center;font-weight:bold;margin:30px 0;color:#555;}",
+            ".bridge{font-style:italic;margin-bottom:15px;text-indent:1.5em;}",
             "</style></head><body>",
             f"<h1>{html.escape(title)}</h1>"
         ]
         
-        # Add Table of Contents
         if len(chapter_content) > 1:
             html_parts.append("<div class=\"toc\"><h3>Table of Contents</h3><ul>")
             html_parts.extend([f"<li><a href=\"#chapter-{c['num']}\">Chapter {c['num']}: {html.escape(c['title'])}</a></li>" for c in chapter_content])
@@ -140,10 +98,9 @@ def export_story(adv_dir, setup_data, history, chapters, export_type):
         for c in chapter_content:
             html_parts.append(f"<h2 id=\"chapter-{c['num']}\">Chapter {c['num']}: {html.escape(c['title'])}</h2>")
             for beat in c['beats']:
-                if beat["type"] == "action":
-                    html_parts.append(f"<div class=\"action\">{html.escape(beat['text'])}</div>")
-                else:
-                    html_parts.append(f"<p>{html.escape(beat['text'])}</p>")
+                if beat["type"] == "choice": html_parts.append(f"<div class=\"choice\">[ {html.escape(beat['text'])} ]</div>")
+                elif beat["type"] == "bridge": html_parts.append(f"<p class=\"bridge\">{html.escape(beat['text'])}</p>")
+                else: html_parts.append(f"<p>{html.escape(beat['text'])}</p>")
         
         html_parts.append("</body></html>")
         output = "\n".join(html_parts)
