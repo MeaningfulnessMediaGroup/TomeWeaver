@@ -32,27 +32,21 @@ This adventure demonstrates the strict logic of **Campaign Mode**. It utilizes a
 
 ## 🚀 How to Play
 
-To launch either of these adventures, open your terminal in the root TomeWeaver directory and run:
+To launch either of these adventures, use the desktop shortcuts generated in the root TomeWeaver directory:
 
-```bash
-python scripts/tome_weaver.py "adventures/Mallow the Cat"
-```
+1. Double-click **`Story - Mallow the Cat.bat`**
+2. Or double-click **`Story - The Tomb of the Sunken King.bat`**
 
-or
-
-```bash
-python scripts/tome_weaver.py "adventures/The Tomb of the Sunken King"
-```
+*(Mac/Linux users: Run `python scripts/tome_weaver.py` to open the Main Menu and select your story from the list).*
 
 ---
 
-
 ## 🏗️ Creating Your Own
 
-To start a brand new adventure, simply run the engine and point it to a folder that doesn't exist yet:
+To start a brand new adventure, you **do not** need to create folders manually. 
 
-```bash
-python scripts/tome_weaver.py "adventures/My Epic Sci-Fi Story"
-```
+1. Double-click the **`Start_TomeWeaver.bat`** file in the root folder.
+2. Select **[Start a New Story]** from the menu.
+3. Type your title. 
 
-The engine will automatically detect that it is a new folder, launch the Setup Wizard, and generate all the boilerplate files you need to start world-building!
+The engine will automatically generate the folder here, create a brand new `.bat` shortcut for your desktop, and build the boilerplate `setup.json` so you can start world-building immediately!
