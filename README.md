@@ -95,13 +95,21 @@ TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI 
 
 ## ⌨️ In-Game Commands
 
-While playing, you can use these commands at any time:
+## ⌨️ Gameplay & In-Game Commands
+
+Playing TomeWeaver is as simple as typing the number of your desired choice. However, the engine is highly flexible. Instead of a number, you can type **any custom action or dialogue** (e.g., *"I draw my sword and demand to know who sent them!"*), and the AI will adapt the story instantly.
+
+You also have access to powerful "Director" commands to shape the narrative, edit history, or change the mechanics on the fly. 
+
+👉 **[Read the Full Command Guide (COMMAND_GUIDE.md)](COMMAND_GUIDE.md)**
+
+**Quick Reference:**
 *   `?` / `help`: Show the command menu.
 *   `undo`: Roll back the last turn.
 *   `redo`: Reroll the current AI response.
-*   `fix: [reason]`: Keep the turn but instruct the AI to edit it (e.g., `fix: make it raining`).
-*   `novelize`: Run the batch processor to fill narrative gaps with seamless bridges.
-*   `export`: Save your storybook to disk (TXT, MD, HTML).
+*   `fix: [instruction]`: Instruct the AI to edit the current turn (e.g., `fix: make it raining`).
+*   `novelize`: Weave your mechanical choices into seamless prose.
+*   `export`: Save your adventure to a readable TXT, Markdown, or HTML file.
 *   `restart`: Wipe progress and start from Turn 0.
 
 ---
