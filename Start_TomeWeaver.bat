@@ -27,7 +27,7 @@ if exist "venv\Scripts\activate.bat" (
 )
 
 :: 3. Launch the engine (No arguments triggers the Main Menu Wizard)
-python scripts/tome_weaver.py
+python scripts/gui.py
 
 :: 4. Graceful exit/pause handling
 if %errorlevel% neq 0 (

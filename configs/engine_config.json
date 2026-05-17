@@ -1,0 +1,18 @@
+{
+    "api_url": "http://localhost:1234/v1/chat/completions",
+    "api_key": "",
+    "model": "loaded-model",
+    "temperature_base": 0.8,
+    "max_tokens": 2000,
+    "context_window": 10,
+    "max_retries": 10,
+    "max_query_per_minute": 0,
+    "auto_polish": false,
+    "instant_novelizer": false,
+    "logging_enabled": true,
+    "log_verbose": false,
+    "log_raw_json_on_failure": true,
+    "debug_novelizer": false,
+    "ui_scaling": 1.0,
+    "prose_font_size": 15
+}

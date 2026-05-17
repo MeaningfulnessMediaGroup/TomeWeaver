@@ -59,7 +59,7 @@ TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI 
 
 
 ### ⚙️ Configure your LLM
-Before anything, edit the `engine_config.json` file in the root directory to point to your chosen AI provider.
+Before anything, edit the `engine_config.json` file in the configs/ directory to point to your chosen AI provider.
 
 **For LM Studio (Default):**
 ```json

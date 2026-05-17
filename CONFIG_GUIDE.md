@@ -6,7 +6,7 @@ This guide provides a detailed breakdown of the JSON schemas used by TomeWeaver.
 
 ## ⚙️ Global Engine Configuration
 
-The `engine_config.json` file in the root directory manages the global behavior of the engine, including API settings, memory limits, and the self-healing "Fortress" logic. Refer to typical configuration templates in the "configs" directory.
+The `engine_config.json` file in the configs/ directory manages the global behavior of the engine, including API settings, memory limits, and the self-healing "Fortress" logic. Refer to typical configuration templates in the "configs/engine_config_samples" directory.
 
 ```json
 {

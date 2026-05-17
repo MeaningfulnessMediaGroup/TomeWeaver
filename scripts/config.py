@@ -20,24 +20,6 @@ from colorama import Fore, Style
 # Resolve the absolute path to the project root directory
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ---------------------------------------------------------
-# CONSOLE UTILITIES
-# ---------------------------------------------------------
-
-def clear_screen():
-    """
-    Clears the terminal console in a cross-platform manner.
-    Uses ANSI escape codes for modern terminals with a fallback to OS-level commands.
-    """
-    # ANSI escape: \033[2J clears the screen, \033[H resets the cursor to home
-    print('\033[2J\033[H', end='')
-    
-    # Fallback to system-specific clear commands for legacy terminal compatibility
-    if os.name == 'nt':
-        os.system('cls')
-    else:
-        os.system('clear')
-        
 
 # ---------------------------------------------------------
 # JSON UTILITIES
@@ -100,10 +82,9 @@ def load_json_safely(file_path, file_description):
                     print(f"{Fore.RED}{pointer}")
         except Exception:
             pass 
-        sys.exit(1)
+        raise ValueError(f"Critical Syntax Error in {file_description}. Please fix formatting before continuing.")
     except Exception as e:
-        print(f"{Fore.RED}Failed to read {file_description} ({file_path}): {str(e)}")
-        sys.exit(1)
+        raise RuntimeError(f"Failed to read {file_description} ({file_path}): {str(e)}")
 
 
 # ---------------------------------------------------------
@@ -112,12 +93,14 @@ def load_json_safely(file_path, file_description):
 
 def load_engine_config():
     """
-    Loads the global engine settings from 'engine_config.json'.
+    Loads the global engine settings from 'configs/engine_config.json'.
     If the file is missing, it generates a default configuration.
     If the file exists but is missing new keys (from an update), it 
     merges the defaults into the existing file to prevent crashes.
     """
-    config_path = ROOT_DIR / "engine_config.json"
+    configs_dir = ROOT_DIR / "configs"
+    configs_dir.mkdir(exist_ok=True)
+    config_path = configs_dir / "engine_config.json"
     
     # Standard defaults for the TomeWeaver engine
     default_config = {
@@ -132,7 +115,9 @@ def load_engine_config():
         "logging_enabled": True,
         "log_verbose": False,
         "log_raw_json_on_failure": False,
-        "auto_polish": False
+        "auto_polish": False,
+        "ui_scaling": 1.0,
+        "prose_font_size": 15
     }
     
     # 1. Create default config if it doesn't exist
@@ -172,9 +157,9 @@ def create_boilerplate_files(adv_dir, mode):
     setup_file = adv_dir / "setup.json"
     prompt_file = adv_dir / "system_prompt.txt"
     
-    # Paths for source templates in the root directory
-    default_setup = ROOT_DIR / f"default_setup_{mode}.json"
-    default_prompt = ROOT_DIR / f"default_system_prompt_{mode}.txt"
+    # Paths for source templates in the configs directory
+    default_setup = ROOT_DIR / "configs" / f"default_setup_{mode}.json"
+    default_prompt = ROOT_DIR / "configs" / f"default_system_prompt_{mode}.txt"
     
     # --- SETUP.JSON INITIALIZATION ---
     if not setup_file.exists():
@@ -209,8 +194,7 @@ def create_boilerplate_files(adv_dir, mode):
             shutil.copy(default_prompt, prompt_file)
         else:
             # Critical failure: The engine cannot run without instructions for the LLM
-            print(f"{Fore.RED}Critical Error: Missing '{default_prompt.name}' in root directory.")
-            sys.exit(1)
+            raise FileNotFoundError(f"Critical Error: Missing template file '{default_prompt.name}' in the root directory. Cannot initialize new story.")
             
             
 

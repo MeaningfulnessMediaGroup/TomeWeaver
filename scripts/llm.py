@@ -710,3 +710,78 @@ def _aggressive_regex_recovery(raw):
         return json.dumps(recovered, indent=2)
         
     return raw # Give up, let the retry loop handle it
+    
+    
+def generate_missing_choices(story_text, turn_num):
+    """
+    Surgical Choice Generator.
+    If the AI fails to provide adequate choices for a generated turn, 
+    this function asks the AI specifically for a JSON array of 3-6 new choices.
+    """
+    import sys
+    import requests
+    import re
+    import time
+    from colorama import Fore, Style
+    from config import ENGINE_CONFIG
+    
+    print(f"{Style.DIM}Generating missing choices for Turn {turn_num}...{Style.RESET_ALL}")
+
+    system_prompt = (
+        "You are an interactive fiction engine. Your only job is to generate a JSON array "
+        "of 3 to 6 brief actions the player can take next."
+    )
+    
+    user_prompt = (
+        f"CURRENT SCENE:\n{story_text}\n\n"
+        "TASK:\n"
+        "1. Based on the CURRENT SCENE, provide EXACTLY 3 to 6 logical choices for the player's next action.\n"
+        "2. Each choice MUST be a short string (Max 15 words) describing ONLY the action, not the result.\n"
+        "3. Output ONLY a raw JSON array of strings. No keys, no markdown.\n\n"
+        "EXAMPLE OUTPUT:\n"
+        '[\n  "Draw my sword and attack.",\n  "Run toward the heavy wooden door.",\n  "Search the room for clues."\n]'
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    headers = {"Content-Type": "application/json"}
+    if ENGINE_CONFIG.get("api_key", "").strip():
+        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+    
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        payload = {
+            "model": ENGINE_CONFIG.get("model", "loaded-model"),
+            "messages": messages,
+            "temperature": 0.6 + (attempt * 0.1), # Warm temp for varied choices
+            "max_tokens": 150 
+        }
+
+        try:
+            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+            raw = response.json()['choices'][0]['message']['content'].strip()
+            
+            # Use the existing regex to aggressively extract the array
+            array_match = re.search(r'\[([\s\S]*?)\]', raw)
+            if array_match:
+                quotes = re.findall(r'"([^"]+)"|\'([^\']+)\'', array_match.group(1))
+                choices = []
+                for q in quotes:
+                    choice = q[0] if q[0] else q[1]
+                    if choice and len(choice) > 1:
+                        choices.append(choice.strip())
+                        
+                if len(choices) >= 2:
+                    return choices
+                    
+            time.sleep(1)
+        except Exception:
+            time.sleep(1)
+            continue
+            
+    # Absolute bottom-of-the-barrel fallback so the UI never crashes
+    print(f"{Fore.RED}[System] LLM failed to generate choices. Using fallbacks.{Style.RESET_ALL}")
+    return ["Proceed forward.", "Examine my surroundings.", "Take a moment to decide."]

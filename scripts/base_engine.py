@@ -1,22 +1,21 @@
 """
-TomeWeaver: Base Engine Module
-------------------------------
-The foundational architecture for TomeWeaver. Handles the core game loop, 
-state management, API error handling, and terminal rendering. Both Sandbox 
-and Campaign engines inherit from this class.
+TomeWeaver: Base Engine Module (Headless API)
+---------------------------------------------
+The foundational headless architecture for TomeWeaver. Handles state management, 
+API error handling, and core LLM generation loops. Designed to be operated by 
+an external Graphical User Interface (GUI) via event-driven method calls.
 """
 
 import os
 import sys
 import json
 import time
-import random
 import re
 from pathlib import Path
 from colorama import Fore, Style
 
-from config import load_json_safely, ENGINE_CONFIG, clear_screen
-from llm import get_llm_response, generate_recap, generate_narrative_bridge
+from config import load_json_safely, ENGINE_CONFIG
+from llm import get_llm_response, generate_recap
 
 # ---------------------------------------------------------
 # BASE ENGINE CLASS
@@ -32,7 +31,7 @@ class BaseEngine:
         self.adv_dir = Path(adv_dir)
         self.setup_data = setup_data
         
-        # --- NEW: LOAD PROLOGUE/EPILOGUE TEXT FILES ---
+        # --- LOAD PROLOGUE/EPILOGUE TEXT FILES ---
         self.prologue_content = ""
         self.epilogue_content = ""
         
@@ -46,7 +45,7 @@ class BaseEngine:
             with open(e_file, "r", encoding="utf-8") as f:
                 self.epilogue_content = f.read().strip()
         
-        # History
+        # History & Config
         self.history_file = self.adv_dir / "history.json"
         
         prompt_file = self.adv_dir / "system_prompt.txt"
@@ -59,44 +58,41 @@ class BaseEngine:
         # 2. Load Chapters (CRITICAL: Must happen before any save_state triggers)
         self.chapters = self.load_chapters()
         
-        # 3. Protect ledger integrity from manual edits
+        # 3. Protect ledger integrity from manual file edits
         if self.history:
             self.resync_master_clock()
         
         self.is_campaign = False
         self.allow_manual_chapters = True
-        self.active_fix = None
-        self.is_fix_mode = False
         self.track_inventory = self.setup_data.get("track_inventory", False)
         self.can_die = self.setup_data.get("can_die", False)
         self.allow_fix_command = self.setup_data.get("allow_cheats", True)
         
+        # State Flags for GUI-Driven Non-Destructive Editing
+        self.active_fix = None
+        self.is_fix_mode = False
+        self.backup_turn = None
         self.is_test_mode = False
 
         # --- INSTANT NOVELIZER: STARTUP CATCH-UP ---
         # If enabled, automatically process any missing bridges on launch
         if ENGINE_CONFIG.get("instant_novelizer", False):
-            # Pass silent=False so the user sees the progress bar during startup
             self.novelize_history(silent=False)
 
-    
+
     # ---------------------------------------------------------
-    # FIX DUPLICATE OR OUT-OF-ORDER TURN NUMBERING
+    # STATE & FILE MANAGEMENT
     # ---------------------------------------------------------
 
     def resync_master_clock(self):
         """
         Scans history and ensures all turn numbers are strictly sequential.
         Uses the first turn's number as the anchor to preserve user preference 
-        (e.g., starting at 0 or 1) while fixing duplicates and gaps.
+        while fixing duplicates and gaps caused by manual JSON edits.
         """
-        if not self.history:
-            return
-
-        try:
-            start_num = int(self.history[0].get("turn", 0))
-        except (ValueError, TypeError):
-            start_num = 0
+        if not self.history: return
+        try: start_num = int(self.history[0].get("turn", 0))
+        except (ValueError, TypeError): start_num = 0
             
         changed = False
         for i, turn in enumerate(self.history):
@@ -109,11 +105,6 @@ class BaseEngine:
             from logger import log_event
             log_event(self.adv_dir, f"SYSTEM: Master Clock resynced (Anchor: {start_num}).")
             self.save_state()
-
-
-    # ---------------------------------------------------------
-    # STATE & FILE MANAGEMENT
-    # ---------------------------------------------------------
 
     def load_chapters(self):
         """
@@ -133,7 +124,6 @@ class BaseEngine:
             return initial_chapters
         return load_json_safely(chapters_file, "chapters.json")
 
-
     def save_state(self):
         """
         Commits the current history and chapters state to the disk, 
@@ -144,109 +134,11 @@ class BaseEngine:
         with open(self.adv_dir / "chapters.json", "w", encoding="utf-8") as f:
             json.dump(self.chapters, f, indent=4)
 
-
     def get_next_turn_number(self):
         """Returns the next sequential turn number based on the history ledger."""
-        if not self.history:
-            return 0  # Start at Turn 0 for the Introduction
-        
-        last_turn = self.history[-1]
-        try:
-            # We cast to int just in case a previous bug put a string in the ledger
-            return int(last_turn.get("turn", 0)) + 1
-        except (ValueError, TypeError):
-            # If the ledger is corrupted, we fallback to length as a last resort
-            return len(self.history)
-
-
-    # ---------------------------------------------------------
-    # NARRATIVE & UTILITY COMMANDS
-    # ---------------------------------------------------------
-
-    def print_help_menu(self):
-        """
-        Prints the interactive command menu to the terminal.
-        Dynamically shows or hides commands based on the active engine configuration.
-        """
-        print(f"\n{Fore.CYAN}--- COMMAND MENU ---")
-        print(f"{Fore.YELLOW}[Custom Action]{Fore.WHITE}: Type a custom action directly into the prompt!")
-        if self.allow_manual_chapters:
-            print(f"{Fore.YELLOW}chapter      {Fore.WHITE}: Opens Wizard to transition to a new Chapter.")
-        print(f"{Fore.YELLOW}export       {Fore.WHITE}: Export the story to TXT, MD, or HTML.")
-        if not self.is_campaign:
-            print(f"{Fore.YELLOW}expand: [txt]{Fore.WHITE}: Expands your summary/notes into full prose for the next turn.")
-        print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
-        print(f"{Fore.YELLOW}polish       {Fore.WHITE}: Proofreads and elevates the prose of the current turn without altering events.")
-        print(f"{Fore.YELLOW}clear        {Fore.WHITE}: Clears the screen and redraws the current turn.")
-        print(f"{Fore.YELLOW}reload       {Fore.WHITE}: Reloads history/config from disk (useful after manual edits).")
-        print(f"{Fore.YELLOW}redo         {Fore.WHITE}: Rerolls the current turn completely.")
-        print(f"{Fore.YELLOW}undo         {Fore.WHITE}: Goes back in time one turn.")
-        if self.allow_fix_command:
-            print(f"{Fore.YELLOW}fix: [reason]{Fore.WHITE}: Keeps current turn but edits it (e.g. 'fix: make it raining').")
-        print(f"{Fore.YELLOW}recap/summary{Fore.WHITE}: Asks the AI to write a summary of the adventure.")
-        print(f"{Fore.YELLOW}restart      {Fore.WHITE}: Wipes all progress and restarts the adventure.")
-        print(f"{Fore.YELLOW}test         {Fore.WHITE}: Engages Autopilot mode to auto-select the best choice.")
-        print(f"{Fore.CYAN}--------------------\n")
-
-
-    def novelize_history(self, silent=False):
-        """
-        Iterates through history to find turns missing a narrative bridge.
-        Calls the LLM to generate surgical patches for seamless prose.
-        Skips transitions that cross chapter boundaries, as those are intentional jump-cuts.
-        """
-        from llm import generate_narrative_bridge
-        
-        if not silent:
-            print(f"\n{Fore.CYAN}--- NOVELIZER: SEAMLESS PROSE GENERATION ---")
-            print(f"{Style.DIM}Checking history for narrative gaps...{Style.RESET_ALL}")
-        
-        processed_count = 0
-        ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
-
-        for i in range(1, len(self.history)):
-        
-            current_turn = self.history[i]
-            prev_turn = self.history[i-1]
-            action = prev_turn.get("player_choice")
-            
-            # Skip if action is missing or a UI command
-            if not action or any(ui in str(action) for ui in ui_commands):
-                continue
-                
-            # We ONLY process if the key is missing, empty ("", {}), or marked as [FAILED]
-            # This allows the engine to auto-heal legacy saves that used empty strings.
-            existing_bridge = current_turn.get("narrative_bridge")
-            
-            # If a bridge exists and it is NOT empty and NOT [FAILED], we skip it.
-            # This protects valid prose and [OK] tags from being overwritten.
-            if existing_bridge and existing_bridge not in ["[FAILED]", "", {}]:
-                continue
-                
-            # CRITICAL CHECK: Do not bridge across Chapter boundaries (Intentional jump-cuts)
-            # If the action that ended the previous turn triggered a chapter start, skip it.
-            if str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter":
-                continue
-            
-            if not silent:
-                print(f"Novelizing Turn {current_turn['turn']}...", end="\r")
-            
-            bridge_data = generate_narrative_bridge(prev_turn, action, current_turn)
-            
-            if bridge_data:
-                # bridge_data will be a string: either the prose, "[OK]", or "[FAILED]"
-                current_turn["narrative_bridge"] = bridge_data
-                if bridge_data not in ["[OK]", "[FAILED]"]:
-                    processed_count += 1
-            
-            self.save_state()
-
-        if not silent and processed_count > 0:
-            print(f"\n{Fore.GREEN}Success: {processed_count} new bridges generated.{Style.RESET_ALL}")
-            time.sleep(1)
-        elif not silent:
-            print(f"\n{Fore.YELLOW}All turns are already novelized.{Style.RESET_ALL}")
-            time.sleep(1)
+        if not self.history: return 0
+        try: return int(self.history[-1].get("turn", 0)) + 1
+        except (ValueError, TypeError): return len(self.history)
 
 
     # ---------------------------------------------------------
@@ -254,767 +146,588 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def build_messages(self, target_turn):
-        """
-        Constructs the LLM prompt payload.
-        Must be implemented by the specific child class (Sandbox or Campaign).
-        """
+        """Constructs the LLM prompt payload. Implemented by Sandbox/Campaign."""
         raise NotImplementedError("Must be implemented by child class")
 
-
     def post_generation_hook(self, turn_data):
-        """
-        Allows child classes to inject specific logic (like chapter transitions 
-        or goal checking) immediately after the LLM generates a valid turn.
-        """
+        """Allows child classes to inject logic immediately after LLM generation."""
         pass 
 
-
-    def process_custom_command(self, ui_lower, user_input):
-        """
-        Allows child classes to intercept and handle mode-specific user commands 
-        (e.g., the Chapter Wizard in Sandbox mode).
-        """
+    def process_custom_command(self, cmd_key, cmd_val):
+        """Intercepts mode-specific commands (e.g., Sandbox Chapter Wizard)."""
         return False, None
-        
-        
-    # ---------------------------------------------------------
-    # GAME ENGINE CORE LOOP
-    # ---------------------------------------------------------
-        
-    def play(self):
-        """
-        The core Game Loop of TomeWeaver.
-        Handles state management, LLM generation, API error fallbacks, 
-        user input, and the rendering of the Terminal User Interface (TUI).
-        """
-        from logger import log_event
-        from config import load_json_safely
-        clear_screen()
-        print(f"{Fore.CYAN}Loading Adventure: {self.setup_data.get('title', 'Unknown')}...")
-        
-        # Load the maximum number of times the engine will attempt to get valid JSON from the AI
-        max_retries = ENGINE_CONFIG.get("max_retries", 10)
 
-        while True:
-            # ---------------------------------------------------------
-            # 1. STATE RESOLUTION & BYPASS LOGIC
-            # ---------------------------------------------------------
-            # Check if we need to generate a new turn, or if we are resuming 
-            # a saved game where the last turn is waiting for player input.
-            resuming_turn = False
-            if self.history and self.history[-1].get("player_choice") is None:
-                turn_data = self.history[-1]
-                resuming_turn = True
+
+    # ---------------------------------------------------------
+    # CORE API: INITIALIZATION & ACTION FLOW (GUI ENDPOINTS)
+    # ---------------------------------------------------------
+
+    def initialize_game(self):
+        """
+        Endpoint: Called by the GUI when a story is loaded.
+        Returns the current turn to display. If the story is brand new, 
+        it handles Prologue/Seed logic or generates Turn 1.
+        """
+        print(f"{Fore.CYAN}Initializing Engine: {self.setup_data.get('title', 'Unknown')}...{Style.RESET_ALL}")
+        
+        if self.history:
+            # Game is already in progress, return the latest state
+            return self.history[-1]
+
+        # Check for Startup Bypasses (Prologue or Story Seed)
+        turn_data = self._check_startup_bypasses()
+        if turn_data:
+            self._process_valid_turn(turn_data)
+            return turn_data
+
+        # If no bypasses exist, generate the first turn from scratch
+        print(f"{Style.DIM}Generating opening scene...{Style.RESET_ALL}")
+        turn_data = self._generate_turn()
+        if turn_data:
+            self._process_valid_turn(turn_data)
+        return turn_data
+
+
+    def _check_startup_bypasses(self):
+        """Checks for As-Is Prologues, Epilogues, or start_turn.json seeds."""
+        is_first_turn = (len(self.history) == 0)
+        is_concluding = (len(self.history) > 0 and self.history[-1].get("player_choice") == "Conclude the Story")
+        
+        narr_cfg = self.setup_data.get("narrative", {})
+        p_style = narr_cfg.get("prologue", "expand").lower()
+        e_style = narr_cfg.get("epilogue", "expand").lower()
+
+        # --- PROLOGUE AS-IS BYPASS ---
+        if is_first_turn and p_style == "as_is" and self.prologue_content:
+            first_chap = self.chapters[0]
+            turn_data = {
+                "story_text": self.prologue_content,
+                "pov_character": self.setup_data.get("main_character", "Protagonist"),
+                "location": self.setup_data.get("setting", "The Beginning"),
+                "input_type": "choice",
+                "choices": [f"Start Chapter 1: {first_chap['title']}"],
+                "text_prompt": None,
+                "turn": self.get_next_turn_number(),
+                "player_choice": None
+            }
+            if self.is_campaign:
+                turn_data["goal_progress"] = "Setting the scene."
+                turn_data["chapter_goal_achieved"] = False
+            if self.track_inventory: turn_data["inventory_and_state"] = self.setup_data.get("starting_inventory", "")
+            if self.can_die: turn_data["is_game_over"] = False
+            return turn_data
+
+        # --- EPILOGUE AS-IS BYPASS ---
+        elif is_concluding and e_style == "as_is" and self.epilogue_content:
+            turn_data = {
+                "story_text": self.epilogue_content + "\n\n*** THE END. ***",
+                "turn": self.get_next_turn_number(),
+                "pov_character": self.setup_data.get("main_character", "Protagonist"),
+                "location": "The End",
+                "input_type": "choice",
+                "choices": ["Export Story", "Restart Game", "Quit"],
+                "text_prompt": None,
+                "player_choice": None
+            }
+            if self.is_campaign:
+                turn_data["goal_progress"] = "Journey Complete."
+                turn_data["chapter_goal_achieved"] = True
+            if self.track_inventory: turn_data["inventory_and_state"] = "Final State."
+            turn_data["is_game_over"] = True
+            return turn_data
+
+        # --- THE STORY SEED INTERCEPTOR (TURN 1) ---
+        is_at_start = (len(self.history) == 0 or (len(self.history) == 1 and str(self.history[0].get("player_choice", "")).startswith("Start Chapter")))
+        seed_file = self.adv_dir / "start_turn.json"
+
+        if is_at_start and seed_file.exists():
+            seed_data = load_json_safely(seed_file, "start_turn.json")
+            # Safely handle empty lists to prevent IndexError crashes
+            if isinstance(seed_data, list) and len(seed_data) > 0:
+                turn_data = seed_data[-1]
+            elif isinstance(seed_data, dict):
+                turn_data = seed_data
             else:
                 turn_data = None
+                
+            if turn_data:
+                turn_data["turn"] = self.get_next_turn_number()
+                turn_data["player_choice"] = None
+                return turn_data
+
+        return None
+
+
+    def submit_action(self, player_choice):
+        """
+        Endpoint: Called by the GUI when the player selects or types an action.
+        Commits the choice, generates the next turn, and returns the new state.
+        """
+        from logger import log_event
+        if not self.history: return None
+        
+        # --- META-CHOICE INTERCEPTOR ---
+        # If the GUI blindly passes back one of the Engine's Game Over / Victory buttons,
+        # we intercept it here to prevent the AI from generating a story about the UI.
+        pc_exact = str(player_choice).strip()
+        if pc_exact == "Restart Game": return self.restart_campaign()
+        if pc_exact.startswith("Undo (Cheat Death"): return self.undo()
+        if pc_exact in ["Quit", "Export Story", "Export Tragic Ending"]: return None
+        
+        # Handle Chapter Wizard overrides from Sandbox Engine
+        handled, p_choice = self.process_custom_command(player_choice, "")
+        if handled and p_choice:
+            player_choice = p_choice
             
-            if not resuming_turn:
-                # --- NARRATIVE BYPASS LOGIC (PROLOGUE & EPILOGUE) ---
-                # Determine where we are in the overall story arc
-                is_first_turn = (len(self.history) == 0)
-                is_concluding = (len(self.history) > 0 and self.history[-1].get("player_choice") == "Conclude the Story")
+        log_event(self.adv_dir, f"Player Action [Turn {len(self.history)}]: {player_choice}")
+
+        # Update Chapter Markers if jumping
+        if player_choice.startswith("Start Chapter:"):
+            pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
+            if pending:
+                pending["start_turn"] = len(self.history) + 1
+                if len(self.chapters) > 1: 
+                    self.chapters[-2]["end_turn"] = len(self.history)
+
+        # Save action to ledger
+        self.history[-1]["player_choice"] = player_choice
+        self.save_state()
+
+        # Novelizer background hook: Render previous gap before generating next turn
+        if ENGINE_CONFIG.get("instant_novelizer", False) and len(self.history) >= 1:
+            self._generate_bridge_for_latest_action()
+
+        print(f"{Style.DIM}Generating turn...{Style.RESET_ALL}")
+        
+        # Check if the player choice triggered a bypass (like "Conclude the Story")
+        bypass = self._check_startup_bypasses()
+        if bypass:
+            self._process_valid_turn(bypass)
+            return bypass
+
+        # Standard generation route
+        turn_data = self._generate_turn()
+        if turn_data:
+            self._process_valid_turn(turn_data)
+        return turn_data
+
+
+    # ---------------------------------------------------------
+    # CORE API: DRAFT EDITING (GUI Driven)
+    # ---------------------------------------------------------
+    # These endpoints replace the old CLI "review_mode" loop. The GUI calls one 
+    # of these to get a proposed JSON object, displays a diff to the user, and 
+    # then calls commit_draft() or cancel_draft().
+
+    def redo_turn(self):
+        """Endpoint: Destructively pops the current turn and immediately commits a completely new one."""
+        from logger import log_event
+        if len(self.history) == 0: return None
+        
+        log_event(self.adv_dir, "Command: REDO (User destructively rerolled turn)")
+        print(f"{Style.DIM}Generating alternative version...{Style.RESET_ALL}")
+        
+        # 1. Completely discard the current turn
+        self.history.pop()
+        self.save_state()
+        
+        # 2. Generate a brand new turn from scratch (NO draft inheritance)
+        turn_data = self._generate_turn()
+        
+        # 3. Commit it automatically
+        if turn_data: 
+            self._process_valid_turn(turn_data)
+        
+        return turn_data
+
+    def redo_choices(self):
+        """Endpoint: Keeps the story prose but generates a new set of choices."""
+        from logger import log_event
+        if len(self.history) == 0: return None
+        
+        log_event(self.adv_dir, "Command: REDO CHOICES (User rerolled choices)")
+        print(f"{Style.DIM}Generating new choices...{Style.RESET_ALL}")
+        
+        self.backup_turn = self.history.pop()
+        
+        prompt = (
+            "EDIT MODE: Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. "
+            "Do NOT include meta-notes, director instructions, or outcomes. Keep them brief.\n"
+            "CRITICAL: Keep the 'story_text' EXACTLY the same.\n"
+            f"Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
+        )
+        self.active_fix = prompt
+        self.is_fix_mode = True
+        
+        turn_data = self._generate_turn()
+        
+        if turn_data:
+            # REVERSE INHERITANCE: Forcefully overwrite the AI's text with the original backup text.
+            # This mathematically guarantees the prose, location, and POV cannot be altered by hallucinations.
+            turn_data["story_text"] = self.backup_turn.get("story_text", "")
+            turn_data["location"] = self.backup_turn.get("location", "Unknown")
+            turn_data["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
+            if self.track_inventory:
+                turn_data["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
                 
-                # Retrieve narrative styles from the 'narrative' object (Defaults to 'expand')
-                narr_cfg = self.setup_data.get("narrative", {})
-                p_style = narr_cfg.get("prologue", "expand").lower()
-                e_style = narr_cfg.get("epilogue", "expand").lower()
+            self.active_fix = None
+            self.is_fix_mode = False
+            self.backup_turn = None
+            
+            self._process_valid_turn(turn_data)
+            return turn_data
+            
+        # If the LLM completely fails, safely restore the original turn
+        self.history.append(self.backup_turn)
+        self.save_state()
+        self.active_fix = None
+        self.is_fix_mode = False
+        self.backup_turn = None
+        return None
+        
+    def request_polish(self):
+        """Endpoint: Generates a prose-enhanced DRAFT of the current turn."""
+        if len(self.history) == 0: return None
+        print(f"{Style.DIM}Generating polished prose...{Style.RESET_ALL}")
+        self.backup_turn = self.history.pop()
+        
+        prompt = (
+            "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
+            "of the provided JSON to the quality of a published novel.\n"
+            "1. You MUST fix missing determiners, prepositions, and correct awkward phrasing.\n"
+            "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery.\n"
+            "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
+            "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
+            f"Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
+        )
+        self.active_fix = prompt
+        self.is_fix_mode = True
+        
+        draft = self._generate_turn()
+        if draft: self._apply_draft_inheritance(draft)
+        return draft
 
-                # --- PROLOGUE AS-IS BYPASS ---
-                # Only triggers if style is 'as_is' and the file actually exists.
-                # If style is 'none', this block is skipped, and the code proceeds to Turn 1.
-                if is_first_turn and p_style == "as_is" and self.prologue_content:
-                    first_chap = self.chapters[0]
-                    turn_data = {
-                        "story_text": self.prologue_content,
-                        "pov_character": self.setup_data.get("main_character", "Protagonist"),
-                        "location": self.setup_data.get("setting", "The Beginning"),
-                        "input_type": "choice",
-                        "choices": [f"Start Chapter 1: {first_chap['title']}"],
-                        "text_prompt": None,
-                        "turn": self.get_next_turn_number(), # Safely assigns Turn 0
-                        "player_choice": None
-                    }
-                    # Inject mandatory schema keys to satisfy the engine's internal logic
-                    if self.is_campaign:
-                        turn_data["goal_progress"] = "Setting the scene."
-                        turn_data["chapter_goal_achieved"] = False
-                    if self.track_inventory:
-                        turn_data["inventory_and_state"] = self.setup_data.get("starting_inventory", "Health: Good. Items: Starting Gear.")
-                    if self.can_die:
-                        turn_data["is_game_over"] = False
+    def request_fix(self, instruction):
+        """Endpoint: Generates a targeted-edit DRAFT based on a user instruction."""
+        if len(self.history) == 0: return None
+        print(f"{Style.DIM}Generating fix...{Style.RESET_ALL}")
+        self.backup_turn = self.history.pop()
+        
+        self.active_fix = f"EDIT MODE: Apply this fix: '{instruction}'. Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
+        self.is_fix_mode = True
+        
+        draft = self._generate_turn()
+        if draft: self._apply_draft_inheritance(draft)
+        return draft
 
-                # --- EPILOGUE AS-IS BYPASS ---
-                # Only triggers if style is 'as_is' and the file actually exists.
-                elif is_concluding and e_style == "as_is" and self.epilogue_content:
-                    turn_data = {
-                        "story_text": self.epilogue_content + "\n\n*** THE END. ***",
-                        "turn": self.get_next_turn_number(),
-                        "pov_character": self.setup_data.get("main_character", "Protagonist"),
-                        "location": "The End",
-                        "input_type": "choice",
-                        "choices": ["Export Story", "Restart Game", "Quit"],
-                        "text_prompt": None,
-                        "player_choice": None
-                    }
-                    if self.is_campaign:
-                        turn_data["goal_progress"] = "Journey Complete."
-                        turn_data["chapter_goal_achieved"] = True
-                    if self.track_inventory: 
-                        turn_data["inventory_and_state"] = "Final State."
-                    turn_data["is_game_over"] = True
+    def _apply_draft_inheritance(self, draft_turn):
+        """
+        STRICT INHERITANCE: Protects structural JSON metadata from AI hallucinations 
+        during edits by overwriting the draft metadata with the original backup.
+        """
+        if self.backup_turn:
+            draft_turn["choices"] = self.backup_turn.get("choices", [])
+            draft_turn["location"] = self.backup_turn.get("location", "Unknown")
+            draft_turn["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
+            if self.track_inventory:
+                draft_turn["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
+                
+    def request_reroll_draft(self):
+        """Endpoint: Generates a new draft based on the currently active fix mode, WITHOUT popping history."""
+        if not self.backup_turn: return None
+        print(f"{Style.DIM}Rerolling draft...{Style.RESET_ALL}")
+        
+        draft = self._generate_turn()
+        if draft: self._apply_draft_inheritance(draft)
+        return draft
+        
+    def commit_draft(self, draft_turn):
+        """Endpoint: Accepts the drafted turn and permanently saves it to history."""
+        self.active_fix = None
+        self.is_fix_mode = False
+        self.backup_turn = None
+        self._process_valid_turn(draft_turn)
+        return draft_turn
 
-                # --- THE STORY SEED INTERCEPTOR (TURN 1) ---
-                # If turn_data is still None, we check if there is a hand-crafted start_turn.json
-                # to load instead of calling the AI.
-                if not turn_data:
-                    is_at_start = (len(self.history) == 0 or (len(self.history) == 1 and str(self.history[0].get("player_choice", "")).startswith("Start Chapter")))
-                    seed_file = self.adv_dir / "start_turn.json"
+    def cancel_draft(self):
+        """Endpoint: Discards the draft and restores the original turn state."""
+        if self.backup_turn:
+            self.history.append(self.backup_turn)
+            self.save_state()
+        self.active_fix = None
+        self.is_fix_mode = False
+        self.backup_turn = None
+        return self.history[-1] if self.history else None
 
-                    if is_at_start and seed_file.exists():
-                        seed_data = load_json_safely(seed_file, "start_turn.json")
-                        
-                        # Handle case where user renamed history.json (a list) to start_turn.json
-                        if isinstance(seed_data, list):
-                            turn_data = seed_data[-1] if seed_data else None
-                        else:
-                            turn_data = seed_data
-                            
-                        if turn_data:
-                            turn_data["turn"] = self.get_next_turn_number()
-                            turn_data["player_choice"] = None
 
-            # ---------------------------------------------------------
-            # 2. THE GENERATION LOOP (LLM API CALLS)
-            # ---------------------------------------------------------
-            # If turn_data was not created by bypasses or seed, we must ask the AI to generate it.
-            if not turn_data and not resuming_turn:
-                # Provide granular UI feedback based on the specific Engine Action state
-                if getattr(self, 'active_action_cmd', None) == 'polish':
-                    status_str = "Generating polished prose..."
-                elif getattr(self, 'active_action_cmd', None) == 'redo':
-                    status_str = "Generating alternative version..."
-                elif getattr(self, 'active_action_cmd', None) == 'fix':
-                    status_str = "Generating fix..."
-                elif getattr(self, 'active_action_cmd', None) == 'expand':
-                    status_str = "Expanding notes into prose..."
-                elif is_first_turn:
-                    status_str = "Generating Prologue..."
-                elif is_concluding:
-                    status_str = "Generating Epilogue..."
+    # ---------------------------------------------------------
+    # CORE API: UTILITIES
+    # ---------------------------------------------------------
+
+    def undo(self):
+        """Endpoint: Pops the last turn and reverts the previous choice."""
+        from logger import log_event
+        if len(self.history) > 1:
+            log_event(self.adv_dir, "Command: UNDO (User backtracked via GUI)")
+            self.history.pop()
+            self.history[-1]["player_choice"] = None 
+            
+            # Revert Chapter markers
+            t_turn = len(self.history) + 1
+            if self.chapters[-1].get("start_turn") == t_turn:
+                self.chapters[-1]["start_turn"] = None
+                if len(self.chapters) > 1: self.chapters[-2]["end_turn"] = None
+            elif self.chapters[-1].get("start_turn") is None and len(self.chapters) > 1:
+                self.chapters.pop()
+            
+            self.save_state()
+        return self.history[-1] if self.history else None
+
+    def restart_campaign(self):
+        """Endpoint: Wipes all progress safely and restarts the engine."""
+        from logger import log_event
+        log_event(self.adv_dir, "Command: RESTART ADVENTURE")
+        self.history.clear()
+        
+        # Reset Chapter bounds depending on Mode
+        if self.is_campaign:
+            for c in self.chapters:
+                c["start_turn"] = 1 if c["chapter_number"] == 1 else None
+                c["end_turn"] = None
+        else:
+            self.chapters = [self.chapters[0]]
+            self.chapters[0]["start_turn"] = 1
+            self.chapters[0]["end_turn"] = None
+        
+        # Flush the session log file so debugging is clean for the new run
+        log_file = self.adv_dir / "session_log.txt"
+        if log_file.exists():
+            try: log_file.unlink() 
+            except Exception: pass
+
+        self.save_state()
+        return self.initialize_game()
+
+    def toggle_test_mode(self, enabled: bool):
+        """Endpoint: Allows the GUI to enable/disable Autopilot routing."""
+        self.is_test_mode = enabled
+        return self.is_test_mode
+        
+    def manual_edit_turn(self, turn_index, field, new_text):
+        """Endpoint: Allows the GUI to directly overwrite a string in history (e.g., fixing a typo)."""
+        if 0 <= turn_index < len(self.history):
+            if field in self.history[turn_index]:
+                self.history[turn_index][field] = new_text
+                self.save_state()
+                return True
+        return False
+
+    def request_recap(self):
+        """Endpoint: Triggers the LLM to write a summary of the adventure so far."""
+        return generate_recap(self.setup_data, self.history)
+
+    def export_adventure(self, export_type=1, use_novelization=True):
+        """Endpoint: Routes export requests to the exporter module."""
+        from exporter import export_story
+        return export_story(self.adv_dir, self.setup_data, self.history, self.chapters, export_type, use_novelization)
+
+
+    # ---------------------------------------------------------
+    # THE LLM GENERATION PIPELINE
+    # ---------------------------------------------------------
+
+    def _generate_turn(self):
+        """
+        The underlying generation loop. Contacts the LLM, handles retries, 
+        rate limits, auto-polishing, and missing choice generation.
+        """
+        from logger import log_event
+        max_retries = ENGINE_CONFIG.get("max_retries", 10)
+        
+        # --- CONTEXT OVERRIDE FOR FIX/POLISH ---
+        if self.active_fix and self.is_fix_mode:
+            editor_sys = self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."
+            base_messages = [
+                {"role": "system", "content": editor_sys},
+                {"role": "user", "content": self.active_fix}
+            ]
+        else:
+            base_messages = self.build_messages(self.get_next_turn_number())
+
+        prev_turn_obj = self.history[-1] if self.history else None
+        turn_data = None
+        err = None
+
+        for attempt in range(max_retries):
+        
+            # --- THE FEEDBACK LOOP ---
+            # Help the AI by telling it exactly what JSON syntax it broke
+            active_messages = base_messages.copy()
+            if attempt > 0 and err:
+                feedback = f"Your previous JSON was invalid. Error: {err}."
+                if "Expecting" in str(err) or "control character" in str(err).lower():
+                    feedback += " CRITICAL: Use \\\" for dialogue and \\n for new lines. Do NOT press Enter inside a JSON string."
+                active_messages.append({"role": "user", "content": f"{feedback} Please correct it."})
+
+            turn_data, err, raw = get_llm_response(
+                active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
+                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
+            )
+            
+            if turn_data:
+                # --- THE INDESTRUCTIBLE STAMP ---
+                # Overwrite hallucinated turn numbers with the true Master Clock
+                turn_data["turn"] = self.get_next_turn_number()
+                break 
+                
+            # --- THE API ERROR SUITE ---
+            print(f"{Fore.RED}[!] Attempt {attempt+1} Failed: {err}{Style.RESET_ALL}")
+            err_str = str(err).lower()
+            if any(x in err_str for x in ["429", "quota", "too many requests"]):
+                delay = 15.0 
+                if attempt < max_retries - 1:
+                    print(f"{Style.DIM}Backing off to respect API limits...{Style.RESET_ALL}")
+                    time.sleep(delay)
+            elif any(x in err_str for x in ["503", "502", "504", "unavailable"]):
+                if attempt < max_retries - 1: time.sleep(10)
+            elif attempt < max_retries - 1:
+                time.sleep(1)
+        
+        if not turn_data:
+            print(f"{Fore.RED}Critical Error: LLM failed to produce valid JSON after {max_retries} attempts.{Style.RESET_ALL}")
+            log_event(self.adv_dir, "SYSTEM FAILURE: Max retries exceeded.")
+            return None
+            
+        # --- AUTO-POLISH INTERCEPTOR ---
+        if ENGINE_CONFIG.get("auto_polish", False) and not self.is_fix_mode:
+            print(f"{Style.DIM}Auto-polishing prose...{Style.RESET_ALL}")
+            turn_data = self._auto_polish_pass(turn_data, prev_turn_obj, max_retries)
+
+        # --- MISSING CHOICES INTERCEPTOR ---
+        is_concluding = (len(self.history) > 0 and self.history[-1].get("player_choice") == "Conclude the Story")
+        if not is_concluding and not self.is_fix_mode:
+            current_choices = turn_data.get("choices", [])
+            if len(current_choices) < 2:
+                is_override = False
+                if self.is_campaign and turn_data.get("chapter_goal_achieved"): is_override = True
+                if not self.is_campaign and next((c for c in self.chapters if c.get("start_turn") is None), None): is_override = True
+                    
+                if not is_override:
+                    from llm import generate_missing_choices
+                    new_choices = generate_missing_choices(turn_data.get("story_text", ""), self.get_next_turn_number())
+                    if len(new_choices) >= 2: turn_data["choices"] = new_choices
+
+        return turn_data
+
+    def _auto_polish_pass(self, draft, prev_turn_obj, max_retries):
+        """Silently upgrades the prose of a freshly generated turn."""
+        polish_prompt = (
+            "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
+            "of the provided JSON to the quality of a published novel.\n"
+            "1. You MUST fix missing determiners, prepositions, and correct awkward phrasing.\n"
+            "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery.\n"
+            "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
+            "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
+            f"Original JSON:\n{json.dumps(draft, indent=2)}"
+        )
+        polish_msgs = [
+            {"role": "system", "content": self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."},
+            {"role": "user", "content": polish_prompt}
+        ]
+        
+        for p_attempt in range(max_retries):
+            polished_data, _, _ = get_llm_response(
+                polish_msgs, p_attempt, self.adv_dir, prev_turn_obj, False, 
+                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
+            )
+            if polished_data:
+                # Inheritance protection to ensure the editor didn't break game logic
+                polished_data["choices"] = draft.get("choices", [])
+                polished_data["location"] = draft.get("location", "Unknown")
+                polished_data["pov_character"] = draft.get("pov_character", "Unknown")
+                if self.track_inventory: polished_data["inventory_and_state"] = draft.get("inventory_and_state", "")
+                polished_data["turn"] = self.get_next_turn_number()
+                return polished_data
+            time.sleep(1)
+        return draft
+
+    def _process_valid_turn(self, turn_data):
+        """Finalizes the turn data, runs mechanical hooks, and saves to history."""
+        # 1. Run Mechanical Hooks (Campaign Goals, Chapter logic)
+        self.post_generation_hook(turn_data)
+
+        # 2. Sandbox Chapter Logic (Injects transitional choices)
+        if not self.is_campaign:
+            pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
+            if pending_chap and turn_data.get("player_choice") is None and not turn_data.get("is_game_over"):
+                turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
+
+        # 3. Mortality/Victory Interceptor
+        if self.can_die:
+            if str(turn_data.get("is_game_over", False)).lower() == "true":
+                prev_choice = self.history[-1].get("player_choice", "") if self.history else ""
+                if prev_choice == "Conclude the Story":
+                    print(f"\n{Fore.GREEN}[System: CAMPAIGN COMPLETE! Victory achieved.]{Style.RESET_ALL}")
                 else:
-                    status_str = "Generating turn..."
+                    print(f"\n{Fore.RED}[System: GAME OVER! The protagonist has met their end.]{Style.RESET_ALL}")
                 
-                print(f"{Style.DIM}{status_str}{Style.RESET_ALL}", end="\r")
-                
-                # --- CONTEXT OVERRIDE FOR FIX/POLISH ---
-                # If we are performing a targeted edit, we strip away the massive history
-                # context. This forces the LLM to focus entirely on copy-editing the JSON.
-                if self.active_fix and getattr(self, 'active_action_cmd', None) in ['fix', 'polish']:
-                    # We MUST include the system prompt so the AI remembers the JSON schema!
-                    editor_sys = self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."
-                    
-                    base_messages = [
-                        {"role": "system", "content": editor_sys},
-                        {"role": "user", "content": self.active_fix}
-                    ]
-                else:
-                    # Normal generation: construct full history prompt
-                    base_messages = self.build_messages(self.get_next_turn_number())
-                
-                # Pass the ENTIRE previous turn object so the LLM module can auto-heal missing static metadata
-                prev_turn_obj = self.history[-1] if self.history else None
+                # Force the UI to display meta-options instead of standard gameplay choices
+                turn_data["input_type"] = "choice"
+                turn_data["choices"] = [
+                    "Undo (Cheat Death and try a different action)",
+                    "Restart Game",
+                    "Export Tragic Ending",
+                    "Quit"
+                ]
 
-                err = None
-                for attempt in range(max_retries):
-                
-                    # --- THE FEEDBACK LOOP ---
-                    # If this isn't the first try, we help the AI by telling it exactly what syntax it broke
-                    active_messages = base_messages.copy()
-                    if attempt > 0 and err:
-                        # Determine if it's a syntax error or a logic error
-                        feedback = f"Your previous JSON was invalid. Error: {err}."
-                        if "Expecting" in str(err) or "control character" in str(err).lower():
-                            feedback += " CRITICAL: You used unescaped double-quotes or raw line breaks inside a JSON string. Use \\\" for dialogue and \\n for new lines. DO NOT press Enter inside a value. You understand JSON, ensure it is a valid JSON format!"
-                        
-                        active_messages.append({
-                            "role": "user",
-                            "content": f"{feedback} Please provide the corrected JSON."
-                        })
+        # 4. Finalize and Save
+        self.active_fix = None
+        self.is_fix_mode = False
+        turn_data["player_choice"] = None 
+        self.history.append(turn_data)
+        self.save_state()
 
-                    # Dispatch the API request to the local or cloud LLM
-                    turn_data, err, raw = get_llm_response(
-                        active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
-                        self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
-                    )
-                    
-                    # If we received valid, schema-compliant JSON, break out of the retry loop
-                    if turn_data:
-                        # --- THE INDESTRUCTIBLE STAMP ---
-                        # Overwrite whatever turn number the AI hallucinated with the true sequential Master Clock
-                        turn_data["turn"] = self.get_next_turn_number()
-                        break 
-                        
-                    # --- THE API ERROR SUITE ---
-                    # If the request failed, handle rate limits and server overloads gracefully
-                    print(" " * 70, end="\r") # Clear the loading line
-                    print(f"{Fore.RED}[!] Attempt {attempt+1} Failed: {err}")
-                    
-                    err_str = str(err).lower()
-                    
-                    # 1. Handle Rate Limits / Quotas (HTTP 429) - Common in cloud APIs like OpenRouter
-                    if any(x in err_str for x in ["429", "quota", "too many requests"]):
-                        delay = 15.0 
-                        delay_match = re.search(r'retry in ([\d\.]+)s', err_str) or re.search(r"'retrydelay':\s*'(\d+)s'", err_str)
-                        if delay_match:
-                            try: delay = float(delay_match.group(1)) + 1.0 
-                            except ValueError: pass
-                        print(f"{Style.DIM}[API Limit] Backing off for {delay:.1f}s to respect limits...{Style.RESET_ALL}")
-                        time.sleep(delay)
-                    
-                    # 2. Handle Server Overloads (HTTP 502, 503, 504) - Common when local models are swapping from RAM to VRAM
-                    elif any(x in err_str for x in ["503", "502", "504", "unavailable", "high demand"]):
-                        print(f"{Style.DIM}[Server Overloaded] Backing off for 10s to await recovery...{Style.RESET_ALL}")
-                        time.sleep(10)
-                    
-                    # 3. Standard short wait for general failures
-                    elif attempt < max_retries - 1:
-                        time.sleep(1)
-                
-                # If we exhausted all 10 retries, crash gracefully
-                if not turn_data:
-                    print(f"{Fore.RED}Critical Error: LLM failed to produce valid JSON after {max_retries} attempts.")
-                    log_event(self.adv_dir, "SYSTEM FAILURE: Max retries exceeded.")
-                    break
-                    
-                    
-                # --- AUTO-POLISH INTERCEPTOR ---
-                # If enabled, automatically runs a second "Copy-Editor" pass on newly generated turns.
-                if ENGINE_CONFIG.get("auto_polish", False) and getattr(self, 'active_action_cmd', None) not in ['polish', 'fix', 'redo']:
-                    print(f"{Style.DIM}Auto-polishing prose...{Style.RESET_ALL}", end="\r")
-                    
-                    polish_prompt = (
-                        "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
-                        "of the provided JSON to the quality of a published novel.\n"
-                        "1. You MUST fix missing determiners (e.g., adding 'the' or 'a'), missing prepositions (e.g., 'in the'), and correct awkward phrasing.\n"
-                        "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery where it feels clunky or robotic.\n"
-                        "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
-                        "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
-                        f"Original JSON:\n{json.dumps(turn_data, indent=2)}"
-                    )
-                    
-                    polish_msgs = [
-                        {"role": "system", "content": self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."},
-                        {"role": "user", "content": polish_prompt}
-                    ]
-                    
-                    for p_attempt in range(max_retries):
-                        polished_data, p_err, p_raw = get_llm_response(
-                            polish_msgs, p_attempt, self.adv_dir, prev_turn_obj, False, 
-                            self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
-                        )
-                        if polished_data:
-                            # STRICT INHERITANCE: Protect the original structure from AI hallucinations
-                            polished_data["choices"] = turn_data.get("choices", [])
-                            polished_data["location"] = turn_data.get("location", "Unknown")
-                            polished_data["pov_character"] = turn_data.get("pov_character", "Unknown")
-                            if self.track_inventory:
-                                polished_data["inventory_and_state"] = turn_data.get("inventory_and_state", "")
-                            
-                            polished_data["turn"] = self.get_next_turn_number()
-                            turn_data = polished_data # Successfully overwrite the draft!
-                            break
-                        time.sleep(1)
-                    
-                    print(" " * 70, end="\r") # Clear the polishing message
-
-                # --- MISSING CHOICES INTERCEPTOR ---
-                # If the generated turn (draft or polished) has 0 or 1 choice, it is unplayable.
-                # Instead of trashing the prose, we surgically generate just the choices.
-                # We skip this check if it's the Epilogue or a targeted edit where choices might be intentionally missing.
-                if turn_data and not is_concluding and getattr(self, 'active_action_cmd', None) not in ['fix', 'redo']:
-                    current_choices = turn_data.get("choices", [])
-                    
-                    # We check < 2 because a game requires at least an A/B choice
-                    if len(current_choices) < 2:
-                        # Check if a mechanical engine override is already scheduled for this turn
-                        is_mechanical_override = False
-                        
-                        # In campaign mode, the engine overwrites choices on victory
-                        if self.is_campaign and turn_data.get("chapter_goal_achieved"):
-                            is_mechanical_override = True
-                            
-                        # In sandbox mode, the engine overwrites choices on chapter transition
-                        if not self.is_campaign:
-                            pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
-                            if pending_chap and not turn_data.get("is_game_over"):
-                                is_mechanical_override = True
-                                
-                        if not is_mechanical_override:
-                            # Safely isolate this import to prevent circular dependencies
-                            from llm import generate_missing_choices
-                            new_choices = generate_missing_choices(turn_data.get("story_text", ""), self.get_next_turn_number())
-                            if len(new_choices) >= 2:
-                                turn_data["choices"] = new_choices
-                            print(" " * 70, end="\r") # Clear the generator message
-
-            # ---------------------------------------------------------
-            # 2.5. REVISION PREVIEW (NON-DESTRUCTIVE EDITING)
-            # ---------------------------------------------------------
-            # If we are resolving a redo, fix, or polish, pause and ask for confirmation
-            if not resuming_turn and turn_data and getattr(self, 'review_mode', False):
-                
-                # --- STRICT INHERITANCE ---
-                # The AI often hallucinates or deletes choices during a 'polish' or 'fix'.
-                # We forcefully overwrite the AI's structural metadata with the original data 
-                # from the backup turn to ensure 100% preservation of the game state.
-                if getattr(self, 'backup_turn', None):
-                    turn_data["choices"] = self.backup_turn.get("choices", [])
-                    turn_data["location"] = self.backup_turn.get("location", "Unknown")
-                    turn_data["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
-                    
-                    # If tracking inventory, preserve it. If a redo is happening, it's safer 
-                    # to keep the original state to prevent the AI from giving/taking items unfairly.
-                    if self.track_inventory:
-                        turn_data["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
-
-                print(f"\n{Fore.MAGENTA}=== PROPOSED REVISION ==={Style.RESET_ALL}")
-                
-                # Pre-format the text to avoid backslash syntax errors inside f-strings
-                preview_text = turn_data.get("story_text", "").replace("\\n", "\n")
-                print(f"{Fore.WHITE}{preview_text}\n")
-                
-                # Show the inherited choices
-                if turn_data.get("choices"):
-                    for idx, c in enumerate(turn_data["choices"], 1):
-                        print(f"{Fore.GREEN}{idx}. {c}{Style.RESET_ALL}")
-                
-                while True:
-                    r_choice = input(f"\n{Fore.CYAN}Review Revision: {Fore.GREEN}[1] Accept  {Fore.YELLOW}[2] Retry  {Fore.RED}[3] Cancel{Style.RESET_ALL} > ").strip()
-                    if r_choice in ['1', '2', '3']:
-                        break
-                        
-                if r_choice == '1': # Accept
-                    self.review_mode = False
-                    self.backup_turn = None
-                    self.active_action_cmd = None # Clear UI state
-                    # Proceeds naturally to Step 3 and commits the new turn
-                elif r_choice == '2': # Retry
-                    turn_data = None # Trash the result
-                    continue # Jumps to top of loop and queries LLM again
-                elif r_choice == '3': # Cancel
-                    self.review_mode = False
-                    self.active_fix = None
-                    self.is_fix_mode = False
-                    self.active_action_cmd = None # Clear UI state
-                    self.history.append(self.backup_turn) # Restore original turn
-                    self.backup_turn = None
-                    self.save_state()
-                    continue # Jumps to top, resumes old state, re-renders TUI
-
-            # ---------------------------------------------------------
-            # 3. POST-GENERATION STATE PROCESSING
-            # ---------------------------------------------------------
-            # This must run for any NEW turn (Bypass, Seed, or LLM), but NOT when resuming
-            if not resuming_turn and turn_data:
-                # Let the specific Engine (Campaign or Sandbox) process goals and transitions
-                self.post_generation_hook(turn_data)
-
-                # Sandbox Chapter Logic: Inject the "Start Chapter" choice if a manual transition was triggered
-                if not self.is_campaign:
-                    pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
-                    if pending_chap and turn_data.get("player_choice") is None and not turn_data.get("is_game_over"):
-                        turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
-
-                # Mortality/Victory Interceptor: Check if the AI determined the game is over
-                if self.can_die and not is_concluding:
-                    if str(turn_data.get("is_game_over", False)).lower() == "true":
-                        prev_choice = self.history[-1].get("player_choice", "") if self.history else ""
-                        if prev_choice == "Conclude the Story":
-                            print(f"\n{Fore.GREEN}[System: CAMPAIGN COMPLETE! Victory achieved.]{Style.RESET_ALL}")
-                        else:
-                            print(f"\n{Fore.RED}[System: GAME OVER! The protagonist has met their end.]{Style.RESET_ALL}")
-                        # Force the UI to display meta-options instead of standard gameplay choices
-                        turn_data["input_type"] = "choice"
-                        turn_data["choices"] = [
-                            "Undo (Cheat Death and try a different action)",
-                            "Restart Game",
-                            "Export Tragic Ending",
-                            "Quit"
-                        ]
-
-                # Reset edit flags and append the new, validated turn to the ledger
-                self.active_fix = None
-                self.is_fix_mode = False
-                turn_data["player_choice"] = None 
-                self.history.append(turn_data)
+    def _generate_bridge_for_latest_action(self):
+        """Background hook to weave novelized prose seamlessly during gameplay."""
+        if len(self.history) < 2: return
+        prev_turn = self.history[-2]
+        action = prev_turn.get("player_choice")
+        ui_cmds = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
+        
+        is_chapter_jump = str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter"
+        
+        if action and not is_chapter_jump and not any(ui in str(action) for ui in ui_cmds):
+            print(f"{Style.DIM}Weaving narrative bridge...{Style.RESET_ALL}")
+            from llm import generate_narrative_bridge
+            bridge_data = generate_narrative_bridge(prev_turn, action, self.history[-1])
+            if bridge_data:
+                self.history[-1]["narrative_bridge"] = bridge_data
                 self.save_state()
 
+    def novelize_history(self, silent=True):
+        """Manual endpoint to loop through the entire history and patch missing bridges."""
+        from llm import generate_narrative_bridge
+        processed_count = 0
+        ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
 
-            # ---------------------------------------------------------
-            # 4. RENDER TERMINAL USER INTERFACE (TUI)
-            # ---------------------------------------------------------
-            clear_screen()
+        for i in range(1, len(self.history)):
+            current_turn = self.history[i]
+            prev_turn = self.history[i-1]
+            action = prev_turn.get("player_choice")
             
-            # Find the chapter metadata for the current turn
-            target_turn = turn_data.get('turn', len(self.history))
-            active_chap = next((c for c in reversed(self.chapters) if c.get("start_turn") is not None and c["start_turn"] <= target_turn), self.chapters[0])
+            if not action or any(ui in str(action) for ui in ui_commands): continue
             
-            # Print Header
-            print(f"{Fore.CYAN}=== Chapter {active_chap['chapter_number']}: {active_chap['title']} === {Style.DIM}[Turn {target_turn}]")
-            print(f"{Fore.CYAN}" + "="*50)
+            existing = current_turn.get("narrative_bridge")
+            if existing and existing not in ["[FAILED]", "", {}]: continue
+                
+            if str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter": continue
             
-            # Print Inventory / Physical State
-            if self.track_inventory or turn_data.get('inventory_and_state'):
-                inv_state = turn_data.get('inventory_and_state', 'Unknown')
-                print(f"{Fore.YELLOW}[Status] {inv_state}\n")
-                
-            # Print Location and POV metadata
-            print(f"{Fore.MAGENTA}[{turn_data['location']} | POV: {turn_data['pov_character']}]")
-            
-            # Print the actual AI Story Prose (translating literal \n to actual line breaks)
-            display_text = turn_data['story_text'].replace("\\n", "\n")
-            print(f"{Fore.WHITE}{display_text}\n")
-
-            player_choice = ""
-            action_cmd = None
-            
-            # Render the Interactive Elements
-            print(f"{Style.DIM}(Type '?' for special commands, or type any custom action directly.){Style.RESET_ALL}")
-            
-            if turn_data["input_type"] == "choice" and turn_data["choices"]:
-                # Render multiple choice buttons
-                for idx, choice in enumerate(turn_data["choices"], 1):
-                    if "Undo (Cheat Death" in str(choice):
-                        print(f"{Fore.RED}{idx}. {choice}")
-                    elif str(choice).startswith("Start Chapter:") or str(choice) == "Conclude the Story":
-                        print(f"{Fore.MAGENTA}{idx}. {choice}")
-                    else:
-                        print(f"{Fore.GREEN}{idx}. {choice}")
-            else:
-                # Render custom text input prompt (e.g. for naming things or solving riddles)
-                print(f"{Fore.GREEN}{turn_data.get('text_prompt', 'Enter text: ')}")
-
-            # --- INSTANT NOVELIZER (BACKGROUND-FEEL UX) ---
-            # By running this AFTER rendering the text but BEFORE asking for input, 
-            # the user can read the generated story while the LLM works on the bridge.
-            if not resuming_turn and turn_data:
-                if ENGINE_CONFIG.get("instant_novelizer", False) and len(self.history) > 1:
-                    if "narrative_bridge" not in turn_data:
-                        prev_turn = self.history[-2]
-                        action = prev_turn.get("player_choice")
-                        ui_cmds = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
-                        
-                        is_chapter_jump = str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter"
-                        
-                        if action and not is_chapter_jump and not any(ui in str(action) for ui in ui_cmds):
-                            print(f"\n{Style.DIM}[System: Weaving narrative bridge...]{Style.RESET_ALL}", end="\r")
-                            from llm import generate_narrative_bridge
-                            bridge_data = generate_narrative_bridge(prev_turn, action, turn_data)
-                            
-                            if bridge_data:
-                                turn_data["narrative_bridge"] = bridge_data
-                            self.save_state()
-                            
-                            # Clear the "Weaving..." message so the input prompt looks clean
-                            print(" " * 50, end="\r")
-            
-            # ---------------------------------------------------------
-            # 5. INPUT HANDLING (AUTOPILOT / TEST MODE)
-            # ---------------------------------------------------------
-            if self.is_test_mode:
-                print(f"\n{Fore.CYAN}[TEST MODE] Autopilot engaged... (Close window to abort){Style.RESET_ALL}")
-                
-                # In test mode, reveal the hidden AI goal reasoning
-                prog = turn_data.get("goal_progress")
-                if prog: print(f"{Fore.YELLOW}[Goal Progress]\n{prog}{Style.RESET_ALL}")
-                
-                time.sleep(2) 
-                
-                # Check if we have reached a hard-stop condition
-                is_endgame = False
-                meta_choices = ["Quit", "Export Story", "Restart Game", "Undo (Cheat Death and try a different action)", "Export Tragic Ending", "Conclude the Story"]
-                if turn_data.get("choices"):
-                    is_endgame = any(c in meta_choices for c in turn_data["choices"])
-                
-                if is_endgame:
-                    print(f"{Fore.MAGENTA}Story conclusion or Game Over detected. Disabling Autopilot.{Style.RESET_ALL}")
-                    self.is_test_mode = False
-                else:
-                    # Select the optimal "Golden Path" choice to blitz through the chapter logic
-                    if turn_data["input_type"] == "choice" and turn_data["choices"]:
-                        player_choice = turn_data["choices"][0]
-                    else:
-                        player_choice = "I cautiously proceed forward." 
-                    print(f"{Fore.YELLOW}>> Auto-selected: {player_choice}{Style.RESET_ALL}")
-                    time.sleep(1)
-
-            # ---------------------------------------------------------
-            # 6. INPUT HANDLING (MANUAL USER COMMANDS)
-            # ---------------------------------------------------------
-            if not self.is_test_mode and not player_choice:
-                while True:
-                    if turn_data["input_type"] == "choice" and turn_data["choices"]:
-                        user_input = input(f"\n{Fore.CYAN}What do you do? (1-{len(turn_data['choices'])}) {Style.RESET_ALL}> ")
-                    else:
-                        user_input = input(f"\n{Fore.CYAN}Your answer: {Style.RESET_ALL}> ")
-
-                    ui_clean = user_input.strip()
-                    if not ui_clean: continue
-
-                    # Parse meta-commands (e.g., 'fix: make it raining')
-                    if ":" in ui_clean:
-                        cmd_parts = ui_clean.split(":", 1)
-                        cmd_key = cmd_parts[0].strip().lower()
-                        cmd_val = cmd_parts[1].strip()
-                    else:
-                        cmd_key = ui_clean.lower()
-                        cmd_val = ""
-
-                    # Single-character hardcoded aliases
-                    if cmd_key == '?': cmd_key = 'help'
-                    if cmd_key == 'q': cmd_key = 'quit'
-
-                    # --- GENERIC COMMAND MATCHER ---
-                    # To add new commands in the future, just add the full word to this registry list!
-                    engine_cmds = [
-                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 'novelize', 'polish',
-                        'recap', 'summary', 'export', 'redo', 'undo', 'fix', 'chapter', 'expand'
-                    ]
-                    
-                    # Only attempt prefix matching if it's a single word and not already an exact match
-                    if " " not in cmd_key and cmd_key not in engine_cmds:
-                        matches = [c for c in engine_cmds if c.startswith(cmd_key)]
-                        if len(matches) == 1:
-                            cmd_key = matches[0] # Auto-resolve to the full command!
-                        elif len(matches) > 1:
-                            print(f"\n{Fore.YELLOW}Ambiguous command '{cmd_key}'. Did you mean: {', '.join(matches)}?{Style.RESET_ALL}")
-                            continue
-                    # -------------------------------
-
-                    # Map raw input to Engine Actions
-                    if cmd_key in ['quit', 'exit']:
-                        print(f"\n{Fore.YELLOW}State saved successfully. See you next time!")
-                        sys.exit(0)
-                    elif cmd_key in ['?', 'help']:
-                        self.print_help_menu()
-                        continue
-                    elif cmd_key == 'clear':
-                        action_cmd = 'clear'
-                        break
-                    elif cmd_key == 'test':
-                        action_cmd = 'test'
-                        break
-                    elif cmd_key == 'restart':
-                        log_event(self.adv_dir, "Command: RESTART ADVENTURE")
-                        action_cmd = 'restart'
-                        break
-                    elif cmd_key == 'reload':
-                        action_cmd = 'reload'
-                        break
-                    elif cmd_key in ['recap', 'summary']:
-                        print(f"\n{Style.DIM}Generating recap, please wait...")
-                        recap_text = generate_recap(self.setup_data, self.history)
-                        print(f"\n{Fore.CYAN}=== THE STORY SO FAR ===\n{Fore.WHITE}{recap_text}\n{Fore.CYAN}========================\n")
-                        continue
-                    elif cmd_key == 'export':
-                        action_cmd = 'export'
-                        break
-                    elif cmd_key == 'redo':
-                        log_event(self.adv_dir, "Command: REDO (User rerolled turn)")
-                        action_cmd = 'redo'
-                        break
-                    elif cmd_key == 'undo':
-                        log_event(self.adv_dir, "Command: UNDO (User backtracked)")
-                        action_cmd = 'undo'
-                        break
-                    elif cmd_key == 'novelize':
-                        self.novelize_history()
-                        continue
-                    elif cmd_key == 'expand':
-                        if self.is_campaign:
-                            print(f"\n{Fore.RED}[System] The 'expand' command is only available in Sandbox Mode!{Style.RESET_ALL}")
-                            continue
-                        
-                        # If user typed 'exp' without the colon, prompt them for the text
-                        if not cmd_val:
-                            cmd_val = input(f"{Fore.YELLOW}What should the AI expand? {Style.RESET_ALL}").strip()
-                        if cmd_val:
-                            player_choice = f"EXPAND: {cmd_val}"
-                            break
-                        else:
-                            continue
-                    elif cmd_key == 'polish':
-                        if not self.allow_fix_command:
-                            print(f"\n{Fore.RED}[System] The 'polish' command is disabled!{Style.RESET_ALL}")
-                            continue
-                        log_event(self.adv_dir, "Command: POLISH (User requested prose enhancement)")
-                        action_cmd = 'polish'
-                        break
-                    elif cmd_key == 'fix':
-                        if not self.allow_fix_command:
-                            print(f"\n{Fore.RED}[System] The 'fix' command is disabled!{Style.RESET_ALL}")
-                            continue
-                        log_event(self.adv_dir, f"Command: FIX (Instruction: {cmd_val})")
-                        action_cmd = 'fix'
-                        self.fix_instruction = cmd_val
-                        break
-
-                    # Allow child engines (like Sandbox) to intercept custom commands (e.g. Chapter transitions)
-                    handled, p_choice = self.process_custom_command(cmd_key, cmd_val)
-                    if handled:
-                        if p_choice: player_choice = p_choice
-                        break
-
-                    # Handle standard choice selection by index
-                    if turn_data["input_type"] == "choice" and turn_data["choices"]:
-                        try:
-                            choice_idx = int(ui_clean)
-                            if 1 <= choice_idx <= len(turn_data["choices"]):
-                                selected_str = turn_data["choices"][choice_idx - 1]
-                                
-                                # Catch meta-choices generated by Victory/Death interceptors
-                                if selected_str == "Quit": sys.exit(0)
-                                elif selected_str in ["Export Story", "Export Tragic Ending"]:
-                                    action_cmd = 'export'; break
-                                elif selected_str == "Restart Game":
-                                    action_cmd = 'restart'; break
-                                elif selected_str == "Undo (Cheat Death and try a different action)":
-                                    action_cmd = 'undo'; break
-                                else:
-                                    player_choice = selected_str; break
-                            else: continue
-                        except ValueError:
-                            # If they typed a string instead of a number, treat it as a custom action
-                            player_choice = ui_clean; break
-                    else:
-                        player_choice = ui_clean; break
-
-            # ---------------------------------------------------------
-            # 7. ACTION EXECUTION & SAVE COMMITS
-            # ---------------------------------------------------------
-            if action_cmd == 'clear': continue
-            elif action_cmd == 'test': self.is_test_mode = True; continue
-            
-            elif action_cmd == 'export':
-                from exporter import export_story
-                exp_choice = input(f"{Fore.YELLOW}1. TXT  2. MD  3. HTML\nChoose Format (1-3): {Style.RESET_ALL}").strip()
-                if exp_choice in ['1', '2', '3']:
-                    
-                    use_nov = False
-                    if ENGINE_CONFIG.get("debug_novelizer", False):
-                        style_choice = input(f"{Fore.YELLOW}1. Novelized (Seamless prose)  2. Interactive (Show choices)\nChoose Style (1-2): {Style.RESET_ALL}").strip()
-                        if style_choice in ['1', '2']:
-                            use_nov = (style_choice == '1')
-
-                    path = export_story(self.adv_dir, self.setup_data, self.history, self.chapters, int(exp_choice), use_novelization=use_nov)
-                    print(f"{Fore.GREEN}Exported to: {path}")
-                    time.sleep(2)
-
-                continue
-                
-            elif action_cmd == 'reload':
-                print(f"{Style.DIM}Reloading all configuration and history files...{Style.RESET_ALL}")
-                self.setup_data = load_json_safely(self.adv_dir / "setup.json", "setup.json")
-                self.history = load_json_safely(self.history_file, "history.json") if self.history_file.exists() else []
-                self.chapters = self.load_chapters()
-                if self.history:
-                    self.resync_master_clock()
-                continue
-                
-            elif action_cmd == 'restart':
-                print(f"\n{Fore.RED}=== RESTART WARNING ===")
-                print(f"{Fore.RED}Are you sure you want to restart? All progress will be lost and there is NO undo.")
-                print(f"{Fore.YELLOW}If you want to replay without losing progress, it is recommended to make a backup of the '{self.adv_dir.name}' folder before restarting.")
-                
-                if input(f"\n{Fore.CYAN}Type 'yes' to confirm restart (or anything else to cancel): {Style.RESET_ALL}").strip().lower() == 'yes':
-                    # 1. Wipe the story ledger
-                    self.history.clear()
-                    
-                    # 2. Reset Chapter bounds depending on Mode
-                    if self.is_campaign:
-                        for c in self.chapters:
-                            c["start_turn"] = 1 if c["chapter_number"] == 1 else None
-                            c["end_turn"] = None
-                    else:
-                        self.chapters = [self.chapters[0]]
-                        self.chapters[0]["start_turn"] = 1
-                        self.chapters[0]["end_turn"] = None
-                    
-                    # 3. Flush the session log file so debugging is clean for the new run
-                    log_file = self.adv_dir / "session_log.txt"
-                    if log_file.exists():
-                        try:
-                            log_file.unlink() 
-                        except Exception as e:
-                            print(f"{Fore.RED}Note: Could not clear session_log: {e}")
-
-                    # 4. Save blank state and re-initialize loop
-                    log_event(self.adv_dir, "--- RESTARTED: Session Log and History Cleared ---")
-                    self.save_state()
-                    print(f"{Fore.GREEN}Adventure reset. Generating the opening scene...")
-                    time.sleep(1)
-                continue
-                
-                
-            elif action_cmd == 'undo':
-                if len(self.history) > 1:
-                    # Pop the current turn and nullify the choice of the PREVIOUS turn
-                    self.history.pop()
-                    self.history[-1]["player_choice"] = None 
-                    
-                    # Handle rolling back Chapter markers if we undid a transition
-                    t_turn = len(self.history) + 1
-                    if self.chapters[-1].get("start_turn") == t_turn:
-                        self.chapters[-1]["start_turn"] = None
-                        if len(self.chapters) > 1: self.chapters[-2]["end_turn"] = None
-                    elif self.chapters[-1].get("start_turn") is None and len(self.chapters) > 1:
-                        self.chapters.pop()
-                    
-                    self.save_state()
-                continue
-                
-            elif action_cmd == 'redo':
-                self.active_action_cmd = 'redo' 
-                self.backup_turn = self.history.pop()
-                self.review_mode = True 
-                continue 
-                
-            elif action_cmd == 'polish':
-                self.active_action_cmd = 'polish'
-                prompt = (
-                    "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
-                    "of the provided JSON to the quality of a published novel.\n"
-                    "1. You MUST fix missing determiners (e.g., adding 'the' or 'a'; from 'open door' to 'open the door'; from 'since waking morning' to 'since waking in the morning'), missing prepositions (e.g., 'in the'), and correct awkward phrasing.\n"
-                    "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery where it feels clunky or robotic.\n"
-                    "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
-                    "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
-                    f"Original JSON:\n{json.dumps(turn_data, indent=2)}"
-                )
-                self.active_fix = prompt
-                self.backup_turn = self.history.pop()
-                self.review_mode = True
-                self.is_fix_mode = True 
-                continue
-                
-            elif action_cmd == 'fix':
-                self.active_action_cmd = 'fix'
-                self.active_fix = f"EDIT MODE: Apply this fix: '{self.fix_instruction}'. Original JSON:\n{json.dumps(turn_data, indent=2)}"
-                self.backup_turn = self.history.pop()
-                self.review_mode = True
-                self.is_fix_mode = True
-                continue
-
-            # Standard Turn Commit: Lock in the player's choice and save state
-            if player_choice:
-                log_event(self.adv_dir, f"Player Action [Turn {len(self.history)}]: {player_choice}")
-                
-                # If player selected a chapter transition, update the chapter markers
-                if player_choice.startswith("Start Chapter:"):
-                    pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
-                    if pending:
-                        pending["start_turn"] = len(self.history) + 1
-                        if len(self.chapters) > 1: 
-                            self.chapters[-2]["end_turn"] = len(self.history)
-
-            self.history[-1]["player_choice"] = player_choice
+            if not silent: print(f"Novelizing Turn {current_turn['turn']}...", end="\r")
+            bridge_data = generate_narrative_bridge(prev_turn, action, current_turn)
+            if bridge_data:
+                current_turn["narrative_bridge"] = bridge_data
+                if bridge_data not in ["[OK]", "[FAILED]"]: processed_count += 1
             self.save_state()
+
+        if not silent and processed_count > 0:
+            print(f"\n{Fore.GREEN}Success: {processed_count} new bridges generated.{Style.RESET_ALL}")
