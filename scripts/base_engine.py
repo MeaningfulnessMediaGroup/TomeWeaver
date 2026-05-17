@@ -173,9 +173,10 @@ class BaseEngine:
         if self.allow_manual_chapters:
             print(f"{Fore.YELLOW}chapter      {Fore.WHITE}: Opens Wizard to transition to a new Chapter.")
         print(f"{Fore.YELLOW}export       {Fore.WHITE}: Export the story to TXT, MD, or HTML.")
-        #print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
         if not self.is_campaign:
             print(f"{Fore.YELLOW}expand: [txt]{Fore.WHITE}: Expands your summary/notes into full prose for the next turn.")
+        print(f"{Fore.YELLOW}novelize     {Fore.WHITE}: Manually weaves player choices into seamless prose.")
+        print(f"{Fore.YELLOW}polish       {Fore.WHITE}: Proofreads and elevates the prose of the current turn without altering events.")
         print(f"{Fore.YELLOW}clear        {Fore.WHITE}: Clears the screen and redraws the current turn.")
         print(f"{Fore.YELLOW}reload       {Fore.WHITE}: Reloads history/config from disk (useful after manual edits).")
         print(f"{Fore.YELLOW}redo         {Fore.WHITE}: Rerolls the current turn completely.")
@@ -387,13 +388,41 @@ class BaseEngine:
             # ---------------------------------------------------------
             # If turn_data was not created by bypasses or seed, we must ask the AI to generate it.
             if not turn_data and not resuming_turn:
-                # Provide UI feedback on what the engine is currently doing
-                status_str = "Applying fix..." if self.is_fix_mode else "Generating Prologue..." if is_first_turn else "Generating Epilogue..." if is_concluding else "Generating turn..."
+                # Provide granular UI feedback based on the specific Engine Action state
+                if getattr(self, 'active_action_cmd', None) == 'polish':
+                    status_str = "Generating polished prose..."
+                elif getattr(self, 'active_action_cmd', None) == 'redo':
+                    status_str = "Generating alternative version..."
+                elif getattr(self, 'active_action_cmd', None) == 'fix':
+                    status_str = "Generating fix..."
+                elif getattr(self, 'active_action_cmd', None) == 'expand':
+                    status_str = "Expanding notes into prose..."
+                elif is_first_turn:
+                    status_str = "Generating Prologue..."
+                elif is_concluding:
+                    status_str = "Generating Epilogue..."
+                else:
+                    status_str = "Generating turn..."
+                
                 print(f"{Style.DIM}{status_str}{Style.RESET_ALL}", end="\r")
                 
-                # Construct the massive prompt (System Rules + World Setup + Recent History)
-                base_messages = self.build_messages(self.get_next_turn_number())
-                prev_story = next((t["story_text"] for t in reversed(self.history) if t.get("story_text")), None)
+                # --- CONTEXT OVERRIDE FOR FIX/POLISH ---
+                # If we are performing a targeted edit, we strip away the massive history
+                # context. This forces the LLM to focus entirely on copy-editing the JSON.
+                if self.active_fix and getattr(self, 'active_action_cmd', None) in ['fix', 'polish']:
+                    # We MUST include the system prompt so the AI remembers the JSON schema!
+                    editor_sys = self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."
+                    
+                    base_messages = [
+                        {"role": "system", "content": editor_sys},
+                        {"role": "user", "content": self.active_fix}
+                    ]
+                else:
+                    # Normal generation: construct full history prompt
+                    base_messages = self.build_messages(self.get_next_turn_number())
+                
+                # Pass the ENTIRE previous turn object so the LLM module can auto-heal missing static metadata
+                prev_turn_obj = self.history[-1] if self.history else None
 
                 err = None
                 for attempt in range(max_retries):
@@ -414,7 +443,7 @@ class BaseEngine:
 
                     # Dispatch the API request to the local or cloud LLM
                     turn_data, err, raw = get_llm_response(
-                        active_messages, attempt, self.adv_dir, prev_story, self.is_fix_mode, 
+                        active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
                         self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
                     )
                     
@@ -456,6 +485,131 @@ class BaseEngine:
                     print(f"{Fore.RED}Critical Error: LLM failed to produce valid JSON after {max_retries} attempts.")
                     log_event(self.adv_dir, "SYSTEM FAILURE: Max retries exceeded.")
                     break
+                    
+                    
+                # --- AUTO-POLISH INTERCEPTOR ---
+                # If enabled, automatically runs a second "Copy-Editor" pass on newly generated turns.
+                if ENGINE_CONFIG.get("auto_polish", False) and getattr(self, 'active_action_cmd', None) not in ['polish', 'fix', 'redo']:
+                    print(f"{Style.DIM}Auto-polishing prose...{Style.RESET_ALL}", end="\r")
+                    
+                    polish_prompt = (
+                        "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
+                        "of the provided JSON to the quality of a published novel.\n"
+                        "1. You MUST fix missing determiners (e.g., adding 'the' or 'a'), missing prepositions (e.g., 'in the'), and correct awkward phrasing.\n"
+                        "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery where it feels clunky or robotic.\n"
+                        "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
+                        "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
+                        f"Original JSON:\n{json.dumps(turn_data, indent=2)}"
+                    )
+                    
+                    polish_msgs = [
+                        {"role": "system", "content": self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."},
+                        {"role": "user", "content": polish_prompt}
+                    ]
+                    
+                    for p_attempt in range(max_retries):
+                        polished_data, p_err, p_raw = get_llm_response(
+                            polish_msgs, p_attempt, self.adv_dir, prev_turn_obj, False, 
+                            self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
+                        )
+                        if polished_data:
+                            # STRICT INHERITANCE: Protect the original structure from AI hallucinations
+                            polished_data["choices"] = turn_data.get("choices", [])
+                            polished_data["location"] = turn_data.get("location", "Unknown")
+                            polished_data["pov_character"] = turn_data.get("pov_character", "Unknown")
+                            if self.track_inventory:
+                                polished_data["inventory_and_state"] = turn_data.get("inventory_and_state", "")
+                            
+                            polished_data["turn"] = self.get_next_turn_number()
+                            turn_data = polished_data # Successfully overwrite the draft!
+                            break
+                        time.sleep(1)
+                    
+                    print(" " * 70, end="\r") # Clear the polishing message
+
+                # --- MISSING CHOICES INTERCEPTOR ---
+                # If the generated turn (draft or polished) has 0 or 1 choice, it is unplayable.
+                # Instead of trashing the prose, we surgically generate just the choices.
+                # We skip this check if it's the Epilogue or a targeted edit where choices might be intentionally missing.
+                if turn_data and not is_concluding and getattr(self, 'active_action_cmd', None) not in ['fix', 'redo']:
+                    current_choices = turn_data.get("choices", [])
+                    
+                    # We check < 2 because a game requires at least an A/B choice
+                    if len(current_choices) < 2:
+                        # Check if a mechanical engine override is already scheduled for this turn
+                        is_mechanical_override = False
+                        
+                        # In campaign mode, the engine overwrites choices on victory
+                        if self.is_campaign and turn_data.get("chapter_goal_achieved"):
+                            is_mechanical_override = True
+                            
+                        # In sandbox mode, the engine overwrites choices on chapter transition
+                        if not self.is_campaign:
+                            pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
+                            if pending_chap and not turn_data.get("is_game_over"):
+                                is_mechanical_override = True
+                                
+                        if not is_mechanical_override:
+                            # Safely isolate this import to prevent circular dependencies
+                            from llm import generate_missing_choices
+                            new_choices = generate_missing_choices(turn_data.get("story_text", ""), self.get_next_turn_number())
+                            if len(new_choices) >= 2:
+                                turn_data["choices"] = new_choices
+                            print(" " * 70, end="\r") # Clear the generator message
+
+            # ---------------------------------------------------------
+            # 2.5. REVISION PREVIEW (NON-DESTRUCTIVE EDITING)
+            # ---------------------------------------------------------
+            # If we are resolving a redo, fix, or polish, pause and ask for confirmation
+            if not resuming_turn and turn_data and getattr(self, 'review_mode', False):
+                
+                # --- STRICT INHERITANCE ---
+                # The AI often hallucinates or deletes choices during a 'polish' or 'fix'.
+                # We forcefully overwrite the AI's structural metadata with the original data 
+                # from the backup turn to ensure 100% preservation of the game state.
+                if getattr(self, 'backup_turn', None):
+                    turn_data["choices"] = self.backup_turn.get("choices", [])
+                    turn_data["location"] = self.backup_turn.get("location", "Unknown")
+                    turn_data["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
+                    
+                    # If tracking inventory, preserve it. If a redo is happening, it's safer 
+                    # to keep the original state to prevent the AI from giving/taking items unfairly.
+                    if self.track_inventory:
+                        turn_data["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
+
+                print(f"\n{Fore.MAGENTA}=== PROPOSED REVISION ==={Style.RESET_ALL}")
+                
+                # Pre-format the text to avoid backslash syntax errors inside f-strings
+                preview_text = turn_data.get("story_text", "").replace("\\n", "\n")
+                print(f"{Fore.WHITE}{preview_text}\n")
+                
+                # Show the inherited choices
+                if turn_data.get("choices"):
+                    for idx, c in enumerate(turn_data["choices"], 1):
+                        print(f"{Fore.GREEN}{idx}. {c}{Style.RESET_ALL}")
+                
+                while True:
+                    r_choice = input(f"\n{Fore.CYAN}Review Revision: {Fore.GREEN}[1] Accept  {Fore.YELLOW}[2] Retry  {Fore.RED}[3] Cancel{Style.RESET_ALL} > ").strip()
+                    if r_choice in ['1', '2', '3']:
+                        break
+                        
+                if r_choice == '1': # Accept
+                    self.review_mode = False
+                    self.backup_turn = None
+                    self.active_action_cmd = None # Clear UI state
+                    # Proceeds naturally to Step 3 and commits the new turn
+                elif r_choice == '2': # Retry
+                    turn_data = None # Trash the result
+                    continue # Jumps to top of loop and queries LLM again
+                elif r_choice == '3': # Cancel
+                    self.review_mode = False
+                    self.active_fix = None
+                    self.is_fix_mode = False
+                    self.active_action_cmd = None # Clear UI state
+                    self.history.append(self.backup_turn) # Restore original turn
+                    self.backup_turn = None
+                    self.save_state()
+                    continue # Jumps to top, resumes old state, re-renders TUI
 
             # ---------------------------------------------------------
             # 3. POST-GENERATION STATE PROCESSING
@@ -623,7 +777,7 @@ class BaseEngine:
                     # --- GENERIC COMMAND MATCHER ---
                     # To add new commands in the future, just add the full word to this registry list!
                     engine_cmds = [
-                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 'novelize',
+                        'quit', 'exit', 'help', 'clear', 'test', 'restart', 'reload', 'novelize', 'polish',
                         'recap', 'summary', 'export', 'redo', 'undo', 'fix', 'chapter', 'expand'
                     ]
                     
@@ -689,6 +843,13 @@ class BaseEngine:
                             break
                         else:
                             continue
+                    elif cmd_key == 'polish':
+                        if not self.allow_fix_command:
+                            print(f"\n{Fore.RED}[System] The 'polish' command is disabled!{Style.RESET_ALL}")
+                            continue
+                        log_event(self.adv_dir, "Command: POLISH (User requested prose enhancement)")
+                        action_cmd = 'polish'
+                        break
                     elif cmd_key == 'fix':
                         if not self.allow_fix_command:
                             print(f"\n{Fore.RED}[System] The 'fix' command is disabled!{Style.RESET_ALL}")
@@ -794,11 +955,6 @@ class BaseEngine:
                     time.sleep(1)
                 continue
                 
-            elif action_cmd == 'redo':
-                # Pop the current turn completely and re-query the LLM
-                self.history.pop()
-                self.save_state()
-                continue 
                 
             elif action_cmd == 'undo':
                 if len(self.history) > 1:
@@ -817,13 +973,36 @@ class BaseEngine:
                     self.save_state()
                 continue
                 
-            elif action_cmd == 'fix':
-                # Set the engine into Fix Mode and append the original JSON for the LLM to edit
-                self.active_fix = f"EDIT MODE: Apply this fix: '{self.fix_instruction}'. Original JSON:\n{json.dumps(turn_data, indent=2)}"
-                self.history.pop()
-                self.is_fix_mode = True
-                self.save_state()
+            elif action_cmd == 'redo':
+                self.active_action_cmd = 'redo' 
+                self.backup_turn = self.history.pop()
+                self.review_mode = True 
                 continue 
+                
+            elif action_cmd == 'polish':
+                self.active_action_cmd = 'polish'
+                prompt = (
+                    "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
+                    "of the provided JSON to the quality of a published novel.\n"
+                    "1. You MUST fix missing determiners (e.g., adding 'the' or 'a'; from 'open door' to 'open the door'; from 'since waking morning' to 'since waking in the morning'), missing prepositions (e.g., 'in the'), and correct awkward phrasing.\n"
+                    "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery where it feels clunky or robotic.\n"
+                    "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
+                    "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
+                    f"Original JSON:\n{json.dumps(turn_data, indent=2)}"
+                )
+                self.active_fix = prompt
+                self.backup_turn = self.history.pop()
+                self.review_mode = True
+                self.is_fix_mode = True 
+                continue
+                
+            elif action_cmd == 'fix':
+                self.active_action_cmd = 'fix'
+                self.active_fix = f"EDIT MODE: Apply this fix: '{self.fix_instruction}'. Original JSON:\n{json.dumps(turn_data, indent=2)}"
+                self.backup_turn = self.history.pop()
+                self.review_mode = True
+                self.is_fix_mode = True
+                continue
 
             # Standard Turn Commit: Lock in the player's choice and save state
             if player_choice:

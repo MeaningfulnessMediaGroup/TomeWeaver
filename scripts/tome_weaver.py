@@ -94,7 +94,7 @@ def main_menu_wizard():
                     new_dir.mkdir(parents=True)
                     
                     # --- AUTO-GENERATE THE .BAT SHORTCUT ---
-                    bat_path = root_dir / f"Story - {safe_title}.bat"
+                    bat_path = root_dir / f"!Story - {safe_title}.bat"
                     bat_content = f"""@echo off
 setlocal EnableDelayedExpansion
 

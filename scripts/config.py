@@ -131,7 +131,8 @@ def load_engine_config():
         "max_tokens": 2000,
         "logging_enabled": True,
         "log_verbose": False,
-        "log_raw_json_on_failure": False
+        "log_raw_json_on_failure": False,
+        "auto_polish": False
     }
     
     # 1. Create default config if it doesn't exist
