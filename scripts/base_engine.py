@@ -340,15 +340,16 @@ class BaseEngine:
         
         return turn_data
 
-    def redo_choices(self):
-        """Endpoint: Keeps the story prose but generates a new set of choices."""
+    def redo_choices(self, turn_idx=None):
+        """Endpoint: Keeps the story prose but generates a new set of choices. Supports historical turns."""
         from logger import log_event
         if len(self.history) == 0: return None
         
-        log_event(self.adv_dir, "Command: REDO CHOICES (User rerolled choices)")
-        print(f"{Style.DIM}Generating new choices...{Style.RESET_ALL}")
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        log_event(self.adv_dir, f"Command: REDO CHOICES (Turn {idx})")
+        print(f"{Style.DIM}Generating new choices for Turn {idx}...{Style.RESET_ALL}")
         
-        self.backup_turn = self.history.pop()
+        self.backup_turn = self.history.pop(idx)
         
         prompt = (
             "EDIT MODE: Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. "
@@ -370,34 +371,90 @@ class BaseEngine:
             if self.track_inventory:
                 turn_data["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
                 
+            # Restore historical player choices and bridges if we are editing the past
+            if "player_choice" in self.backup_turn: turn_data["player_choice"] = self.backup_turn["player_choice"]
+            if "narrative_bridge" in self.backup_turn: turn_data["narrative_bridge"] = self.backup_turn["narrative_bridge"]
+                
             self.active_fix = None
             self.is_fix_mode = False
             self.backup_turn = None
             
-            self._process_valid_turn(turn_data)
+            # Reinsert safely
+            if idx == len(self.history):
+                self._process_valid_turn(turn_data)
+            else:
+                self.history.insert(idx, turn_data)
+                self.save_state()
             return turn_data
             
         # If the LLM completely fails, safely restore the original turn
-        self.history.append(self.backup_turn)
+        self.history.insert(idx, self.backup_turn)
         self.save_state()
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
         return None
         
-    def request_polish(self):
-        """Endpoint: Generates a prose-enhanced DRAFT of the current turn."""
+    def request_expansion(self):
+        """Endpoint: Generates a context-aware descriptive expansion DRAFT of the current turn."""
         if len(self.history) == 0: return None
-        print(f"{Style.DIM}Generating polished prose...{Style.RESET_ALL}")
-        self.backup_turn = self.history.pop()
+        print(f"{Style.DIM}Expanding turn prose...{Style.RESET_ALL}")
+        
+        # 1. Stage the turn to be expanded
+        self.backup_turn = self.history.pop(idx)
+        self.backup_turn_idx = idx 
+        
+        # 2. Gather World Context
+        world_info = {
+            "title": self.setup_data.get("title"),
+            "tone": self.setup_data.get("tone"),
+            "lore": self.setup_data.get("lore_and_rules"),
+            "protagonist": self.setup_data.get("main_character")
+        }
+        
+        # 3. Gather Narrative Context (The turn immediately preceding this one)
+        prev_story = "This is the first turn of the adventure."
+        if idx > 0:
+            prev_turn = self.history[idx - 1]
+            prev_story = f"PREVIOUS SCENE: {prev_turn.get('story_text', '')}\nACTION TAKEN: {prev_turn.get('player_choice', '')}"
+
+        # 4. Construct High-Context Prompt
+        prompt = (
+            "EDIT MODE (EXPAND): You are a literary expansion agent. Your task is to take a short 'story_text' "
+            "and expand it into 3-5 rich, cinematic paragraphs.\n\n"
+            "--- WORLD CONTEXT ---\n"
+            f"{json.dumps(world_info, indent=2)}\n\n"
+            "--- NARRATIVE CONTEXT ---\n"
+            f"{prev_story}\n\n"
+            "--- TASK ---\n"
+            "Expand the 'story_text' in the Original JSON below. Use the World and Narrative context above to ensure "
+            "consistency in tone and continuity.\n"
+            "1. USE sensory details (textures, lighting, smells) and internal character emotions.\n"
+            "2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within the current scene.\n"
+            "3. CRITICAL: DO NOT introduce new items or characters not mentioned in the context.\n"
+            "4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.\n\n"
+            f"Original JSON to Expand:\n{json.dumps(self.backup_turn, indent=2)}"
+        )
+        
+        self.active_fix = prompt
+        self.is_fix_mode = True
+        
+        draft = self._generate_turn()
+        if draft: self._apply_draft_inheritance(draft)
+        return draft
+        
+    def request_polish(self, turn_idx=None):
+        """Endpoint: Generates a polished DRAFT. Supports historical turns."""
+        if len(self.history) == 0: return None
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        
+        self.backup_turn = self.history.pop(idx)
+        self.backup_turn_idx = idx
+        print(f"{Style.DIM}Polishing Turn {idx} prose...{Style.RESET_ALL}")
         
         prompt = (
-            "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
-            "of the provided JSON to the quality of a published novel.\n"
-            "1. You MUST fix missing determiners, prepositions, and correct awkward phrasing.\n"
-            "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery.\n"
-            "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
-            "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
+            "EDIT MODE (POLISH): Proofread and elevate the 'story_text' to professional novel quality. "
+            "Fix grammar and vocabulary. DO NOT change the plot or touch dialogue.\n"
             f"Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
         )
         self.active_fix = prompt
@@ -407,11 +464,15 @@ class BaseEngine:
         if draft: self._apply_draft_inheritance(draft)
         return draft
 
-    def request_fix(self, instruction):
-        """Endpoint: Generates a targeted-edit DRAFT based on a user instruction."""
+
+    def request_fix(self, instruction, turn_idx=None):
+        """Endpoint: Generates a targeted-edit DRAFT based on user instruction."""
         if len(self.history) == 0: return None
-        print(f"{Style.DIM}Generating fix...{Style.RESET_ALL}")
-        self.backup_turn = self.history.pop()
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        
+        print(f"{Style.DIM}Generating fix for Turn {idx}...{Style.RESET_ALL}")
+        self.backup_turn = self.history.pop(idx)
+        self.backup_turn_idx = idx
         
         self.active_fix = f"EDIT MODE: Apply this fix: '{instruction}'. Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
         self.is_fix_mode = True
@@ -421,42 +482,53 @@ class BaseEngine:
         return draft
 
     def _apply_draft_inheritance(self, draft_turn):
-        """
-        STRICT INHERITANCE: Protects structural JSON metadata from AI hallucinations 
-        during edits by overwriting the draft metadata with the original backup.
-        """
+        """STRICT INHERITANCE: Protects structural JSON metadata from AI hallucinations."""
         if self.backup_turn:
             draft_turn["choices"] = self.backup_turn.get("choices", [])
             draft_turn["location"] = self.backup_turn.get("location", "Unknown")
             draft_turn["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
-            if self.track_inventory:
-                draft_turn["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
+            if self.track_inventory: draft_turn["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
+            # Preserve history for targeted edits
+            if "player_choice" in self.backup_turn: draft_turn["player_choice"] = self.backup_turn["player_choice"]
+            if "narrative_bridge" in self.backup_turn: draft_turn["narrative_bridge"] = self.backup_turn["narrative_bridge"]
                 
     def request_reroll_draft(self):
         """Endpoint: Generates a new draft based on the currently active fix mode, WITHOUT popping history."""
         if not self.backup_turn: return None
         print(f"{Style.DIM}Rerolling draft...{Style.RESET_ALL}")
-        
         draft = self._generate_turn()
         if draft: self._apply_draft_inheritance(draft)
         return draft
-        
+
     def commit_draft(self, draft_turn):
         """Endpoint: Accepts the drafted turn and permanently saves it to history."""
+        idx = getattr(self, 'backup_turn_idx', len(self.history))
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
-        self._process_valid_turn(draft_turn)
+        
+        # If it's the active turn, run the mechanical hooks (goals/game over)
+        if idx == len(self.history):
+            self._process_valid_turn(draft_turn)
+        else:
+            # If editing history, just surgically insert it to prevent breaking plot logic
+            self.history.insert(idx, draft_turn)
+            self.save_state()
+            
+        if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         return draft_turn
 
     def cancel_draft(self):
         """Endpoint: Discards the draft and restores the original turn state."""
         if self.backup_turn:
-            self.history.append(self.backup_turn)
+            idx = getattr(self, 'backup_turn_idx', len(self.history))
+            self.history.insert(idx, self.backup_turn)
             self.save_state()
+            
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
+        if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         return self.history[-1] if self.history else None
 
 
@@ -526,10 +598,10 @@ class BaseEngine:
         """Endpoint: Triggers the LLM to write a summary of the adventure so far."""
         return generate_recap(self.setup_data, self.history)
 
-    def export_adventure(self, export_type=1, use_novelization=True):
+    def export_adventure(self, export_type=1, use_novelization=True, custom_path=None):
         """Endpoint: Routes export requests to the exporter module."""
         from exporter import export_story
-        return export_story(self.adv_dir, self.setup_data, self.history, self.chapters, export_type, use_novelization)
+        return export_story(self.adv_dir, self.setup_data, self.history, self.chapters, export_type, use_novelization, custom_path)
 
 
     # ---------------------------------------------------------
@@ -731,3 +803,5 @@ class BaseEngine:
 
         if not silent and processed_count > 0:
             print(f"\n{Fore.GREEN}Success: {processed_count} new bridges generated.{Style.RESET_ALL}")
+            
+    

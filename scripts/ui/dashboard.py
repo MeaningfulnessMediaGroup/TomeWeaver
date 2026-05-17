@@ -39,25 +39,50 @@ class DashboardFrame(ctk.CTkFrame):
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
         search_frame.pack(fill="x", padx=20, pady=(5, 10))
         
-        # 1. Search Box
+        # --- Group 1: SEARCH ACTION (Left Aligned) ---
+        search_left_group = ctk.CTkFrame(search_frame, fg_color="transparent")
+        search_left_group.pack(side="left")
+
         self.search_var = ctk.StringVar()
-        search_entry = ctk.CTkEntry(search_frame, textvariable=self.search_var, placeholder_text="Search by title...", font=("Arial", 14), width=250)
+        search_entry = ctk.CTkEntry(search_left_group, textvariable=self.search_var, placeholder_text="Search by keywords...", font=("Arial", 14), width=250)
         search_entry.pack(side="left")
         search_entry.bind("<Return>", lambda e: self.apply_search())
         
-        # 2. Status Filter Dropdown
-        ctk.CTkLabel(search_frame, text="Status:", font=("Arial", 12)).pack(side="left", padx=(15, 5))
+        ctk.CTkButton(search_left_group, text="Search", width=70, command=self.apply_search).pack(side="left", padx=10)
+        ctk.CTkButton(search_left_group, text="Clear", width=70, fg_color="#4A4A4A", command=self.clear_search).pack(side="left")
+
+        # --- Group 2: VIEW PREFERENCES (Right Aligned) ---
+        search_right_group = ctk.CTkFrame(search_frame, fg_color="transparent")
+        search_right_group.pack(side="right")
+
+        # Status Filter
+        ctk.CTkLabel(search_right_group, text="Status:", font=("Arial", 12)).pack(side="left", padx=(10, 5))
         self.status_var = ctk.StringVar(value="All")
         status_menu = ctk.CTkOptionMenu(
-            search_frame, variable=self.status_var, 
+            search_right_group, variable=self.status_var, 
             values=["All", "Not Started", "In Progress", "Complete"], 
-            width=120, command=lambda _: self.apply_search()
+            width=110, command=lambda _: self.apply_search()
         )
         status_menu.pack(side="left")
 
-        # 3. Action Buttons
-        ctk.CTkButton(search_frame, text="Search", width=80, command=self.apply_search).pack(side="left", padx=(15, 10))
-        ctk.CTkButton(search_frame, text="Clear", width=80, fg_color="#4A4A4A", command=self.clear_search).pack(side="left")
+        # Sort Dropdown
+        ctk.CTkLabel(search_right_group, text="Sort:", font=("Arial", 12)).pack(side="left", padx=(10, 5))
+        self.sort_var = ctk.StringVar(value="Title")
+        sort_menu = ctk.CTkOptionMenu(
+            search_right_group, variable=self.sort_var,
+            values=["Title", "Author", "Date", "Status", "Turns"],
+            width=90, command=lambda _: self.apply_search()
+        )
+        sort_menu.pack(side="left")
+
+        # Order Toggle
+        self.asc_var = ctk.BooleanVar(value=True)
+        self.btn_order = ctk.CTkButton(
+            search_right_group, text="↑ Asc", width=60, 
+            fg_color="#4A4A4A", hover_color="#333333",
+            command=self.toggle_order
+        )
+        self.btn_order.pack(side="left", padx=(5, 0))
 
         # --- STORY GRID (SCROLLABLE) ---
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -137,34 +162,61 @@ class DashboardFrame(ctk.CTkFrame):
         self.apply_search() 
 
     def apply_search(self):
-        """Filters the stories based on the search bar input AND status dropdown."""
+        """Filters and Sorts the stories based on UI selections."""
         query = self.search_var.get().strip().lower()
         status_filter = self.status_var.get()
         
+        # --- 1. FILTERING ---
         temp_list = []
         for s in self.all_stories:
-            # 1. Check Title Search
-            if query and query not in s['title'].lower():
-                continue
-                
-            # 2. Check Status Filter
+            if query and query not in s.get('search_blob', s['title'].lower()): continue
+            
             s_status = s.get('status', 'Unknown')
-            if status_filter == "Not Started" and s_status != "Not Started":
-                continue
-            if status_filter == "In Progress" and s_status != "In Progress":
-                continue
-            if status_filter == "Complete" and s_status not in ["Victory", "Game Over"]:
-                continue
-                
+            if status_filter == "Not Started" and s_status != "New": continue
+            if status_filter == "In Progress" and s_status != "In Progress": continue
+            if status_filter == "Complete" and s_status not in ["Victory", "Game Over"]: continue
             temp_list.append(s)
+
+        # --- 2. SORTING ---
+        sort_key = self.sort_var.get().lower()
+        is_asc = self.asc_var.get()
+        
+        # Map UI labels to JSON dictionary keys
+        key_map = {
+            "title": "title",
+            "author": "author",
+            "date": "creation_date",
+            "status": "status",
+            "turns": "turns"
+        }
+        actual_key = key_map.get(sort_key, "title")
+
+        def sort_logic(item):
+            val = item.get(actual_key, "")
+            # Ensure "Unknown" or None values don't crash comparison
+            if val is None: return ""
+            if isinstance(val, str): return val.lower()
+            return val
+
+        temp_list.sort(key=sort_logic, reverse=not is_asc)
 
         self.filtered_stories = temp_list
         self.current_page = 1
         self.render_page()
 
+    def toggle_order(self):
+        """Swaps between Ascending and Descending order."""
+        new_state = not self.asc_var.get()
+        self.asc_var.set(new_state)
+        self.btn_order.configure(text="↑ Asc" if new_state else "↓ Desc")
+        self.apply_search()
+
     def clear_search(self):
         self.search_var.set("")
         self.status_var.set("All")
+        self.sort_var.set("Title") # Reset Sort
+        self.asc_var.set(True)     # Reset Order
+        self.btn_order.configure(text="↑ Asc")
         self.apply_search()
 
     def change_items_per_page(self, new_val):
@@ -268,7 +320,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         opt_menu = ctk.CTkOptionMenu(
             btn_frame, 
-            values=["Options...", "Export to .zip", "Rename", "Delete"],
+            values=["Options...", "Restart", "Export to .zip", "Rename", "Delete"],
             width=110,
             command=lambda choice, f=story['folder_name'], t=story['title']: self.handle_card_option(choice, f, t)
         )
@@ -281,7 +333,18 @@ class DashboardFrame(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def handle_card_option(self, choice, folder_name, current_title):
-        if choice == "Export to .zip":
+        if choice == "Restart":
+            warn_msg = (
+                f"Are you sure you want to RESTART '{current_title}'?\n\n"
+                "This will permanently DELETE all played turns and choices. "
+                "The story will revert to the beginning. This cannot be undone!"
+            )
+            if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
+                success, msg = TomeWeaverAPI.restart_story(folder_name)
+                if success: self.load_data() # Refresh turns/status on Dashboard
+                else: messagebox.showerror("Restart Failed", msg)
+
+        elif choice == "Export to .zip":
             path = filedialog.asksaveasfilename(defaultextension=".zip", initialfile=f"{folder_name}.zip", filetypes=[("ZIP files", "*.zip")])
             if path:
                 success, msg = TomeWeaverAPI.export_to_zip(folder_name, path)

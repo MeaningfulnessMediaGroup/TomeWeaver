@@ -78,6 +78,17 @@ class TomeWeaverAPI:
         else:
             status = "Not Started"
 
+        # Create a "Search Blob": a hidden field containing all metadata for fast searching
+        search_parts = [
+            data.get("title", ""),
+            data.get("author", ""),
+            data.get("tone", ""),
+            data.get("goal", ""),
+            data.get("lore_and_rules", ""),
+            folder_path.name
+        ]
+        search_blob = " ".join(filter(None, search_parts)).lower()
+
         return {
             "folder_name": folder_path.name,
             "title": data.get("title", folder_path.name),
@@ -88,6 +99,7 @@ class TomeWeaverAPI:
             "turns": turns,
             "location": location,
             "status": status,
+            "search_blob": search_blob, # New hidden field
             "path": str(folder_path.resolve())
         }
 
@@ -309,6 +321,52 @@ exit /b 0
         except zipfile.BadZipFile: return False, "Invalid or corrupted zip file."
         except Exception as e: return False, str(e)
 
+    @staticmethod
+    def restart_story(folder_name):
+        """Headless Reset: Wipes history and resets chapters without loading the full engine."""
+        target_dir = ADV_DIR / folder_name
+        history_file = target_dir / "history.json"
+        chapters_file = target_dir / "chapters.json"
+        setup_file = target_dir / "setup.json"
+        log_file = target_dir / "session_log.txt"
+
+        try:
+            # 1. Wipe History
+            if history_file.exists():
+                with open(history_file, "w", encoding="utf-8") as f:
+                    json.dump([], f, indent=4)
+
+            # 2. Reset Chapters
+            if setup_file.exists():
+                with open(setup_file, "r", encoding="utf-8") as f:
+                    setup_data = json.load(f)
+                
+                mode = setup_data.get("mode", "sandbox").lower()
+                if mode == "campaign":
+                    outline = setup_data.get("plot_outline", [])
+                    if outline:
+                        first = outline[0]
+                        initial = [{
+                            "chapter_number": 1, "title": first.get("title", "Chapter 1"),
+                            "start_turn": 1, "end_turn": None, "goal": first.get("goal"), 
+                            "obstacles": first.get("obstacles"), "setting": first.get("setting"), "pov": first.get("pov")
+                        }]
+                else:
+                    initial = [{
+                        "chapter_number": 1, "title": setup_data.get("title", "Chapter 1"),
+                        "start_turn": 1, "end_turn": None
+                    }]
+                
+                with open(chapters_file, "w", encoding="utf-8") as f:
+                    json.dump(initial, f, indent=4)
+
+            # 3. Flush Log
+            if log_file.exists(): log_file.unlink()
+
+            return True, "Story reset to Turn 0."
+        except Exception as e:
+            return False, str(e)
+            
     # ---------------------------------------------------------
     # ENGINE LAUNCHER
     # ---------------------------------------------------------

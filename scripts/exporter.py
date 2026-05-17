@@ -10,7 +10,7 @@ import html
 import re
 from config import ENGINE_CONFIG
 
-def export_story(adv_dir, setup_data, history, chapters, export_type, use_novelization=True):
+def export_story(adv_dir, setup_data, history, chapters, export_type, use_novelization=True, custom_path=None):
     title = setup_data.get("title", "The Adventure")
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     
@@ -117,7 +117,9 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
         html_parts.append("</body></html>")
         output = "\n".join(html_parts)
         
-    file_path = adv_dir / f"{safe_title}{ext}"
+    # Use custom path if provided (from the Save Dialog), otherwise default to adventure folder
+    file_path = custom_path if custom_path else adv_dir / f"{safe_title}{ext}"
+    
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(output)
     return file_path

@@ -31,6 +31,16 @@ class WorkspaceFrame(ctk.CTkFrame):
         btn_recap.pack(side="right", padx=10)
         Tooltip(btn_recap, "Ask the AI to read your history and generate a 'Story So Far' summary.")
 
+        btn_restart = ctk.CTkButton(header, text="Restart Story", command=self._restart_story, width=100, fg_color="#4A4A4A", hover_color="#333333")
+        btn_restart.pack(side="right", padx=10)
+        Tooltip(btn_restart, "Wipe all progress and start from Turn 0. (Requires confirmation)")
+
+        # ONLY show Test Mode for Campaigns. Sandbox has no defined 'end' to test against.
+        if self.engine.is_campaign:
+            self.btn_test = ctk.CTkButton(header, text="▶︎ Auto-Play", command=self._toggle_test, width=90, fg_color="#4A4A4A", hover_color="#333333")
+            self.btn_test.pack(side="right", padx=10)
+            Tooltip(self.btn_test, "Autopilot: Automatically select the first choice until the game ends. Useful for stress-testing campaign goals.")
+
         # --- Tab Control ---
         self.tabs = ctk.CTkTabview(self, command=self._on_tab_change)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
@@ -133,14 +143,62 @@ class WorkspaceFrame(ctk.CTkFrame):
         ctk.CTkSwitch(dialog, text="Use Seamless Novelization", variable=nov_var).pack(pady=20)
 
         def on_export():
-            fmt_choice = int(fmt_var.get()[0]) # Extract the 1, 2, or 3
-            try:
-                path = self.engine.export_adventure(fmt_choice, nov_var.get())
-                from tkinter import messagebox
-                messagebox.showinfo("Success", f"Story exported successfully to:\n{path}")
-            except Exception as e:
-                from tkinter import messagebox
-                messagebox.showerror("Export Failed", str(e))
-            dialog.destroy()
+            from tkinter import filedialog, messagebox
+            
+            fmt_choice = int(fmt_var.get()[0]) # 1, 2, or 3
+            
+            # Determine extension based on choice
+            ext_map = {1: (".txt", "Text File"), 2: (".md", "Markdown File"), 3: (".html", "HTML Web Book")}
+            ext, label = ext_map[fmt_choice]
+
+            # 1. Open Cross-Platform Native Save Dialog
+            target_path = filedialog.asksaveasfilename(
+                title="Save Storybook",
+                initialfile=f"{self.engine.setup_data.get('title', 'Adventure')}{ext}",
+                defaultextension=ext,
+                filetypes=[(label, f"*{ext}"), ("All Files", "*.*")]
+            )
+
+            # 2. Proceed only if the user didn't cancel the dialog
+            if target_path:
+                try:
+                    # We pass the custom path to the exporter
+                    path = self.engine.export_adventure(fmt_choice, nov_var.get(), custom_path=target_path)
+                    messagebox.showinfo("Success", f"Story exported successfully!")
+                    dialog.destroy()
+                except Exception as e:
+                    messagebox.showerror("Export Error", f"Failed to write file: {e}")
 
         ctk.CTkButton(dialog, text="Export", fg_color="#4CAF50", hover_color="#388E3C", command=on_export).pack(pady=10)
+        
+    def _restart_story(self):
+        """Wipes history and restarts the adventure with a warning."""
+        from tkinter import messagebox
+        warn_msg = (
+            "Are you sure you want to RESTART this adventure?\n\n"
+            "This will permanently DELETE all current turns, choices, and the session log. "
+            "You will be returned to the very beginning. This action cannot be undone!"
+        )
+        if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
+            # 1. Trigger the backend wipe
+            self.engine.restart_campaign()
+            
+            # 2. Refresh the UI timeline to show the new Turn 0/1
+            if hasattr(self, 'story_tab'):
+                self.story_tab.refresh_timeline()
+            
+            messagebox.showinfo("Reset Complete", "The story has been reverted to the beginning.")
+            
+            
+    def _toggle_test(self):
+        """Switches autopilot on or off."""
+        is_active = not self.engine.is_test_mode
+        self.engine.toggle_test_mode(is_active)
+        
+        if is_active:
+            self.btn_test.configure(text="🛑 Stop Auto-Play", fg_color="#D32F2F", hover_color="#9A0007")
+            # If we are in Story Mode, trigger the first auto-step immediately
+            if self.tabs.get() == "Story Mode" and hasattr(self, 'story_tab'):
+                self.story_tab.refresh_timeline()
+        else:
+            self.btn_test.configure(text="▶︎ Auto-Play", fg_color="#4A4A4A", hover_color="#333333")
