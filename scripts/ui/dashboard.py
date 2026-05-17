@@ -223,34 +223,44 @@ class DashboardFrame(ctk.CTkFrame):
 
     def build_story_card(self, story):
         card = ctk.CTkFrame(self.scroll, corner_radius=8)
-        card.pack(fill="x", pady=5, padx=10)
+        card.pack(fill="x", pady=4, padx=10)
 
-        info_frame = ctk.CTkFrame(card, fg_color="transparent")
-        info_frame.pack(side="left", fill="both", expand=True, padx=15, pady=10)
-        
-        # Row 1: Title
-        ctk.CTkLabel(info_frame, text=story['title'], font=("Arial", 18, "bold"), anchor="w").pack(fill="x")
-        
-        # Row 2: Author & Version Metadata
-        auth_text = f"By {story.get('author', 'Unknown')} • v{story.get('version', '1.0')} • {story.get('creation_date', '')}"
-        ctk.CTkLabel(info_frame, text=auth_text, font=("Arial", 12, "italic"), text_color="#A0A0A0", anchor="w").pack(fill="x", pady=(2, 0))
-        
-        # Row 3: Engine Metadata (Status • [Turns] • Location)
-        t_count = story.get('turns', 0)
-        if t_count == 0:
-            meta_text = f"[{story.get('status', 'Unknown')}] • {story.get('location', 'Unknown')}"
-        else:
-            t_label = "Turn" if t_count == 1 else "Turns"
-            meta_text = f"[{story.get('status', 'Unknown')}] • {t_count} {t_label} • {story.get('location', 'Unknown')}"
-            
-        ctk.CTkLabel(info_frame, text=meta_text, font=("Arial", 12), text_color="gray", anchor="w").pack(fill="x", pady=(0, 2))
-        
-        # Row 4: Engine Mode Badge
+        # Content Container (Left/Center)
+        content_frame = ctk.CTkFrame(card, fg_color="transparent")
+        content_frame.pack(side="left", fill="both", expand=True, padx=15, pady=8)
+
+        # --- LINE 1: [Badge] Title (Left) | Author • v • Date (Right) ---
+        line1 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        line1.pack(fill="x")
+
+        # Mode Badge
         mode_color = "#2196F3" if story['mode'] == "sandbox" else "#9C27B0"
-        ctk.CTkLabel(info_frame, text=story['mode'].upper(), font=("Arial", 10, "bold"), text_color=mode_color, anchor="w").pack(fill="x")
+        mode_lbl = ctk.CTkLabel(line1, text=story['mode'].upper(), font=("Arial", 10, "bold"), text_color=mode_color)
+        mode_lbl.pack(side="left", padx=(0, 10))
 
+        # Title
+        title_lbl = ctk.CTkLabel(line1, text=story['title'], font=("Arial", 16, "bold"))
+        title_lbl.pack(side="left")
+
+        # Author/Version/Date (Right Aligned)
+        auth_text = f"{story.get('author', 'Unknown')} • v{story.get('version', '1.0')} • {story.get('creation_date', '')}"
+        auth_lbl = ctk.CTkLabel(line1, text=auth_text, font=("Arial", 11, "italic"), text_color="#A0A0A0")
+        auth_lbl.pack(side="right")
+
+        # --- LINE 2: Status • Turns • Location ---
+        line2 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        line2.pack(fill="x", pady=(2, 0))
+
+        t_count = story.get('turns', 0)
+        t_label = "Turn" if t_count == 1 else "Turns"
+        t_text = f" • {t_count} {t_label}" if t_count > 0 else ""
+        
+        meta_text = f"[{story.get('status', 'Unknown')}]{t_text} • {story.get('location', 'Unknown')}"
+        ctk.CTkLabel(line2, text=meta_text, font=("Arial", 12), text_color="gray").pack(side="left")
+
+        # --- RIGHT SIDE: ACTION BUTTONS ---
         btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-        btn_frame.pack(side="right", padx=15, pady=10)
+        btn_frame.pack(side="right", padx=15)
 
         state = "normal" if story['mode'] != "error" else "disabled"
         btn_play = ctk.CTkButton(btn_frame, text="Play", width=80, state=state, command=lambda f=story['folder_name']: self.app.open_workspace(f))
@@ -263,7 +273,7 @@ class DashboardFrame(ctk.CTkFrame):
             command=lambda choice, f=story['folder_name'], t=story['title']: self.handle_card_option(choice, f, t)
         )
         opt_menu.pack(side="left", padx=5)
-        opt_menu.set("Options...") 
+        opt_menu.set("Options...")
 
 
     # ---------------------------------------------------------

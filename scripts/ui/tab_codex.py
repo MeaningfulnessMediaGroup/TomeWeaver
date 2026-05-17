@@ -66,26 +66,39 @@ class CodexTab(ctk.CTkFrame):
         
         self.core_vars["title"] = add_field(scroll, "Adventure Title:", "title", tooltip_text="The display name of your story.")
         
-        # Group Author, Version, and Date horizontally for a cleaner layout
+        # Group Author, Version, and Date into 3 neat columns
         av_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        av_frame.pack(fill="x", pady=(0, 10))
+        # FIX: Explicit 15px gap above to push away from Title, 0px gap below to prevent double-spacing before Tone.
+        av_frame.pack(fill="x", pady=(15, 0))
         
-        lbl_auth = ctk.CTkLabel(av_frame, text="Author:", font=("Arial", 14, "bold"))
-        lbl_auth.pack(side="left", padx=(0, 5))
+        # Column 1: Author (Expands)
+        auth_frame = ctk.CTkFrame(av_frame, fg_color="transparent")
+        auth_frame.pack(side="left", fill="x", expand=True, padx=(0, 15))
+        
+        lbl_auth = ctk.CTkLabel(auth_frame, text="Author:", font=("Arial", 14, "bold"))
+        lbl_auth.pack(anchor="w", pady=(0, 2))
         Tooltip(lbl_auth, "Creator of this cartridge.")
         self.core_vars["author"] = ctk.StringVar(value=self.engine.setup_data.get("author", "Unknown"))
-        ctk.CTkEntry(av_frame, textvariable=self.core_vars["author"], font=("Arial", 14), width=150).pack(side="left", padx=(0, 20))
+        ctk.CTkEntry(auth_frame, textvariable=self.core_vars["author"], font=("Arial", 14)).pack(fill="x")
         
-        lbl_ver = ctk.CTkLabel(av_frame, text="Version:", font=("Arial", 14, "bold"))
-        lbl_ver.pack(side="left", padx=(0, 5))
+        # Column 2: Version
+        ver_frame = ctk.CTkFrame(av_frame, fg_color="transparent")
+        ver_frame.pack(side="left", padx=(0, 15))
+        
+        lbl_ver = ctk.CTkLabel(ver_frame, text="Version:", font=("Arial", 14, "bold"))
+        lbl_ver.pack(anchor="w", pady=(0, 2))
         Tooltip(lbl_ver, "Useful if you update and share your cartridges.")
         self.core_vars["version"] = ctk.StringVar(value=self.engine.setup_data.get("version", "1.0"))
-        ctk.CTkEntry(av_frame, textvariable=self.core_vars["version"], font=("Arial", 14), width=60).pack(side="left", padx=(0, 20))
+        ctk.CTkEntry(ver_frame, textvariable=self.core_vars["version"], font=("Arial", 14), width=80).pack(fill="x")
 
-        lbl_date = ctk.CTkLabel(av_frame, text="Date:", font=("Arial", 14, "bold"))
-        lbl_date.pack(side="left", padx=(0, 5))
+        # Column 3: Date
+        date_frame = ctk.CTkFrame(av_frame, fg_color="transparent")
+        date_frame.pack(side="left")
+        
+        lbl_date = ctk.CTkLabel(date_frame, text="Date:", font=("Arial", 14, "bold"))
+        lbl_date.pack(anchor="w", pady=(0, 2))
         self.core_vars["creation_date"] = ctk.StringVar(value=self.engine.setup_data.get("creation_date", "Unknown"))
-        ctk.CTkEntry(av_frame, textvariable=self.core_vars["creation_date"], font=("Arial", 14), width=110).pack(side="left")
+        ctk.CTkEntry(date_frame, textvariable=self.core_vars["creation_date"], font=("Arial", 14), width=120).pack(fill="x")
 
         self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", tooltip_text="Instructs the AI on the writing style (e.g., Gritty, Fast-paced, Humorous).")
         self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", True, tooltip_text="Name and brief description of the protagonist.")

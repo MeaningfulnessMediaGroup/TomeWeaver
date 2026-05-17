@@ -35,5 +35,11 @@
         "prologue": "as_is",
         "epilogue": "as_is"
     },
-    "allow_cheats": true
+    "allow_cheats": false,
+    "author": "Unknown",
+    "version": "1.0",
+    "creation_date": "Unknown",
+    "goal": "",
+    "setting": "",
+    "starting_situation": ""
 }

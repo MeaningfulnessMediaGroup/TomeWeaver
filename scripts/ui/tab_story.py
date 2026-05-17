@@ -47,7 +47,10 @@ class StoryTab(ctk.CTkFrame):
             values=["Standard Action", "Expand Notes", "Force Setting", "Force Time", "Force POV"],
             width=140
         )
-        self.cmd_dropdown.pack(side="left", padx=10, pady=15)
+        
+        # Only show Director Overrides in Sandbox Mode
+        if not self.engine.is_campaign:
+            self.cmd_dropdown.pack(side="left", padx=10, pady=15)
 
         self.text_input = ctk.CTkEntry(input_frame, placeholder_text="Type a custom action or dialogue...", font=("Arial", 14))
         self.text_input.pack(side="left", fill="x", expand=True, padx=10, pady=15)
@@ -134,7 +137,15 @@ class StoryTab(ctk.CTkFrame):
             })
 
     def refresh_timeline(self):
-        """Syncs the slider to the history length and triggers a visual update."""
+        """Clears the screen, pulls the history from the engine, and renders the cards."""
+        
+        # Toggle Global Undo Button Visibility dynamically
+        self.btn_submit.pack_forget()
+        self.btn_undo.pack_forget()
+        self.btn_submit.pack(side="right", padx=10, pady=15)
+        if self.engine.setup_data.get("allow_cheats", False):
+            self.btn_undo.pack(side="right", padx=5, pady=15)
+
         if not self.engine.history:
             self._lock_ui("Initializing story...")
             threading.Thread(target=self._async_init, daemon=True).start()
@@ -189,11 +200,15 @@ class StoryTab(ctk.CTkFrame):
                 refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
                 
                 # FIX: Pad with explicit newlines to prevent CTkLabel from horizontally clipping the bottom text
-                prose_text = turn.get("story_text", "").replace("\\n", "\n") + "\n\n"
+                prose_text = turn.get("story_text", "").replace("\\n", "\n")
                 refs["prose"].configure(text=prose_text)
                 
-                # Pass the absolute integer index
-                refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
+                cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
+                if cheats_allowed:
+                    refs["btn_edit"].pack(side="right")
+                    refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
+                else:
+                    refs["btn_edit"].pack_forget()
                 
                 refs["choice"].pack_forget()
                 refs["br_frame"].pack_forget()
@@ -212,7 +227,9 @@ class StoryTab(ctk.CTkFrame):
                 else:
                     refs["btn_frame"].pack(fill="x", padx=10, pady=(10, 15))
                     
-                    # Inject Director Controls
+                    from ui.tooltip import Tooltip
+
+                    # Inject Director Controls (AI Quality of Life) - ALWAYS VISIBLE
                     dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
                     dir_frame.pack(fill="x", pady=(0, 10), padx=5)
                     
@@ -224,23 +241,29 @@ class StoryTab(ctk.CTkFrame):
                     btn_choices.pack(side="left", padx=5)
                     Tooltip(btn_choices, "Keeps the story text but asks the AI to generate a new set of choices.")
                     
-                    if self.engine.allow_fix_command:
-                        btn_polish = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=self._trigger_polish)
-                        btn_polish.pack(side="left", padx=5)
-                        Tooltip(btn_polish, "Opens the Editor: Asks the AI to fix grammar and enhance the prose without altering the plot.")
-                        
+                    btn_polish = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=self._trigger_polish)
+                    btn_polish.pack(side="left", padx=5)
+                    Tooltip(btn_polish, "Opens the Editor: Asks the AI to fix grammar and enhance the prose without altering the plot.")
+                    
+                    # Inject Cheats (Reality Alteration) - ONLY VISIBLE IF ALLOWED
+                    if cheats_allowed:
                         btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=self._trigger_fix)
                         btn_fix.pack(side="left", padx=5)
-                        Tooltip(btn_fix, "Opens the Editor: Instructs the AI to alter a specific detail in the text (e.g., 'Make it raining').")
+                        Tooltip(btn_fix, "Opens the Editor: Instructs the AI to alter a specific detail in the text.")
                     
                     # Inject standard choices
                     for c in turn.get("choices", []):
+                        # Hardcore Mode check: Hide the "Cheat Death" fallback choice
+                        if not cheats_allowed and "Cheat Death" in c:
+                            continue 
+                            
                         color = "#1F6AA5"; hover = "#144870"
                         if "Cheat Death" in c: color = "#D32F2F"; hover = "#9A0007"
                         elif "Start Chapter:" in c or "Conclude the Story" in c: color = "#7B1FA2"; hover = "#4A148C"
                         
                         btn = ctk.CTkButton(refs["btn_frame"], text=c, fg_color=color, hover_color=hover, anchor="w", command=lambda action=c: self._execute_action(action))
                         btn.pack(fill="x", pady=3, padx=5)
+                        
             else:
                 refs["card"].pack_forget()
                 refs["br_frame"].pack_forget()
@@ -486,7 +509,8 @@ class StoryTab(ctk.CTkFrame):
         raw_text = self.text_input.get().strip()
         if not raw_text: return
         
-        cmd_type = self.cmd_dropdown.get()
+        # Force Standard Action if Campaign mode hides the dropdown
+        cmd_type = self.cmd_dropdown.get() if not self.engine.is_campaign else "Standard Action"
         self.text_input.delete(0, 'end') 
         
         if cmd_type == "Expand Notes": final_action = f"EXPAND: {raw_text}"

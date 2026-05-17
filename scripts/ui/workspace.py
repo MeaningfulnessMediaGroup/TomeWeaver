@@ -32,7 +32,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         Tooltip(btn_recap, "Ask the AI to read your history and generate a 'Story So Far' summary.")
 
         # --- Tab Control ---
-        self.tabs = ctk.CTkTabview(self)
+        self.tabs = ctk.CTkTabview(self, command=self._on_tab_change)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
 
         self.t_story = self.tabs.add("Story Mode")
@@ -110,7 +110,13 @@ class WorkspaceFrame(ctk.CTkFrame):
         box.pack(fill="both", expand=True, padx=20, pady=20)
         
         ctk.CTkButton(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 20))
-
+        
+    def _on_tab_change(self):
+        """Triggers instantly whenever the user clicks a different tab at the top."""
+        if self.tabs.get() == "Story Mode" and hasattr(self, 'story_tab'):
+            # Instantly re-evaluate setup.json and redraw the buttons/UI
+            self.story_tab.refresh_timeline()
+            
     def _export_dialog(self):
         """Opens a dialog to configure and export the story."""
         dialog = ctk.CTkToplevel(self)
