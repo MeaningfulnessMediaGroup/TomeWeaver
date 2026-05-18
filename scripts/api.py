@@ -360,6 +360,36 @@ class TomeWeaverAPI:
             return False, str(e)
             
     @staticmethod
+    def move_story(folder_name, new_parent_dir):
+        """Moves a story folder to a new directory within the adventures root."""
+        import shutil
+        source_dir = ADV_DIR / folder_name
+        if not source_dir.exists(): return False, "Story not found."
+        
+        target_parent = ADV_DIR / new_parent_dir
+        if not target_parent.exists():
+            target_parent.mkdir(parents=True, exist_ok=True)
+            
+        story_basename = os.path.basename(folder_name)
+        target_dir = target_parent / story_basename
+        
+        if target_dir.exists(): return False, f"A story named '{story_basename}' already exists in that folder."
+        
+        try:
+            # Fallback to copy/delete if atomic rename fails
+            try:
+                source_dir.rename(target_dir)
+            except PermissionError:
+                import time
+                time.sleep(0.5)
+                shutil.copytree(source_dir, target_dir)
+                shutil.rmtree(source_dir)
+                
+            return True, target_dir.relative_to(ADV_DIR).as_posix()
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
     def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None, parent_dir=""):
         """
         AI World Generator. Contacts the LLM to dynamically generate the world data,
@@ -535,6 +565,88 @@ class TomeWeaverAPI:
             # CRITICAL FIX: Ensure we use the exact folder_name variable to clean up the bad generation
             TomeWeaverAPI.delete_story(folder_name) 
             return False, f"File Generation Failed: {str(e)}"
+
+    @staticmethod
+    def browse_path(rel_path):
+        """Opens the physical OS File Explorer at the target directory."""
+        import platform, subprocess
+        target = ADV_DIR / rel_path
+        if not target.exists(): target = ADV_DIR # Fallback to root
+        try:
+            if platform.system() == "Windows": os.startfile(target)
+            elif platform.system() == "Darwin": subprocess.Popen(["open", target])
+            else: subprocess.Popen(["xdg-open", target])
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def create_folder(parent_dir, folder_name):
+        """Creates an empty physical directory."""
+        safe_name = sanitize_foldername(folder_name)
+        if not safe_name: return False, "Invalid folder name."
+        target = ADV_DIR / parent_dir / safe_name
+        if target.exists(): return False, "Folder already exists."
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            return True, safe_name
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def rename_folder(rel_path, new_name):
+        """Renames a physical directory and all contents inside it."""
+        source_dir = ADV_DIR / rel_path
+        if not source_dir.exists(): return False, "Folder not found."
+        safe_new = sanitize_foldername(new_name)
+        if not safe_new: return False, "Invalid name."
+        target_dir = source_dir.parent / safe_new
+        if target_dir.exists(): return False, "Folder already exists."
+        try:
+            source_dir.rename(target_dir)
+            return True, target_dir.relative_to(ADV_DIR).as_posix()
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def delete_folder(rel_path):
+        """Recursively deletes a folder and everything inside it."""
+        source_dir = ADV_DIR / rel_path
+        if not source_dir.exists(): return False, "Folder not found."
+        try:
+            shutil.rmtree(source_dir)
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def move_folder(rel_path, new_parent_dir):
+        """Moves a physical container folder to a new directory within the adventures root."""
+        import shutil
+        source_dir = ADV_DIR / rel_path
+        if not source_dir.exists(): return False, "Folder not found."
+        
+        target_parent = ADV_DIR / new_parent_dir
+        if not target_parent.exists():
+            target_parent.mkdir(parents=True, exist_ok=True)
+            
+        folder_basename = os.path.basename(rel_path)
+        target_dir = target_parent / folder_basename
+        
+        if target_dir.exists(): return False, f"A folder named '{folder_basename}' already exists there."
+        
+        try:
+            try:
+                source_dir.rename(target_dir)
+            except PermissionError:
+                import time
+                time.sleep(0.5)
+                shutil.copytree(source_dir, target_dir)
+                shutil.rmtree(source_dir)
+                
+            return True, target_dir.relative_to(ADV_DIR).as_posix()
+        except Exception as e:
+            return False, str(e)
 
     # ---------------------------------------------------------
     # ENGINE LAUNCHER
