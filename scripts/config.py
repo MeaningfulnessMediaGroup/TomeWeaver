@@ -162,7 +162,8 @@ def load_engine_config():
         "prose_font_size": 15,
         "window_geometry": "1100x750",
         "window_state": "normal",
-        "last_active_story": ""
+        "last_active_story": "",
+        "max_inventory_keys": 8
     }
     
     # 1. Create default config if it doesn't exist

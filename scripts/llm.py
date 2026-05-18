@@ -82,9 +82,31 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             # Assume survival unless explicitly stated otherwise
             data["is_game_over"] = False
             
-        if "inventory_and_state" not in data and track_inventory:
-            # Assume nothing changed if the AI forgot to track it
-            data["inventory_and_state"] = prev_turn.get("inventory_and_state", "")
+        # --- THE INVENTORY PATCHER ---
+        if track_inventory:
+            if "inventory_and_state" not in data or not isinstance(data["inventory_and_state"], str):
+                data["inventory_and_state"] = prev_turn.get("inventory_and_state", "") if prev_turn else ""
+            elif prev_turn and prev_turn.get("inventory_and_state"):
+                import re
+                prev_str = prev_turn["inventory_and_state"].replace("[Status]", "").strip()
+                curr_str = data["inventory_and_state"].replace("[Status]", "").strip()
+                
+                prev_dict = {}
+                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str):
+                    prev_dict[k.strip()] = v.strip(' .,;')
+                    
+                curr_dict = {}
+                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str):
+                    curr_dict[k.strip()] = v.strip(' .,;')
+                    
+                if curr_dict:
+                    # Merge dictionaries (Current LLM output overwrites Previous state)
+                    merged = prev_dict.copy()
+                    merged.update(curr_dict)
+                    data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged.items()]).strip()
+                else:
+                    # If the LLM hallucinated a plain sentence with no keys, discard it to protect the state
+                    data["inventory_and_state"] = prev_turn["inventory_and_state"]
 
         if "chapter_goal_achieved" not in data and is_campaign:
             # Safest assumption: Goal is not met unless AI says so
@@ -149,15 +171,18 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             # 1. Remove LLM "Concatenation" artifacts (e.g. "Text" + "\n")
             c_str = c_str.replace('" + "', '').replace('\\" + \\"', '').replace('\" + \"', '')
             
-            # 2. Strip surrounding wrapper quotes ONLY if they match on both sides
-            # Fixes instances where the AI outputs ["\"Action\""] instead of ["Action"]
+            # 2. Strip leading non-quote garbage (commas, dots, hyphens, colons, and spaces)
+            # Example: ",'Inspect...'" -> "'Inspect...'"
+            import re
+            c_str = re.sub(r"^[,;:\.\-\s]+", "", c_str)
+            
+            # 3. Strip surrounding wrapper quotes ONLY if they match on both sides
             if c_str.startswith('"') and c_str.endswith('"'):
                 c_str = c_str[1:-1].strip()
             elif c_str.startswith("'") and c_str.endswith("'"):
                 c_str = c_str[1:-1].strip()
                 
-            # 3. Convert any internal dialogue double-quotes into single-quotes 
-            # This prevents the UI from looking sloppy and makes dialogue buttons look clean
+            # 4. Convert any internal dialogue double-quotes into single-quotes 
             c_str = c_str.replace('"', "'")
             
             if c_str:

@@ -32,7 +32,7 @@ class TomeWeaverAPI:
     # ---------------------------------------------------------
 
     @staticmethod
-    def _extract_story_metadata(folder_path):
+    def _extract_story_metadata(folder_path, rel_path):
         """Reads the raw JSON files for a single story and builds its metadata dictionary."""
         setup_file = folder_path / "setup.json"
         history_file = folder_path / "history.json"
@@ -90,7 +90,7 @@ class TomeWeaverAPI:
         search_blob = " ".join(filter(None, search_parts)).lower()
 
         return {
-            "folder_name": folder_path.name,
+            "folder_name": rel_path, # This guarantees deep paths like 'Fantasy/Epic/MyStory' are preserved
             "title": data.get("title", folder_path.name),
             "author": data.get("author", "Unknown"),
             "version": data.get("version", "1.0"),
@@ -99,7 +99,7 @@ class TomeWeaverAPI:
             "turns": turns,
             "location": location,
             "status": status,
-            "search_blob": search_blob, # New hidden field
+            "search_blob": search_blob,
             "path": str(folder_path.resolve())
         }
 
@@ -123,30 +123,31 @@ class TomeWeaverAPI:
         needs_save = False
         current_folders = set()
         
-        # 2. Scan OS Directory (Lightning fast os.stat checks)
-        for folder in ADV_DIR.iterdir():
-            if folder.is_dir():
-                folder_name = folder.name
-                current_folders.add(folder_name)
+        # 2. Deep Scan OS Directory
+        for root, dirs, files in os.walk(ADV_DIR):
+            if "setup.json" in files:
+                # Convert absolute path to standard forward-slash relative path (e.g. 'Fantasy/MyStory')
+                rel_path = Path(root).relative_to(ADV_DIR).as_posix()
+                current_folders.add(rel_path)
                 
-                setup_file = folder / "setup.json"
-                if not setup_file.exists(): continue
-                
-                history_file = folder / "history.json"
+                setup_file = Path(root) / "setup.json"
+                history_file = Path(root) / "history.json"
                 
                 s_mtime = os.path.getmtime(setup_file)
                 h_mtime = os.path.getmtime(history_file) if history_file.exists() else 0
                 
-                cached = index_data.get(folder_name)
+                cached = index_data.get(rel_path)
                 
-                # If new folder OR files were modified since last scan, rebuild this entry
                 if not cached or cached.get("s_mtime") != s_mtime or cached.get("h_mtime") != h_mtime:
-                    index_data[folder_name] = {
+                    index_data[rel_path] = {
                         "s_mtime": s_mtime,
                         "h_mtime": h_mtime,
-                        "meta": TomeWeaverAPI._extract_story_metadata(folder)
+                        "meta": TomeWeaverAPI._extract_story_metadata(Path(root), rel_path)
                     }
                     needs_save = True
+                
+                # CRITICAL: Do not traverse deeper into an active story cartridge
+                dirs.clear()
 
         # 3. Clean up deleted folders from the index
         keys_to_remove = [k for k in index_data.keys() if k not in current_folders]
@@ -168,12 +169,12 @@ class TomeWeaverAPI:
     # ---------------------------------------------------------
 
     @staticmethod
-    def create_story(title, author, mode, rules_cfg=None):
+    def create_story(title, author, mode, rules_cfg=None, parent_dir=""):
         """Creates a new boilerplate adventure folder and applies mechanical rules."""
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
             
-        target_dir = ADV_DIR / safe_title
+        target_dir = ADV_DIR / parent_dir / safe_title
         if target_dir.exists(): return False, f"A story folder named '{safe_title}' already exists."
             
         try:
@@ -197,7 +198,8 @@ class TomeWeaverAPI:
                 with open(setup_file, "w", encoding="utf-8") as f:
                     json.dump(setup_data, f, indent=4)
                     
-            return True, safe_title
+            return True, (Path(parent_dir) / safe_title).as_posix()
+            
         except Exception as e:
             return False, str(e)
 
@@ -358,7 +360,7 @@ class TomeWeaverAPI:
             return False, str(e)
             
     @staticmethod
-    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None):
+    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None, parent_dir=""):
         """
         AI World Generator. Contacts the LLM to dynamically generate the world data,
         extracts the title, safely creates the folder, and populates the schema files.
@@ -382,9 +384,12 @@ class TomeWeaverAPI:
         if mode == "sandbox":
             schema += '  "setting": "Detailed description of the starting location",\n'
             schema += '  "starting_situation": "The exact situation the player wakes up in",\n'
-            schema += '  "goal": "A loose overarching motivation for the character"\n'
-        else:
-            schema += '  "starting_inventory": "A string listing initial items and health state",\n'
+            schema += '  "goal": "A loose overarching motivation for the character",\n'
+            
+        if rules_cfg and rules_cfg.get("track_inventory"):
+            schema += '  "inventory_dictionary": {"Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"}, "Items": {"val": "Rusty Dagger", "icon": "🎒", "color": "#1F6AA5"}},\n'
+            
+        if mode == "campaign":
             schema += '  "plot_outline": [\n    {"title": "Chapter 1", "setting": "Description", "pov": "Character Name", "goal": "Specific objective", "obstacles": "Specific threats"}\n  ],\n'
             
         if gen_pro: schema += '  "prologue_text": "Write 3 to 4 paragraphs of rich, cinematic opening prose setting the scene",\n'
@@ -463,12 +468,12 @@ class TomeWeaverAPI:
             base_title = raw_title
             counter = 1
             
-            while (ADV_DIR / sanitize_foldername(final_title)).exists():
+            while (ADV_DIR / parent_dir / sanitize_foldername(final_title)).exists():
                 final_title = f"{base_title} {counter}"
                 counter += 1
                 
             # Pass the mechanical rules directly into the base builder so setup.json is perfectly formatted from the start
-            success, folder_or_err = TomeWeaverAPI.create_story(final_title, author, mode, rules_cfg)
+            success, folder_or_err = TomeWeaverAPI.create_story(final_title, author, mode, rules_cfg, parent_dir)
             if not success: return False, f"Could not create folder: {folder_or_err}"
             
             folder_name = folder_or_err
@@ -479,7 +484,7 @@ class TomeWeaverAPI:
             with open(setup_file, "r", encoding="utf-8") as f:
                 setup_data = json.load(f)
                 
-            keys_to_merge = ["title", "tone", "main_character", "lore_and_rules", "setting", "starting_situation", "goal", "starting_inventory", "plot_outline"]
+            keys_to_merge = ["title", "tone", "main_character", "lore_and_rules", "setting", "starting_situation", "goal", "inventory_and_state", "plot_outline"]
             for k in keys_to_merge:
                 if k in data:
                     # Defensive cast: If the AI hallucinates a list/dict for a string field, flatten it so the UI doesn't crash

@@ -102,6 +102,7 @@ class CampaignEngine(BaseEngine):
         active_setup.pop("allow_cheats", None)
         active_setup.pop("prologue_style", None)
         active_setup.pop("epilogue_style", None)
+        active_setup.pop("inventory_dictionary", None)
         # Note: We keep "title", "tone", and "main_character" forever to maintain consistency
         
         # ==========================================

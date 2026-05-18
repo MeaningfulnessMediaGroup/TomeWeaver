@@ -118,8 +118,19 @@ class CodexTab(ctk.CTkFrame):
         self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", True, tooltip_text="The ultimate motivation driving the protagonist (mainly used in Sandbox).")
         self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", True, tooltip_text="The initial environment where the story begins.")
         self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", True, tooltip_text="Sets the immediate context for Turn 1.")
-        self.core_vars["starting_inventory"] = add_field(scroll, "Starting Inventory:", "starting_inventory", True, tooltip_text="The initial items and health state of the protagonist.")
         self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", True, tooltip_text="Hard rules the AI must follow (e.g., 'Magic does not exist', 'Vampires burn in sunlight').")
+        
+        # --- INVENTORY SCHEMA EDITOR ---
+        lbl = ctk.CTkLabel(scroll, text="Inventory & State Schema (Max 8 Slots):", font=("Arial", 14, "bold"))
+        lbl.pack(anchor="w", pady=(15, 2))
+        Tooltip(lbl, "Define tracking slots and their visual style. The AI will strictly update these keys.")
+        
+        self.inv_editor_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        self.inv_editor_frame.pack(fill="x", padx=10)
+        self.inv_schema_vars = []
+        self._render_inv_editor()
+        
+        # Settings Row
         
         # Settings Row
         settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -149,10 +160,104 @@ class CodexTab(ctk.CTkFrame):
         self.engine.setup_data["can_die"] = self.var_die.get()
         self.engine.setup_data["allow_cheats"] = self.var_cheats.get()
         
+        # Extract Inventory Schema
+        new_schema = {}
+        for k_var, v_var, i_var, c_var in self.inv_schema_vars:
+            k = k_var.get().strip().replace(" ", "_")
+            if k:
+                new_schema[k] = {
+                    "val": v_var.get().strip(),
+                    "icon": i_var.get().strip() or "🎒",
+                    "color": c_var.get().strip() or "#1F6AA5"
+                }
+        self.engine.setup_data["inventory_dictionary"] = new_schema
+        
         self._write_to_disk()
         messagebox.showinfo("Saved", "Core Settings updated successfully.")
 
+    def _render_inv_editor(self):
+        # Clear existing layout
+        for w in self.inv_editor_frame.winfo_children(): w.destroy()
+        self.inv_schema_vars.clear()
+        
+        # We need a dedicated container just for the rows so the +Add button stays firmly at the bottom
+        self.inv_rows_container = ctk.CTkFrame(self.inv_editor_frame, fg_color="transparent")
+        self.inv_rows_container.pack(fill="x")
+        
+        self.btn_add_slot = ctk.CTkButton(
+            self.inv_editor_frame, text="+ Add Slot", fg_color="#4A4A4A", 
+            command=lambda: self._add_inv_row("New_Key", "Empty", "📦", "#4A4A4A")
+        )
+        
+        # Make sure we read from the new correct name!
+        schema = self.engine.setup_data.get("inventory_dictionary", {})
+        if not isinstance(schema, dict): schema = {}
+        
+        for k, info in schema.items():
+            self._add_inv_row(k, info.get("val", ""), info.get("icon", "🎒"), info.get("color", "#1F6AA5"))
+            
+        self._update_add_button_visibility()
 
+    def _update_add_button_visibility(self):
+        """Hides the +Add button if we reach the max limit of 8."""
+        if len(self.inv_schema_vars) < 8:
+            self.btn_add_slot.pack(pady=10)
+        else:
+            self.btn_add_slot.pack_forget()
+
+    def _add_inv_row(self, key, val, icon, color):
+        row = ctk.CTkFrame(self.inv_rows_container, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        
+        k_var = ctk.StringVar(value=key)
+        v_var = ctk.StringVar(value=val)
+        i_var = ctk.StringVar(value=icon)
+        c_var = ctk.StringVar(value=color)
+        
+        ctk.CTkEntry(row, textvariable=k_var, width=120, font=("Arial", 13), placeholder_text="Key (e.g. Health)").pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=v_var, width=120, font=("Arial", 13), placeholder_text="Initial Value").pack(side="left", fill="x", expand=True, padx=2)
+        ctk.CTkEntry(row, textvariable=i_var, width=40, font=("Segoe UI Emoji", 13)).pack(side="left", padx=2)
+        ctk.CTkEntry(row, textvariable=c_var, width=80, font=("Arial", 13)).pack(side="left", padx=2)
+        
+        # --- COLOR PICKER BUTTON ---
+        def open_color_picker():
+            from tkinter.colorchooser import askcolor
+            # askcolor returns a tuple: ((r, g, b), '#hexcode')
+            # Provide the current color so the picker starts on the right shade
+            current = c_var.get().strip() or "#1F6AA5"
+            _, hex_code = askcolor(title="Choose Pill Color", initialcolor=current)
+            if hex_code:
+                c_var.set(hex_code)
+
+        # A small, square button acting as a color swatch
+        btn_color = ctk.CTkButton(row, text="", width=24, fg_color=color, hover_color=color, 
+                                  border_width=1, border_color="#555555", command=open_color_picker)
+        btn_color.pack(side="left", padx=(5, 0))
+
+        # Two-way binding: If the user manually types a hex code, instantly update the button's background
+        def on_hex_type(*args):
+            try:
+                btn_color.configure(fg_color=c_var.get().strip(), hover_color=c_var.get().strip())
+            except Exception:
+                pass # Ignore invalid hex strings while they are typing
+                
+        c_var.trace_add("write", on_hex_type)
+
+        # Save a reference to the exact instance of the row widget and its variables
+        row_tuple = (k_var, v_var, i_var, c_var)
+        self.inv_schema_vars.append(row_tuple)
+        
+        # Using default arguments in the lambda forcibly captures the correct variable instances
+        def del_row(target_row=row, target_tuple=row_tuple):
+            target_row.destroy()
+            if target_tuple in self.inv_schema_vars:
+                self.inv_schema_vars.remove(target_tuple)
+            self._update_add_button_visibility()
+            
+        ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=del_row).pack(side="left", padx=5)
+        self._update_add_button_visibility()
+        
+        
     # ---------------------------------------------------------
     # PART 2: DYNAMIC LORE TAB (The Codex)
     # ---------------------------------------------------------

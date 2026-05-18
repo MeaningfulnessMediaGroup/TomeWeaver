@@ -58,6 +58,30 @@ class BaseEngine:
         # 2. Load Chapters (CRITICAL: Must happen before any save_state triggers)
         self.chapters = self.load_chapters()
         
+        # --- AUTO-MIGRATION & REPAIR ---
+        needs_save = False
+        
+        if "starting_inventory" in self.setup_data:
+            raw_inv = str(self.setup_data.pop("starting_inventory"))
+            self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(raw_inv)
+            needs_save = True
+            
+        # Fix the ambiguous key if it was created during the buggy generation
+        if "inventory_and_state" in self.setup_data:
+            inv_data = self.setup_data.pop("inventory_and_state")
+            if isinstance(inv_data, dict):
+                if len(inv_data) == 1 and "Status" in inv_data and ":" in str(inv_data["Status"].get("val", "")):
+                    self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(str(inv_data["Status"].get("val", "")))
+                else:
+                    self.setup_data["inventory_dictionary"] = inv_data
+            else:
+                self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(str(inv_data))
+            needs_save = True
+                    
+        if needs_save:
+            with open(self.adv_dir / "setup.json", "w", encoding="utf-8") as f:
+                json.dump(self.setup_data, f, indent=4)
+        
         # 3. Protect ledger integrity from manual file edits
         if self.history:
             self.resync_master_clock()
@@ -81,6 +105,34 @@ class BaseEngine:
             import threading
             threading.Thread(target=self.novelize_history, kwargs={"silent": False}, daemon=True).start()
 
+    def _parse_legacy_inventory(self, raw_str):
+        """Converts an old v1.0 inventory string into a v1.1 Schema Dictionary."""
+        import re
+        raw_str = raw_str.replace("[Status]", "").strip()
+        new_schema = {}
+        
+        # Hunt for Key: Value patterns
+        patterns = re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', raw_str)
+        
+        if patterns:
+            for k, v in patterns:
+                clean_k = k.strip()
+                clean_v = v.strip(' .,;')
+                if not clean_v or clean_v.lower() == "none": clean_v = "None"
+                
+                # Apply smart coloring
+                icon = "🎒"; color = "#1F6AA5"
+                k_lower = clean_k.lower()
+                if "health" in k_lower or "hp" in k_lower: icon = "❤️"; color = "#B71C1C"
+                elif "state" in k_lower or "status" in k_lower: icon = "🧠"; color = "#7B1FA2"
+                elif "gold" in k_lower or "money" in k_lower: icon = "🪙"; color = "#E65100"
+                
+                new_schema[clean_k] = {"val": clean_v, "icon": icon, "color": color}
+        else:
+            # Absolute fallback if it was a plain sentence
+            new_schema["Inventory"] = {"val": raw_str, "icon": "🎒", "color": "#1F6AA5"}
+            
+        return new_schema
 
     # ---------------------------------------------------------
     # STATE & FILE MANAGEMENT
@@ -215,7 +267,12 @@ class BaseEngine:
             if self.is_campaign:
                 turn_data["goal_progress"] = "Setting the scene."
                 turn_data["chapter_goal_achieved"] = False
-            if self.track_inventory: turn_data["inventory_and_state"] = self.setup_data.get("starting_inventory", "")
+            if self.track_inventory: 
+                inv_setup = self.setup_data.get("inventory_dictionary", "")
+                if isinstance(inv_setup, dict):
+                    turn_data["inventory_dictionary"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
+                else:
+                    turn_data["inventory_dictionary"] = str(inv_setup)
             if self.can_die: turn_data["is_game_over"] = False
             return turn_data
 
@@ -234,7 +291,12 @@ class BaseEngine:
             if self.is_campaign:
                 turn_data["goal_progress"] = "Journey Complete."
                 turn_data["chapter_goal_achieved"] = True
-            if self.track_inventory: turn_data["inventory_and_state"] = "Final State."
+            if self.track_inventory: 
+                inv_setup = self.setup_data.get("inventory_dictionary", "")
+                if isinstance(inv_setup, dict):
+                    turn_data["inventory_dictionary"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
+                else:
+                    turn_data["inventory_dictionary"] = str(inv_setup)
             turn_data["is_game_over"] = True
             return turn_data
 

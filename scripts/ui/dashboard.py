@@ -57,6 +57,12 @@ class DashboardFrame(ctk.CTkFrame):
         btn_settings.pack(side="right", padx=(0, 10))
         Tooltip(btn_settings, "Configure global AI API keys, limits, and engine rules.")
 
+        # --- BREADCRUMB BAR (FOLDER NAVIGATION) ---
+        self.current_dir = ""
+        self.breadcrumb_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.breadcrumb_frame.pack(fill="x", padx=20, pady=(0, 5))
+        self.update_breadcrumbs()
+
         # --- SEARCH & FILTER BAR ---
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
         search_frame.pack(fill="x", padx=20, pady=(5, 10))
@@ -145,10 +151,39 @@ class DashboardFrame(ctk.CTkFrame):
         self.btn_last = ctk.CTkButton(page_ctrl_frame, text=">>", width=40, fg_color="#4A4A4A", command=lambda: self.change_page(exact=-1))
         self.btn_last.pack(side="left", padx=2)
 
+        # --- UI VIRTUALIZATION POOL ---
+        self.card_pool = []
+        self.lbl_loading = ctk.CTkLabel(self.scroll, text="Reading library from disk... please wait.", font=("Arial", 16, "italic"), text_color="gray")
+        self.lbl_empty = ctk.CTkLabel(self.scroll, text="", font=("Arial", 16, "italic"), text_color="gray")
+
         # Load initial data
         self.load_data()
 
 
+    def change_dir(self, new_dir):
+        """Updates the active path and forces a clean refresh."""
+        self.current_dir = new_dir
+        self.search_var.set("") 
+        self.update_breadcrumbs()
+        self.apply_search()
+
+
+    def update_breadcrumbs(self):
+        """Draws the clickable folder path hierarchy."""
+        for w in self.breadcrumb_frame.winfo_children(): w.destroy()
+        
+        ctk.CTkButton(self.breadcrumb_frame, text="🏠 Home", width=50, fg_color="transparent", 
+                      hover_color="#333333", command=lambda: self.change_dir("")).pack(side="left")
+                      
+        if self.current_dir:
+            parts = self.current_dir.split('/')
+            accumulated = ""
+            for p in parts:
+                ctk.CTkLabel(self.breadcrumb_frame, text=" ❯ ", text_color="gray", font=("Arial", 12, "bold")).pack(side="left")
+                accumulated = f"{accumulated}/{p}" if accumulated else p
+                ctk.CTkButton(self.breadcrumb_frame, text=p, width=50, fg_color="transparent", 
+                              hover_color="#333333", command=lambda path=accumulated: self.change_dir(path)).pack(side="left")
+                              
     # ---------------------------------------------------------
     # DATA AND PAGINATION LOGIC
     # ---------------------------------------------------------
@@ -158,9 +193,9 @@ class DashboardFrame(ctk.CTkFrame):
         if getattr(self, 'is_loading', False): return
         self.is_loading = True
         
-        # Show loading indicator
-        for widget in self.scroll.winfo_children(): widget.destroy()
-        self.lbl_loading = ctk.CTkLabel(self.scroll, text="Reading library from disk... please wait.", font=("Arial", 16, "italic"), text_color="gray")
+        # Show loading indicator (Fast Pack/Unpack instead of Destroy)
+        for card in self.card_pool: card["frame"].pack_forget()
+        self.lbl_empty.pack_forget()
         self.lbl_loading.pack(pady=50)
 
         # Disable pagination while loading
@@ -174,9 +209,8 @@ class DashboardFrame(ctk.CTkFrame):
                 data = TomeWeaverAPI.get_available_stories()
             except Exception as e:
                 print(f"Index Error: {e}")
-                data = getattr(self, 'all_stories', []) # Fallback to existing data on crash
+                data = getattr(self, 'all_stories', []) 
             finally:
-                # CRITICAL: Always reset the loading flag, even if the disk read crashes
                 self.after(0, lambda: self._on_data_loaded(data))
             
         threading.Thread(target=worker, daemon=True).start()
@@ -185,54 +219,83 @@ class DashboardFrame(ctk.CTkFrame):
         """Callback executed on the main thread when file reading is complete."""
         self.all_stories = data
         self.is_loading = False
-        if hasattr(self, 'lbl_loading'): self.lbl_loading.destroy()
-        self.apply_search() 
+        self.lbl_loading.pack_forget()
+        self.apply_search()
 
-    def apply_search(self):
+    def apply_search(self, reset_page=True):
         """
-        Filters and Sorts the stories based on UI selections.
-        Utilizes the 'search_blob' created by the API for deep keyword matching across lore and titles.
+        Filters, Sorts, and Organizes the stories. If searching globally, it flattens the view.
+        Otherwise, it computes the folder hierarchy based on self.current_dir.
         """
+        import os
         query = self.search_var.get().strip().lower()
         status_filter = self.status_var.get()
         
-        # --- 1. FILTERING ---
         temp_list = []
+        folders_found = {} # Tracks sub-folders and their item counts
+
+        # --- 1. GATHER & ORGANIZE ---
         for s in self.all_stories:
-            # Match against the pre-compiled hidden search string
             if query and query not in s.get('search_blob', s['title'].lower()): continue
             
             s_status = s.get('status', 'Unknown')
-            if status_filter == "Not Started" and s_status != "New": continue
+            if status_filter == "Not Started" and s_status != "Not Started": continue
             if status_filter == "In Progress" and s_status != "In Progress": continue
             if status_filter == "Complete" and s_status not in ["Victory", "Game Over"]: continue
-            temp_list.append(s)
+            
+            # Global Search Flattening: Ignore folders and show all hits directly
+            if query:
+                temp_list.append(s)
+                continue
+                
+            # Folder Navigation Logic
+            # Normalize path slashes for consistent calculation
+            s_dir = os.path.dirname(s['folder_name']).replace('\\', '/')
+            if s_dir == self.current_dir:
+                # The story lives exactly in the current directory
+                temp_list.append(s)
+            elif s_dir.startswith(self.current_dir + "/") or (self.current_dir == "" and s_dir != ""):
+                # The story lives in a sub-folder. Aggregate the sub-folder.
+                rel = s_dir[len(self.current_dir):].strip('/')
+                imm_sub = rel.split('/')[0]
+                f_path = f"{self.current_dir}/{imm_sub}" if self.current_dir else imm_sub
+                folders_found[f_path] = folders_found.get(f_path, 0) + 1
 
-        # --- 2. SORTING ---
+        # --- 2. BUILD FINAL LIST ---
+        final_list = []
+        
+        if not query:
+            # Inject the ".." Up Directory button if we are not at root
+            if self.current_dir != "":
+                parent = os.path.dirname(self.current_dir).replace('\\', '/')
+                final_list.append({"is_up_dir": True, "target": parent})
+                
+            # Inject Folder Cards
+            for f_path, count in sorted(folders_found.items()):
+                final_list.append({
+                    "is_folder": True,
+                    "folder_name": f_path,
+                    "title": os.path.basename(f_path),
+                    "count": count
+                })
+
+        # --- 3. SORT STORIES ---
         sort_key = self.sort_var.get().lower()
         is_asc = self.asc_var.get()
-        
-        # Map UI labels to JSON dictionary keys
-        key_map = {
-            "title": "title",
-            "author": "author",
-            "date": "creation_date",
-            "status": "status",
-            "turns": "turns"
-        }
+        key_map = {"title": "title", "author": "author", "date": "creation_date", "status": "status", "turns": "turns"}
         actual_key = key_map.get(sort_key, "title")
 
         def sort_logic(item):
             val = item.get(actual_key, "")
-            # Ensure "Unknown" or None values don't crash comparison algorithms
             if val is None: return ""
             if isinstance(val, str): return val.lower()
             return val
 
         temp_list.sort(key=sort_logic, reverse=not is_asc)
+        final_list.extend(temp_list)
 
-        self.filtered_stories = temp_list
-        self.current_page = 1
+        self.filtered_stories = final_list
+        if reset_page: self.current_page = 1
         self.render_page()
 
     def toggle_order(self):
@@ -246,15 +309,15 @@ class DashboardFrame(ctk.CTkFrame):
         """Resets all search fields to their default states and re-renders the list."""
         self.search_var.set("")
         self.status_var.set("All")
-        self.sort_var.set("Title") # Reset Sort
-        self.asc_var.set(True)     # Reset Order
+        self.sort_var.set("Title") 
+        self.asc_var.set(True)     
         self.btn_order.configure(text="↑ Asc")
         self.apply_search()
 
     def change_items_per_page(self, new_val):
         self.items_per_page = int(new_val)
         self.current_page = 1
-        self.render_page()
+        self.render_page() # Bypasses sort algorithm
 
     def change_page(self, delta=0, exact=None):
         """Handles pagination mathematics and bounds-checking before rendering."""
@@ -271,15 +334,16 @@ class DashboardFrame(ctk.CTkFrame):
             
         self.render_page()
 
+
     def render_page(self):
-        """Draws the specific slice of stories for the current page."""
-        for widget in self.scroll.winfo_children():
-            widget.destroy()
+        """Draws the specific slice of stories for the current page using Virtualization."""
+        self.lbl_empty.pack_forget()
+        for card in self.card_pool:
+            card["frame"].pack_forget()
 
         total_items = len(self.filtered_stories)
         total_pages = max(1, math.ceil(total_items / self.items_per_page))
         
-        # Update Pagination UI state
         self.lbl_page.configure(text=f"Page {self.current_page} of {total_pages}")
         self.btn_first.configure(state="normal" if self.current_page > 1 else "disabled")
         self.btn_prev.configure(state="normal" if self.current_page > 1 else "disabled")
@@ -287,19 +351,85 @@ class DashboardFrame(ctk.CTkFrame):
         self.btn_last.configure(state="normal" if self.current_page < total_pages else "disabled")
 
         if total_items == 0:
-            msg = "No stories match your search/filter." if (self.search_var.get() or self.status_var.get() != "All") else "No stories found. Create one to begin!"
-            ctk.CTkLabel(self.scroll, text=msg, font=("Arial", 16, "italic"), text_color="gray").pack(pady=50)
+            msg = "No stories match your search/filter." if (self.search_var.get() or self.status_var.get() != "All") else "No stories found in this directory."
+            self.lbl_empty.configure(text=msg)
+            self.lbl_empty.pack(pady=50)
             return
 
-        # Slice data to memory-friendly page chunk
         start_idx = (self.current_page - 1) * self.items_per_page
         end_idx = start_idx + self.items_per_page
         page_slice = self.filtered_stories[start_idx:end_idx]
 
-        for story in page_slice:
-            self.build_story_card(story)
+        for i, item in enumerate(page_slice):
+            if i >= len(self.card_pool):
+                self.card_pool.append(self._create_card_widget())
+                
+            refs = self.card_pool[i]
             
-        # Snap scroll view back to the top
+            # --- RENDER LOGIC SWITCH ---
+            
+            # Helper to bind click events to all children of a frame
+            def bind_click(container, command):
+                container.bind("<Button-1>", command)
+                for child in container.winfo_children():
+                    child.bind("<Button-1>", command)
+                    # For nested frames (like line1/line2), dig one level deeper
+                    if isinstance(child, ctk.CTkFrame):
+                        for subchild in child.winfo_children():
+                            subchild.bind("<Button-1>", command)
+            
+            if item.get("is_up_dir"):
+                refs["story_container"].pack_forget()
+                refs["folder_container"].pack(fill="both", expand=True)
+                refs["f_icon_lbl"].configure(text="🔙", text_color="white")
+                refs["f_title_lbl"].configure(text="[ .. ] Go back")
+                refs["f_count_lbl"].configure(text="(Parent Directory)")
+                
+                # Bind the entire container to navigate up
+                bind_click(refs["folder_container"], lambda e, p=item["target"]: self.change_dir(p))
+                
+            elif item.get("is_folder"):
+                refs["story_container"].pack_forget()
+                refs["folder_container"].pack(fill="both", expand=True)
+                refs["f_icon_lbl"].configure(text="📁", text_color="#FFCA28") # Folder Yellow
+                refs["f_title_lbl"].configure(text=item["title"])
+                cnt = item["count"]
+                refs["f_count_lbl"].configure(text=f"({cnt} item{'s' if cnt != 1 else ''})")
+                
+                # Bind the entire container to navigate down
+                bind_click(refs["folder_container"], lambda e, p=item["folder_name"]: self.change_dir(p))
+                
+            else:
+                refs["folder_container"].pack_forget()
+                refs["story_container"].pack(fill="both", expand=True)
+                
+                mode_color = "#2196F3" if item['mode'] == "sandbox" else "#9C27B0"
+                refs["mode_lbl"].configure(text=item['mode'].upper(), text_color=mode_color)
+                refs["title_lbl"].configure(text=item['title'])
+                
+                auth_text = f"{item.get('author', 'Unknown')} • v{item.get('version', '1.0')} • {item.get('creation_date', '')}"
+                refs["auth_lbl"].configure(text=auth_text)
+                
+                t_count = item.get('turns', 0)
+                t_text = f" • {t_count} Turn{'s' if t_count != 1 else ''}" if t_count > 0 else ""
+                raw_loc = str(item.get('location', 'Unknown')).replace('\n', ' ')
+                display_loc = raw_loc[:75].strip() + "..." if len(raw_loc) > 75 else raw_loc
+                refs["meta_lbl"].configure(text=f"[{item.get('status', 'Unknown')}]{t_text} • {display_loc}")
+                
+                # Bind the entire container to load the workspace (unless corrupted)
+                if item['mode'] != "error":
+                    refs["frame"].configure(cursor="hand2")
+                    bind_click(refs["content_frame"], lambda e, f=item['folder_name']: self.app.open_workspace(f))
+                else:
+                    refs["frame"].configure(cursor="arrow")
+                    bind_click(refs["content_frame"], lambda e: None)
+                
+                def make_closure(f=item['folder_name'], t=item['title'], m=refs["opt_menu"]):
+                    return lambda choice: [m.set("Options..."), self.handle_card_option(choice, f, t)]
+                refs["opt_menu"].configure(command=make_closure())
+            
+            refs["frame"].pack(fill="x", pady=4, padx=10)
+            
         self.scroll._parent_canvas.yview_moveto(0.0)
 
 
@@ -307,71 +437,55 @@ class DashboardFrame(ctk.CTkFrame):
     # UI COMPONENT BUILDERS
     # ---------------------------------------------------------
 
-    def build_story_card(self, story):
-        """Renders an individual story summary card for the dashboard list."""
-        card = ctk.CTkFrame(self.scroll, corner_radius=8)
-        card.pack(fill="x", pady=4, padx=10)
-
-        # Content Container (Left/Center)
-        content_frame = ctk.CTkFrame(card, fg_color="transparent")
+    def _create_card_widget(self):
+        """Instantiates a single, dual-purpose (Folder/Story) reusable Card object."""
+        card = ctk.CTkFrame(self.scroll, corner_radius=8, cursor="hand2")
+        
+        # --- SUB-CONTAINER 1: FOLDER ---
+        folder_container = ctk.CTkFrame(card, fg_color="transparent", cursor="hand2")
+        f_icon_lbl = ctk.CTkLabel(folder_container, text="📁", font=("Segoe UI Emoji", 26), cursor="hand2")
+        f_icon_lbl.pack(side="left", padx=(20, 15), pady=10)
+        f_title_lbl = ctk.CTkLabel(folder_container, text="", font=("Arial", 16, "bold"), cursor="hand2")
+        f_title_lbl.pack(side="left", pady=10)
+        f_count_lbl = ctk.CTkLabel(folder_container, text="", font=("Arial", 12, "italic"), text_color="gray", cursor="hand2")
+        f_count_lbl.pack(side="left", padx=10, pady=10)
+        
+        # --- SUB-CONTAINER 2: STORY ---
+        story_container = ctk.CTkFrame(card, fg_color="transparent")
+        
+        # The content frame is the clickable target for the story, so we don't accidentally bind the Options menu
+        content_frame = ctk.CTkFrame(story_container, fg_color="transparent", cursor="hand2")
         content_frame.pack(side="left", fill="both", expand=True, padx=15, pady=8)
 
-        # --- LINE 1: [Badge] Title (Left) | Author • v • Date (Right) ---
-        line1 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        line1 = ctk.CTkFrame(content_frame, fg_color="transparent", cursor="hand2")
         line1.pack(fill="x")
-
-        # Mode Badge
-        mode_color = "#2196F3" if story['mode'] == "sandbox" else "#9C27B0"
-        mode_lbl = ctk.CTkLabel(line1, text=story['mode'].upper(), font=("Arial", 10, "bold"), text_color=mode_color)
+        mode_lbl = ctk.CTkLabel(line1, text="", font=("Arial", 10, "bold"), cursor="hand2")
         mode_lbl.pack(side="left", padx=(0, 10))
-
-        # Title
-        title_lbl = ctk.CTkLabel(line1, text=story['title'], font=("Arial", 16, "bold"))
+        title_lbl = ctk.CTkLabel(line1, text="", font=("Arial", 16, "bold"), cursor="hand2")
         title_lbl.pack(side="left")
-
-        # Author/Version/Date (Right Aligned)
-        auth_text = f"{story.get('author', 'Unknown')} • v{story.get('version', '1.0')} • {story.get('creation_date', '')}"
-        auth_lbl = ctk.CTkLabel(line1, text=auth_text, font=("Arial", 11, "italic"), text_color="#A0A0A0")
+        auth_lbl = ctk.CTkLabel(line1, text="", font=("Arial", 11, "italic"), text_color="#A0A0A0", cursor="hand2")
         auth_lbl.pack(side="right")
 
-        # --- LINE 2: Status • Turns • Location ---
-        line2 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        line2 = ctk.CTkFrame(content_frame, fg_color="transparent", cursor="hand2")
         line2.pack(fill="x", pady=(2, 0))
+        meta_lbl = ctk.CTkLabel(line2, text="", font=("Arial", 12), text_color="gray", cursor="hand2")
+        meta_lbl.pack(side="left")
 
-        t_count = story.get('turns', 0)
-        t_label = "Turn" if t_count == 1 else "Turns"
-        t_text = f" • {t_count} {t_label}" if t_count > 0 else ""
-        
-        # Safely extract and truncate the location string if the AI made it absurdly long
-        raw_loc = str(story.get('location', 'Unknown')).replace('\n', ' ')
-        display_loc = raw_loc[:75].strip() + "..." if len(raw_loc) > 75 else raw_loc
-        
-        meta_text = f"[{story.get('status', 'Unknown')}]{t_text} • {display_loc}"
-        ctk.CTkLabel(line2, text=meta_text, font=("Arial", 12), text_color="gray").pack(side="left")
-
-        # --- RIGHT SIDE: ACTION BUTTONS ---
-        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        # Options dropdown remains on the far right, independent of the clickable content frame
+        btn_frame = ctk.CTkFrame(story_container, fg_color="transparent")
         btn_frame.pack(side="right", padx=15)
-
-        state = "normal" if story['mode'] != "error" else "disabled"
-        btn_play = ctk.CTkButton(btn_frame, text="Play", width=80, state=state, command=lambda f=story['folder_name']: self.app.open_workspace(f))
-        btn_play.pack(side="left", padx=5)
-
-        # Dropdown options for managing the cartridge
-        opt_menu = ctk.CTkOptionMenu(
-            btn_frame, 
-            values=["Options...", "Restart", "Export to .zip", "Rename", "Delete"],
-            width=110
-        )
-        
-        # Secure local closure: Prevents variables from being garbage collected 
-        # and instantly resets the dropdown text without recursive traces.
-        def on_option_select(choice, f=story['folder_name'], t=story['title'], m=opt_menu):
-            m.set("Options...")
-            self.handle_card_option(choice, f, t)
-            
-        opt_menu.configure(command=on_option_select)
+        opt_menu = ctk.CTkOptionMenu(btn_frame, values=["Options...", "Restart", "Export to .zip", "Rename", "Delete"], width=110)
         opt_menu.pack(side="left", padx=5)
+
+        return {
+            "frame": card,
+            "folder_container": folder_container,
+            "f_icon_lbl": f_icon_lbl, "f_title_lbl": f_title_lbl, "f_count_lbl": f_count_lbl,
+            "story_container": story_container,
+            "content_frame": content_frame,
+            "mode_lbl": mode_lbl, "title_lbl": title_lbl, "auth_lbl": auth_lbl, "meta_lbl": meta_lbl,
+            "opt_menu": opt_menu
+        }
 
 
     # ---------------------------------------------------------
@@ -525,7 +639,7 @@ class DashboardFrame(ctk.CTkFrame):
                 "allow_cheats": True if mode_var.get() == "sandbox" else False
             }
                 
-            success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get(), rules_cfg)
+            success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get(), rules_cfg, self.current_dir)
             
             # Auto-open logic added
             dialog.destroy() 
@@ -629,7 +743,7 @@ class DashboardFrame(ctk.CTkFrame):
             def worker():
                 success, msg = TomeWeaverAPI.create_story_from_prompt(
                     title, author_entry.get().strip(), mode_var.get(), 
-                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg
+                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg, self.current_dir
                 )
                 
                 def on_complete():

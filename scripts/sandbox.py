@@ -38,6 +38,7 @@ class SandboxEngine(BaseEngine):
         active_setup.pop("track_inventory", None)
         active_setup.pop("can_die", None)
         active_setup.pop("allow_cheats", None)
+        active_setup.pop("inventory_dictionary", None)
         
         system_content = self.system_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"

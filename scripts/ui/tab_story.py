@@ -54,8 +54,11 @@ class StoryTab(ctk.CTkFrame):
         self.history_slider.pack(fill="y", expand=True)
 
         # --- LAYOUT: Bottom Input Bar ---
-        input_frame = ctk.CTkFrame(self)
-        input_frame.pack(fill="x", padx=10, pady=(0, 10))
+        # 1. We remove the outer background frame to keep the UI flat
+        input_frame = ctk.CTkFrame(self, fg_color="transparent")
+        # 2. We align the frame's padding to match the left margin of the cards (10 + internal canvas padding)
+        # and the right margin to account for the width of the Time Travel slider (40px + 5px gap + 10px scrollbar)
+        input_frame.pack(fill="x", padx=(25, 75), pady=(0, 10))
 
         self.cmd_dropdown = ctk.CTkOptionMenu(
             input_frame, 
@@ -65,14 +68,16 @@ class StoryTab(ctk.CTkFrame):
         
         # Only show Director Overrides in Sandbox Mode
         if not self.engine.is_campaign:
-            self.cmd_dropdown.pack(side="left", padx=10, pady=15)
+            self.cmd_dropdown.pack(side="left", padx=(0, 10), pady=10)
 
         self.text_input = ctk.CTkEntry(input_frame, placeholder_text="Type a custom action or dialogue...", font=("Arial", 14))
-        self.text_input.pack(side="left", fill="x", expand=True, padx=10, pady=15)
+        # 3. Text input packed tightly to the left
+        self.text_input.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=10)
         self.text_input.bind("<Return>", lambda e: self.on_submit())
 
         self.btn_submit = ctk.CTkButton(input_frame, text="Submit", command=self.on_submit, width=100)
-        self.btn_submit.pack(side="right", padx=10, pady=15)
+        # 4. Submit button packed tightly to the right
+        self.btn_submit.pack(side="right", padx=0, pady=10)
 
         self.status_var = ctk.StringVar(value="Ready.")
         ctk.CTkLabel(self, textvariable=self.status_var, font=("Arial", 12, "italic"), text_color="gray").pack(side="bottom", anchor="w", padx=15, pady=(0, 5))
@@ -199,39 +204,26 @@ class StoryTab(ctk.CTkFrame):
         Master Update Endpoint. Syncs the slider scale to the history length, 
         evaluates UI configurations, and triggers a visual render of the cards.
         """
-        
-        # 1. Repoll the global config
         from config import ENGINE_CONFIG
         f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
         f_size = ENGINE_CONFIG.get("prose_font_size", 15)
         self.prose_font = (f_family, int(f_size))
         self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
         
-        # 2. Force all recycled textboxes to adopt the new font immediately
         for refs in self.recycled_cards:
             refs["prose"].configure(font=self.prose_font)
             refs["br_prose"].configure(font=self.bridge_font)
         
-        # Toggle Global Undo Button Visibility dynamically
+        # Preserve the new tight packing alignment when the UI redraws
         self.btn_submit.pack_forget()
-        self.btn_submit.pack(side="right", padx=10, pady=15)
+        self.btn_submit.pack(side="right", padx=0, pady=10)
 
         if not self.engine.history:
             self._lock_ui("Initializing story...")
             threading.Thread(target=self._async_init, daemon=True).start()
             return
 
-        # Resume Session Hook (If engine crashed before LLM could reply)
-        last_turn = self.engine.history[-1]
-        if last_turn.get("player_choice") is not None:
-            if self.btn_submit.cget("state") == "normal":
-                self._lock_ui("Resuming interrupted generation...")
-                def worker():
-                    action_to_resume = last_turn["player_choice"]
-                    self.engine.submit_action(action_to_resume)
-                    self.after(0, self.refresh_timeline)
-                threading.Thread(target=worker, daemon=True).start()
-
+        # 1. Calculate boundaries and update slider
         max_start = max(0, len(self.engine.history) - self.MAX_CARDS)
         if max_start > 0:
             self.history_slider.configure(state="normal", from_=max_start, to=0, number_of_steps=max_start)
@@ -242,9 +234,47 @@ class StoryTab(ctk.CTkFrame):
             self.history_slider.configure(state="disabled")
 
         self.current_top_idx = max_start
+        
+        # 2. Draw the cards to the screen
         self._render_visible_cards(auto_scroll=True)
+        
+        # 3. Unlock the UI explicitly (Resets all states)
         self._unlock_ui("Ready.")
-
+        
+        # 4. THE RESUME HOOK
+        # Must execute AFTER the cards are rendered and unlocked, so it can re-lock the UI 
+        # correctly and keep it locked while the LLM generates the missing turn.
+        last_turn = self.engine.history[-1]
+        if last_turn.get("player_choice") is not None:
+            self._lock_ui("Resuming interrupted generation...")
+            def worker():
+                action_to_resume = last_turn["player_choice"]
+                self.engine.submit_action(action_to_resume)
+                self.after(0, self.refresh_timeline)
+            threading.Thread(target=worker, daemon=True).start()
+        
+    def _calculate_inventory_state(self, up_to_idx):
+        """Rebuilds the current inventory state by parsing history up to the target index."""
+        base_schema = self.engine.setup_data.get("inventory_and_state", {})
+        if not isinstance(base_schema, dict): base_schema = {}
+        
+        # Start with the baseline values from setup.json
+        state = {k: v.get("val", "") for k, v in base_schema.items()}
+        
+        import re
+        for i in range(up_to_idx + 1):
+            if i >= len(self.engine.history) or i < 0: break
+            inv_str = self.engine.history[i].get("inventory_and_state", "")
+            if inv_str:
+                inv_str = inv_str.replace("[Status]", "").strip()
+                patterns = re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str)
+                for k, v in patterns:
+                    clean_k = k.strip()
+                    # Persistence Check: Only update keys that exist in our schema
+                    if clean_k in state:
+                        state[clean_k] = v.strip(' .,;')
+        return state
+        
     def _on_slider_move(self, value):
         """Callback for the 'Time Travel' scroll bar."""
         new_idx = int(value)
@@ -305,14 +335,55 @@ class StoryTab(ctk.CTkFrame):
                 pov = turn.get("pov_character", "Unknown")
                 refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
                 
-                # Conditionally render the Inventory Sub-Header
+                # 3. RENDER RPG INVENTORY PILLS (Persistent Virtual State) ---
                 refs["inv_frame"].pack_forget()
-                if self.engine.track_inventory:
-                    inv_data = turn.get("inventory_and_state", "")
-                    if inv_data:
-                        refs["inv_frame"].pack(fill="x", padx=15, pady=(0, 5))
-                        refs["inv_lbl"].configure(text=f"Status: {inv_data}")
+                for w in refs["inv_frame"].winfo_children(): w.destroy()
                 
+                schema = self.engine.setup_data.get("inventory_dictionary", {})
+                if self.engine.track_inventory and schema and isinstance(schema, dict):
+                    # Parse the perfectly patched string guaranteed by llm.py
+                    inv_str = turn.get("inventory_and_state", "").replace("[Status]", "").strip()
+                    import re
+                    current_state = {}
+                    for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str):
+                        current_state[k.strip()] = v.strip(' .,;')
+                    
+                    refs["inv_frame"].pack(fill="x", padx=20, pady=(0, 10))
+                    
+                    def get_darker_shade(hex_color, factor=0.4):
+                        """Generates the deep-background pill color from the icon's bright hex."""
+                        try:
+                            hex_color = hex_color.lstrip('#')
+                            if len(hex_color) != 6: return "#333333"
+                            rgb = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
+                            dark = [max(0, int(c * factor)) for c in rgb]
+                            return f"#{dark[0]:02x}{dark[1]:02x}{dark[2]:02x}"
+                        except: return "#333333"
+
+                    for key, val in current_state.items():
+                        if not val or str(val).lower() == "none": continue
+                        
+                        info = schema.get(key, {})
+                        icon = info.get("icon", "🎒")
+                        base_color = info.get("color", "#1F6AA5")
+                        bg_color = get_darker_shade(base_color)
+                        
+                        # The Pill Container
+                        pill = ctk.CTkFrame(refs["inv_frame"], corner_radius=15, fg_color=bg_color)
+                        pill.pack(side="left", padx=(0, 8))
+                        
+                        # The Colored Icon
+                        icon_lbl = ctk.CTkLabel(pill, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color)
+                        icon_lbl.pack(side="left", padx=(8, 2), pady=2)
+                        
+                        # The Value Text
+                        val_lbl = ctk.CTkLabel(pill, text=val, font=("Arial", 11, "bold"), text_color="#E0E0E0")
+                        val_lbl.pack(side="left", padx=(0, 10), pady=2)
+                        
+                        # Hover Tooltip shows the actual Key Name
+                        Tooltip(pill, key)
+                
+                # 4. RENDER BRIDGE and EDIT buttons
                 refs["btn_edit"].pack_forget()
                 refs["btn_bridge"].pack_forget()
                 
