@@ -1,5 +1,3 @@
---- START OF FILE COMMAND_GUIDE.md ---
-
 # TomeWeaver: Gameplay & User Guide
 
 TomeWeaver is an interactive fiction engine, but it is also a powerful writing tool. This guide explains how to play the game and how to use the UI's "Director Tools" to sculpt your adventure.

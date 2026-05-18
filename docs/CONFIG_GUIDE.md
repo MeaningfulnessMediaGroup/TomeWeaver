@@ -1,5 +1,3 @@
---- START OF FILE CONFIG_GUIDE.md ---
-
 # TomeWeaver: Configuration Guide
 
 While TomeWeaver provides a powerful GUI to manage your adventures, the engine relies on strict underlying JSON schemas to function. This guide explains how the engine's DNA works.

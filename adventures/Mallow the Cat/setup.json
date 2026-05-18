@@ -17,5 +17,8 @@
     "version": "1.0",
     "creation_date": "2026/05/17",
     "starting_inventory": "",
-    "lore_and_rules": ""
+    "lore_and_rules": "",
+    "characters": {
+        "New_Key": "New_Value"
+    }
 }

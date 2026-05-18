@@ -1,5 +1,3 @@
---- START OF FILE docs/README.md ---
-
 # TomeWeaver: User Interface Guide
 
 TomeWeaver features a modern, dark-mode desktop GUI built on `CustomTkinter`. This guide provides a visual walkthrough of the application's major interfaces and how to use them.
@@ -45,9 +43,12 @@ If you click `✨ Polish` or `🔧 Fix...` on a story card, the engine does not 
 
 The World Builder tab replaces the need to manually edit `setup.json` files. It translates the raw code of the engine into a user-friendly master-detail editor.
 
-![World Builder](images/world_builder.jpg "Screenshot of the World Builder tab. On the left is a list of custom lore keys (e.g., 'family', 'magic_rules'). On the right is the Visual JSON Editor showing a grid of Key-Value textboxes being edited.")
+![World Builder Core Settings](images/world_builder.jpg "Screenshot of the World Builder 'Core Settings' tab. Shows text fields for Adventure Title, Author, Date, Tone, and toggles for Inventory Tracking and Permadeath.")
 
 *   **Core Settings:** The first sub-tab manages the Title, Author, Tone, and mechanical rules (Inventory Tracking, Permadeath).
+
+![World Builder Codex](images/world_builder_codex.jpg "Screenshot of the 'Custom Lore (Codex)' tab. On the left is a list of custom lore keys like 'family' and 'magic_rules'. On the right is the Visual JSON Editor showing a grid of Key-Value textboxes being edited.")
+
 *   **Custom Lore (Codex):** Allows you to add infinite custom fields to your world. When you click "+ Add New Entry", you choose a data type (String, List, Dictionary). The UI dynamically transforms into the correct editor, preventing you from ever making a JSON syntax error.
 
 ---

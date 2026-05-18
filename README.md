@@ -100,7 +100,7 @@ If you are on a UNIX-based system or prefer setting up your environment manually
     ```bash
     python gui.py
     ```
---
+---
 
 ## 📖 The Adventure "Cartridge" System
 
