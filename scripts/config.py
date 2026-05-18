@@ -116,8 +116,12 @@ def load_engine_config():
         "log_verbose": False,
         "log_raw_json_on_failure": False,
         "auto_polish": False,
+        "auto_narrative_bridge": False,
         "ui_scaling": 1.0,
-        "prose_font_size": 15
+        "prose_font_family": "Georgia",
+        "prose_font_size": 15,
+        "window_geometry": "1100x750",
+        "window_state": "normal"
     }
     
     # 1. Create default config if it doesn't exist

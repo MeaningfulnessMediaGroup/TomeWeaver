@@ -11,11 +11,13 @@ class StoryTab(ctk.CTkFrame):
 
         # --- FONT & STYLE SETTINGS ---
         from config import ENGINE_CONFIG
+        f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
         f_size = ENGINE_CONFIG.get("prose_font_size", 15)
-        self.prose_font = ("Georgia", int(f_size))
+        
+        self.prose_font = (f_family, int(f_size))
         self.header_font = ("Arial", 12)
         self.action_font = ("Arial", 14, "bold")
-        self.bridge_font = ("Georgia", 14, "italic")
+        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
         
         # --- VIRTUALIZATION & RESIZE STATE ---
         self.MAX_CARDS = 3
@@ -84,7 +86,9 @@ class StoryTab(ctk.CTkFrame):
             refs["prose"].configure(wraplength=adjusted_wrap)
             refs["hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
             refs["choice"].configure(wraplength=adjusted_wrap)
-            refs["bridge"].configure(wraplength=adjusted_wrap)
+            # Apply wrapping to the new Bridge Card
+            refs["br_prose"].configure(wraplength=adjusted_wrap)
+            refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
 
     def _wrap_heartbeat(self):
         current_width = self.timeline._parent_canvas.winfo_width()
@@ -110,41 +114,67 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _initialize_recycled_cards(self):
-        """Creates exactly 3 empty Card templates in memory. These will NEVER be destroyed."""
+        """Creates exactly 3 empty Card templates and 3 Bridge templates in memory."""
+        from ui.tooltip import Tooltip
+        
         for _ in range(self.MAX_CARDS):
-            card = ctk.CTkFrame(
-                self.timeline, corner_radius=10, 
-                fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638")
-            )
+            # --- 1. THE BRIDGE CARD ---
+            br_card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
             
-            # Header Row
+            br_hdr_frame = ctk.CTkFrame(br_card, fg_color="transparent")
+            br_hdr_frame.pack(fill="x", padx=15, pady=(10, 5))
+            
+            br_btn_del = ctk.CTkButton(br_hdr_frame, text="X", width=28, height=24, fg_color="#B71C1C", hover_color="#7F0000")
+            Tooltip(br_btn_del, "Delete this narrative bridge.")
+            
+            br_btn_gen = ctk.CTkButton(br_hdr_frame, text="✨", width=28, height=24, fg_color="#00ACC1", hover_color="#00838F")
+            Tooltip(br_btn_gen, "Ask AI to regenerate this bridge.")
+            
+            br_btn_edit = ctk.CTkButton(br_hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
+            Tooltip(br_btn_edit, "Open the Narrative Editor to tweak this bridge.")
+            
+            br_hdr_lbl = ctk.CTkLabel(br_hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
+            br_hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            
+            br_prose_lbl = ctk.CTkLabel(br_card, text="", font=self.prose_font, justify="left", anchor="w")
+            br_prose_lbl.pack(fill="x", padx=20, pady=(5, 25))
+
+            # --- 2. THE STORY CARD ---
+            card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
+            
             hdr_frame = ctk.CTkFrame(card, fg_color="transparent")
             hdr_frame.pack(fill="x", padx=15, pady=(10, 5))
             btn_edit = ctk.CTkButton(hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
-            btn_edit.pack(side="right")
             hdr_lbl = ctk.CTkLabel(hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
             
-            # Prose
             prose_lbl = ctk.CTkLabel(card, text="", font=self.prose_font, justify="left", anchor="w")
-            prose_lbl.pack(fill="x", padx=15, pady=5)
+            prose_lbl.pack(fill="x", padx=20, pady=5)
             
-            # Footer (Action / Bridge)
             c_lbl = ctk.CTkLabel(card, text="", font=self.action_font, text_color="#4CAF50", justify="left", anchor="w")
-            
-            br_frame = ctk.CTkFrame(self.timeline, fg_color="transparent")
-            br_lbl = ctk.CTkLabel(br_frame, text="", font=self.bridge_font, text_color="#82B1FF", justify="left", anchor="w")
-            br_lbl.pack(fill="x")
-            
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             
             self.recycled_cards.append({
+                "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
+                "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
                 "card": card, "hdr": hdr_lbl, "prose": prose_lbl, "btn_edit": btn_edit,
-                "choice": c_lbl, "br_frame": br_frame, "bridge": br_lbl, "btn_frame": btn_frame
+                "choice": c_lbl, "btn_frame": btn_frame
             })
 
     def refresh_timeline(self):
-        """Clears the screen, pulls the history from the engine, and renders the cards."""
+        """Syncs the slider to the history length and triggers a visual update."""
+        
+        # 1. Repoll the global config
+        from config import ENGINE_CONFIG
+        f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
+        f_size = ENGINE_CONFIG.get("prose_font_size", 15)
+        self.prose_font = (f_family, int(f_size))
+        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
+        
+        # 2. Force all recycled textboxes to adopt the new font immediately
+        for refs in self.recycled_cards:
+            refs["prose"].configure(font=self.prose_font)
+            refs["br_prose"].configure(font=self.bridge_font)
         
         # Toggle Global Undo Button Visibility dynamically
         self.btn_submit.pack_forget()
@@ -191,11 +221,14 @@ class StoryTab(ctk.CTkFrame):
             self.timeline._parent_canvas.yview_moveto(0.0)
 
     def _render_visible_cards(self, auto_scroll=False):
-        """Injects text and buttons from the history slice into the recycled widgets."""
         history = self.engine.history
         cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
-        
         from ui.tooltip import Tooltip
+
+        # 0. Unpack EVERYTHING first to guarantee correct visual rendering order
+        for refs in self.recycled_cards:
+            refs["br_card"].pack_forget()
+            refs["card"].pack_forget()
 
         for i in range(self.MAX_CARDS):
             target_idx = self.current_top_idx + i
@@ -204,46 +237,55 @@ class StoryTab(ctk.CTkFrame):
             if target_idx < len(history):
                 turn = history[target_idx]
                 
-                # 1. NARRATIVE BRIDGE (Visually sits between the previous card and this card)
+                # 1. RENDER BRIDGE CARD (Packed FIRST so it sits above the Story Card)
                 bridge = turn.get("narrative_bridge")
                 if target_idx > 0 and bridge and bridge not in ["[OK]", "[FAILED]", ""]:
-                    refs["bridge"].configure(text=bridge)
-                    refs["br_frame"].pack(fill="x", padx=40, pady=(5, 0))
-                else:
-                    refs["br_frame"].pack_forget()
+                    refs["br_card"].pack(fill="x", padx=20, pady=(15, 0))
+                    refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
+                    refs["br_prose"].configure(text=bridge)
+                    if cheats_allowed:
+                        refs["br_btn_del"].pack(side="right", padx=(5, 0))
+                        refs["br_btn_gen"].pack(side="right", padx=(5, 0))
+                        refs["br_btn_edit"].pack(side="right", padx=(5, 0))
+                        
+                        refs["br_btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
+                        refs["br_btn_gen"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
+                        refs["br_btn_del"].configure(command=lambda idx=target_idx: self._delete_bridge_timeline(idx))
+                    else:
+                        refs["br_btn_del"].pack_forget()
+                        refs["br_btn_gen"].pack_forget()
+                        refs["br_btn_edit"].pack_forget()
 
-                # 2. RENDER THE CARD ITSELF
+                # 2. RENDER STORY CARD (Packed SECOND)
                 refs["card"].pack(fill="x", padx=20, pady=10) 
                 
-                # Header (Always visible)
                 loc = turn.get("location", "Unknown")
                 pov = turn.get("pov_character", "Unknown")
                 refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
                 
-                # Edit Button
                 if cheats_allowed:
                     refs["btn_edit"].pack(side="right")
                     refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
                 else:
                     refs["btn_edit"].pack_forget()
 
-                # Prose Text
-                refs["prose"].configure(text=turn.get("story_text", "").replace("\\n", "\n"))
+                prose_text = turn.get("story_text", "").replace("\\n", "\n") + "\n"
+                refs["prose"].configure(text=prose_text)
                 
-                # Reset Footer Elements
+                # 3. RENDER FOOTER
                 refs["choice"].pack_forget()
                 refs["btn_frame"].pack_forget()
                 for w in refs["btn_frame"].winfo_children(): w.destroy()
                 
-                # 3. RENDER FOOTER (Past choice OR Active buttons)
                 choice = turn.get("player_choice")
                 if choice is not None:
                     # RENDER PAST TURN (Just shows what the player typed/clicked)
                     refs["choice"].configure(text=f"❯ {choice}")
-                    refs["choice"].pack(fill="x", padx=15, pady=(5, 15))
+                    # FIX ARROW 1: Massive 25px top padding to separate the old choice from the prose
+                    refs["choice"].pack(fill="x", padx=20, pady=(25, 20))
                 else:
                     # RENDER ACTIVE TURN (Shows Director Tools and Choices)
-                    refs["btn_frame"].pack(fill="x", padx=10, pady=(0, 15))
+                    refs["btn_frame"].pack(fill="x", padx=15, pady=(0, 20))
                     
                     is_over = str(turn.get("is_game_over", False)).lower() == "true"
                     is_victory = turn.get("chapter_goal_achieved", False)
@@ -260,7 +302,8 @@ class StoryTab(ctk.CTkFrame):
                     if not self.engine.is_test_mode:
                         if show_redo or show_qol or show_fix:
                             dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
-                            dir_frame.pack(fill="x", pady=(0, 10), padx=5)
+                            # FIX ARROW 3: 20px top margin separating the prose from the colorful buttons
+                            dir_frame.pack(fill="x", pady=(20, 15), padx=5)
                             
                             if show_redo:
                                 btn_rt = ctk.CTkButton(dir_frame, text="⟳ Redo Turn", width=60, fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
@@ -285,10 +328,8 @@ class StoryTab(ctk.CTkFrame):
                                 btn_fix.pack(side="left", padx=5)
                                 Tooltip(btn_fix, "Instruct AI to change a specific detail.")
 
-                    # Render Choice Buttons
                     for c in turn.get("choices", []):
                         if not cheats_allowed and "Cheat Death" in c: continue
-                        
                         color = "#1F6AA5"; hover = "#144870"
                         if "Restart Game" in c: color = "#D32F2F"; hover = "#9A0007"
                         elif "Quit" in c: color = "#4A4A4A"; hover = "#333333"
@@ -298,11 +339,7 @@ class StoryTab(ctk.CTkFrame):
                         
                         btn = ctk.CTkButton(refs["btn_frame"], text=c, fg_color=color, hover_color=hover, anchor="w", command=lambda action=c: self._execute_action(action))
                         btn.pack(fill="x", pady=2, padx=5)
-            else:
-                refs["card"].pack_forget()
-                refs["br_frame"].pack_forget()
 
-        # Update wrapping for the newly injected text
         current_width = self.timeline._parent_canvas.winfo_width()
         if current_width > 100:
             self._apply_wrapping(current_width)
@@ -321,6 +358,13 @@ class StoryTab(ctk.CTkFrame):
         """Opens the Full Narrative IDE for a specific turn."""
         if turn_idx < 0 or turn_idx >= len(self.engine.history): return
         turn = self.engine.history[turn_idx]
+        
+        # Re-poll config to ensure the editor uses the correct font
+        from config import ENGINE_CONFIG
+        f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
+        f_size = ENGINE_CONFIG.get("prose_font_size", 15)
+        self.prose_font = (f_family, int(f_size))
+        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
         
         dialog = ctk.CTkToplevel(self)
         dialog.title(f"Narrative Editor: Turn {turn.get('turn', '?')}")
@@ -347,11 +391,48 @@ class StoryTab(ctk.CTkFrame):
 
         # --- NARRATIVE BRIDGE (Transition INTO this turn) ---
         if turn_idx > 0:
-            ctk.CTkLabel(scroll, text="Narrative Bridge (Transition from previous turn):", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 5))
-            bridge_var = ctk.StringVar(value=turn.get("narrative_bridge", ""))
-            ctk.CTkEntry(scroll, textvariable=bridge_var, font=self.bridge_font, text_color="#82B1FF").pack(fill="x", pady=(0, 20))
+            br_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+            br_hdr.pack(fill="x", pady=(0, 5))
+            ctk.CTkLabel(br_hdr, text="Narrative Bridge (Transition from previous turn):", font=("Arial", 12, "bold")).pack(side="left")
+            
+            # Clear Textbox Button
+            btn_clear_br = ctk.CTkButton(br_hdr, text="X Clear", width=60, fg_color="#B71C1C", hover_color="#7F0000")
+            btn_clear_br.pack(side="right", padx=5)
+            Tooltip(btn_clear_br, "Wipe the textbox below.")
+
+            btn_gen_br = ctk.CTkButton(br_hdr, text="✨ Generate", width=80, fg_color="#00ACC1", hover_color="#00838F")
+            btn_gen_br.pack(side="right", padx=5)
+            
+            bridge_box = ctk.CTkTextbox(scroll, height=100, wrap="word", font=self.prose_font)
+            bridge_box.insert("1.0", turn.get("narrative_bridge", "").replace("\\n", "\n"))
+            bridge_box.pack(fill="x", pady=(0, 20))
+            
+            btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
+            
+            # Async Generation Logic
+            def generate_bridge_async():
+                btn_gen_br.configure(state="disabled", text="Generating...")
+                def worker():
+                    b_text = self.engine.request_bridge_generation(turn_idx)
+                    def update_ui():
+                        if b_text and b_text not in ["[OK]", "[FAILED]"]:
+                            bridge_box.delete("1.0", "end")
+                            bridge_box.insert("1.0", b_text)
+                        elif b_text == "[OK]":
+                            from tkinter import messagebox
+                            messagebox.showinfo("Bridge", "The AI determined the transition is already seamless [OK].")
+                        else:
+                            from tkinter import messagebox
+                            messagebox.showerror("Error", "Failed to generate bridge.")
+                        btn_gen_br.configure(state="normal", text="✨ Generate")
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_gen_br.configure(command=generate_bridge_async)
+            Tooltip(btn_gen_br, "Ask AI to generate a bridge connecting the previous action to this prose.")
         else:
-            bridge_var = None
+            bridge_box = None
 
         # --- PROSE SECTION ---
         header_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -434,9 +515,11 @@ class StoryTab(ctk.CTkFrame):
             if pc_var: 
                 self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
                 
-            if bridge_var is not None:
-                if bridge_var.get().strip():
-                    self.engine.history[turn_idx]["narrative_bridge"] = bridge_var.get().strip()
+            # Bridge handling
+            if bridge_box is not None:
+                b_text = bridge_box.get("1.0", "end").strip().replace("\n", "\\n")
+                if b_text:
+                    self.engine.history[turn_idx]["narrative_bridge"] = b_text
                 elif "narrative_bridge" in self.engine.history[turn_idx]:
                     del self.engine.history[turn_idx]["narrative_bridge"]
             
@@ -760,6 +843,35 @@ class StoryTab(ctk.CTkFrame):
             self.after(0, self.refresh_timeline)
         threading.Thread(target=worker, daemon=True).start()
 
+    def _delete_bridge_timeline(self, turn_idx):
+        """Instantly deletes a bridge directly from the timeline card."""
+        if messagebox.askyesno("Delete Bridge", "Are you sure you want to delete this narrative bridge?"):
+            if "narrative_bridge" in self.engine.history[turn_idx]:
+                del self.engine.history[turn_idx]["narrative_bridge"]
+                self.engine.save_state()
+                self._render_visible_cards()
+
+    def _generate_bridge_timeline(self, turn_idx):
+        """Triggers the LLM to rewrite the bridge directly from the timeline card."""
+        self._lock_ui("Regenerating narrative bridge...")
+        def worker():
+            b_text = self.engine.request_bridge_generation(turn_idx)
+            def update_ui():
+                if b_text and b_text not in ["[OK]", "[FAILED]"]:
+                    self.engine.history[turn_idx]["narrative_bridge"] = b_text
+                    self.engine.save_state()
+                elif b_text == "[OK]":
+                    messagebox.showinfo("Bridge", "The AI determined the transition is already seamless [OK].")
+                else:
+                    messagebox.showerror("Error", "Failed to generate bridge.")
+                    
+                self._unlock_ui("Ready.")
+                self._render_visible_cards()
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+        
     def _async_init(self):
         try: self.engine.initialize_game()
         except Exception as e: self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))

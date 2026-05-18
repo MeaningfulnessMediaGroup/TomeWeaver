@@ -15,8 +15,6 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     
     ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
-    
-    is_debug = ENGINE_CONFIG.get("debug_novelizer", False)
 
     # --- 1. COMPILE NARRATIVE BEATS ---
     chapter_content = []
@@ -44,20 +42,12 @@ def export_story(adv_dir, setup_data, history, chapters, export_type, use_noveli
                     if use_novelization and i + 1 < len(history) and "narrative_bridge" in history[i+1]:
                         next_bridge = history[i+1]["narrative_bridge"]
                         
-                        if is_debug:
-                            # DEBUG MODE: Show both the raw action and the resulting bridge state
-                            c_beats.append({"type": "choice", "text": str(choice)})
-                            if next_bridge and next_bridge not in ["[OK]", "[FAILED]"]:
-                                c_beats.append({"type": "bridge", "text": f"[DEBUG BRIDGE]: {next_bridge.strip()}"})
-                            elif next_bridge in ["[OK]", "[FAILED]"]:
-                                c_beats.append({"type": "bridge", "text": f"[DEBUG STATUS]: {next_bridge}"})
-                        else:
-                            # NORMAL NOVELIZED MODE: Show only the generated bridge
-                            if next_bridge and next_bridge not in ["[OK]", "[FAILED]"]:
-                                c_beats.append({"type": "bridge", "text": next_bridge.strip()})
-                            # If [OK] or [FAILED], do nothing
+                        # NORMAL NOVELIZED MODE: Show only the generated bridge
+                        if next_bridge and next_bridge not in ["[OK]", "[FAILED]"]:
+                            c_beats.append({"type": "bridge", "text": next_bridge.strip()})
+                        # If [OK], [FAILED], or empty, do nothing
                     else:
-                        # Interactive Mode / Un-novelized fallback
+                        # Interactive Mode / Un-novelized fallback: Show the raw player action
                         c_beats.append({"type": "choice", "text": str(choice)})
         
         if c_beats:

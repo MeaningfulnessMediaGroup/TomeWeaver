@@ -8,11 +8,13 @@
     "max_retries": 10,
     "max_query_per_minute": 0,
     "auto_polish": false,
-    "instant_novelizer": false,
+    "auto_narrative_bridge": false,
+    "ui_scaling": 1.2,
+    "prose_font_size": 15,
     "logging_enabled": true,
     "log_verbose": false,
     "log_raw_json_on_failure": true,
-    "debug_novelizer": false,
-    "ui_scaling": 1.0,
-    "prose_font_size": 15
+    "prose_font_family": "Arial",
+    "window_state": "normal",
+    "window_geometry": "1275x1087+802+35"
 }

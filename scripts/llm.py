@@ -547,14 +547,13 @@ def generate_recap(setup_data, history):
         
         
 
-def generate_narrative_bridge(prev_turn, action, current_turn, debug=False):
+def generate_narrative_bridge(prev_turn, action, current_turn):
     """
     Context-Aware Tense Converter with Mechanical Retry Loop.
     Searches the next scene to see if the action is already resolved. 
     If not, it mechanically converts the player's command into a single sentence.
     Includes strict length and regurgitation validators with a 3-attempt retry loop.
     """
-    import sys
     import time
     import requests
     from colorama import Fore, Style
@@ -563,16 +562,10 @@ def generate_narrative_bridge(prev_turn, action, current_turn, debug=False):
     c_text = current_turn.get("story_text", "").strip()
     turn_num = current_turn.get("turn", "?")
     pov = current_turn.get("pov_character", "The protagonist")
-    
-    if ENGINE_CONFIG.get("debug_novelizer", False): debug = True
 
     def log_status(msg):
-        if debug:
-            print(f"{Style.DIM}Novelizing Turn {turn_num}: {msg}{Style.RESET_ALL}")
-        else:
-            sys.stdout.write(f"\r{Style.DIM}Novelizing Turn {turn_num}: {msg}{Style.RESET_ALL}")
-            sys.stdout.write(" " * max(0, 70 - len(msg)))
-            sys.stdout.flush()
+        # We now simply print to the UI Console tab
+        print(f"{Style.DIM}Bridging Turn {turn_num}: {msg}{Style.RESET_ALL}")
 
     system_prompt = (
         "You are a strict narrative parser. You follow instructions exactly and output only what is requested."
@@ -629,21 +622,20 @@ def generate_narrative_bridge(prev_turn, action, current_turn, debug=False):
             # --- MECHANICAL VALIDATORS ---
             # 1. Regurgitation Guard
             if raw_bridge in c_text and len(raw_bridge) > 10:
-                if debug: print(f"   {Fore.RED}[REJECTED] Copied next scene: {raw_bridge}{Style.RESET_ALL}")
+                print(f"   {Fore.RED}[REJECTED] Copied next scene: {raw_bridge}{Style.RESET_ALL}")
                 messages.append({"role": "assistant", "content": raw_bridge})
                 messages.append({"role": "user", "content": "REJECTED: You copied text from the NEXT SCENE. Convert the ACTION TAKEN into a NEW, single sentence."})
                 continue
                 
             # 2. Length Guard
             if len(raw_bridge) > 350:
-                if debug: print(f"   {Fore.RED}[REJECTED] Too long ({len(raw_bridge)} chars): {raw_bridge[:100]}...{Style.RESET_ALL}")
+                print(f"   {Fore.RED}[REJECTED] Too long ({len(raw_bridge)} chars): {raw_bridge[:100]}...{Style.RESET_ALL}")
                 messages.append({"role": "assistant", "content": raw_bridge})
                 messages.append({"role": "user", "content": "REJECTED: Your response is too long. Output ONLY ONE short sentence."})
                 continue
                 
             # If it passes validation, we are done!
-            if debug:
-                print(f"   {Fore.CYAN}[GENERATED]: {raw_bridge}{Style.RESET_ALL}")
+            print(f"   {Fore.CYAN}[GENERATED]: {raw_bridge}{Style.RESET_ALL}")
                 
             log_status(f"{Fore.GREEN}[OK] Bridge Created")
             return raw_bridge

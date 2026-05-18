@@ -74,10 +74,12 @@ class BaseEngine:
         self.backup_turn = None
         self.is_test_mode = False
 
-        # --- INSTANT NOVELIZER: STARTUP CATCH-UP ---
+        # --- AUTO NARRATIVE BRIDGE: STARTUP CATCH-UP ---
         # If enabled, automatically process any missing bridges on launch
-        if ENGINE_CONFIG.get("instant_novelizer", False):
-            self.novelize_history(silent=False)
+        if ENGINE_CONFIG.get("auto_narrative_bridge", False):
+            # We spawn this in a thread so it doesn't freeze the GUI while loading 10,000 old turns
+            import threading
+            threading.Thread(target=self.novelize_history, kwargs={"silent": False}, daemon=True).start()
 
 
     # ---------------------------------------------------------
@@ -293,8 +295,8 @@ class BaseEngine:
         self.history[-1]["player_choice"] = player_choice
         self.save_state()
 
-        # Novelizer background hook: Render previous gap before generating next turn
-        if ENGINE_CONFIG.get("instant_novelizer", False) and len(self.history) >= 1:
+        # Auto Narrative Bridge background hook: Render gap before generating next turn
+        if ENGINE_CONFIG.get("auto_narrative_bridge", False) and len(self.history) >= 1:
             self._generate_bridge_for_latest_action()
 
         print(f"{Style.DIM}Generating turn...{Style.RESET_ALL}")
@@ -531,7 +533,20 @@ class BaseEngine:
         if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         return self.history[-1] if self.history else None
 
-
+    def request_bridge_generation(self, turn_idx):
+        """Endpoint: Manually asks the AI to generate a narrative bridge for a specific turn."""
+        if turn_idx <= 0 or turn_idx >= len(self.history): return None
+        
+        prev_turn = self.history[turn_idx - 1]
+        curr_turn = self.history[turn_idx]
+        action = prev_turn.get("player_choice")
+        
+        if not action: return None
+        
+        print(f"{Style.DIM}Generating manual bridge for Turn {turn_idx}...{Style.RESET_ALL}")
+        from llm import generate_narrative_bridge
+        return generate_narrative_bridge(prev_turn, action, curr_turn)
+        
     # ---------------------------------------------------------
     # CORE API: UTILITIES
     # ---------------------------------------------------------
@@ -777,7 +792,7 @@ class BaseEngine:
                 self.save_state()
 
     def novelize_history(self, silent=True):
-        """Manual endpoint to loop through the entire history and patch missing bridges."""
+        """Background worker to loop through the entire history and patch missing bridges."""
         from llm import generate_narrative_bridge
         processed_count = 0
         ui_commands = ["Start Chapter:", "Conclude the Story", "Restart", "Export", "Undo", "Quit", "Cheat Death"]
@@ -794,14 +809,13 @@ class BaseEngine:
                 
             if str(action).startswith("Start Chapter:") or str(action) == "Complete the Chapter": continue
             
-            if not silent: print(f"Novelizing Turn {current_turn['turn']}...", end="\r")
+            if not silent: print(f"{Style.DIM}Auto-Bridging Turn {current_turn['turn']}...{Style.RESET_ALL}")
             bridge_data = generate_narrative_bridge(prev_turn, action, current_turn)
+            
             if bridge_data:
                 current_turn["narrative_bridge"] = bridge_data
                 if bridge_data not in ["[OK]", "[FAILED]"]: processed_count += 1
-            self.save_state()
+                self.save_state()
 
         if not silent and processed_count > 0:
-            print(f"\n{Fore.GREEN}Success: {processed_count} new bridges generated.{Style.RESET_ALL}")
-            
-    
+            print(f"{Fore.GREEN}Auto Narrative Bridge: {processed_count} gaps patched.{Style.RESET_ALL}")

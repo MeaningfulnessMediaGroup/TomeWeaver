@@ -415,7 +415,8 @@ class DashboardFrame(ctk.CTkFrame):
         
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""
-        from config import load_engine_config, ROOT_DIR
+        from config import load_engine_config, ROOT_DIR, ENGINE_CONFIG
+        from ui.tooltip import Tooltip
         import json
         
         dialog = ctk.CTkToplevel(self)
@@ -429,16 +430,18 @@ class DashboardFrame(ctk.CTkFrame):
         scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
 
-        # Load current config
         current_config = load_engine_config()
         fields = {}
 
-        def add_field(label_text, key_name, is_bool=False, is_number=False):
+        def add_field(label_text, key_name, is_bool=False, is_number=False, tooltip_text=""):
             val = current_config.get(key_name)
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x", pady=5)
             
-            ctk.CTkLabel(row, text=label_text, font=("Arial", 14, "bold"), width=200, anchor="e").pack(side="left", padx=(0, 15))
+            lbl = ctk.CTkLabel(row, text=label_text, font=("Arial", 14, "bold"), width=200, anchor="e")
+            lbl.pack(side="left", padx=(0, 15))
+            if tooltip_text:
+                Tooltip(lbl, tooltip_text)
             
             if is_bool:
                 var = ctk.BooleanVar(value=bool(val))
@@ -453,32 +456,44 @@ class DashboardFrame(ctk.CTkFrame):
 
         # Build Fields (Categorized)
         ctk.CTkLabel(scroll, text="--- API Connection ---", text_color="gray").pack(pady=(10, 5))
-        add_field("API URL:", "api_url")
-        add_field("API Key (Hidden):", "api_key")
-        add_field("Model ID:", "model")
+        add_field("API URL:", "api_url", tooltip_text="Endpoint for your LLM (e.g., http://localhost:1234/v1/chat/completions).")
+        add_field("API Key (Hidden):", "api_key", tooltip_text="Your secret API key. Leave blank if using a local provider like LM Studio.")
+        add_field("Model ID:", "model", tooltip_text="The exact model identifier (e.g., loaded-model, gpt-4o, claude-3-5-sonnet).")
         
         ctk.CTkLabel(scroll, text="--- LLM Parameters ---", text_color="gray").pack(pady=(20, 5))
-        add_field("Base Temperature:", "temperature_base", is_number=True)
-        add_field("Max Tokens:", "max_tokens", is_number=True)
-        add_field("Context Window (Turns):", "context_window", is_number=True)
+        add_field("Base Temperature:", "temperature_base", is_number=True, tooltip_text="Base creativity (0.0 to 2.0). Lower is more logical, higher is more chaotic.")
+        add_field("Max Tokens:", "max_tokens", is_number=True, tooltip_text="Maximum length of the AI's response per turn.")
+        add_field("Context Window (Turns):", "context_window", is_number=True, tooltip_text="How many previous turns the AI remembers. Higher context costs more tokens.")
         
         ctk.CTkLabel(scroll, text="--- Engine Rules ---", text_color="gray").pack(pady=(20, 5))
-        add_field("Max Retries (Healer):", "max_retries", is_number=True)
-        add_field("API Queries/Min (0=Off):", "max_query_per_minute", is_number=True)
-        add_field("Enable Auto-Polish:", "auto_polish", is_bool=True)
-        add_field("Instant Novelizer:", "instant_novelizer", is_bool=True)
+        add_field("Max Retries (Healer):", "max_retries", is_number=True, tooltip_text="How many times the engine attempts to self-heal broken JSON before giving up.")
+        add_field("API Queries/Min (0=Off):", "max_query_per_minute", is_number=True, tooltip_text="Rate limit for strict cloud APIs (like OpenRouter) to prevent 429 errors. 0 = Unlimited.")
+        add_field("Enable Auto-Polish:", "auto_polish", is_bool=True, tooltip_text="Automatically runs a second copy-editing pass on every turn for novel-quality prose.")
+        add_field("Auto Narrative Bridge:", "auto_narrative_bridge", is_bool=True, tooltip_text="Automatically patches missing prose bridges in the background when opening a story and during normal play.")
         
-        ctk.CTkLabel(scroll, text="--- Developer Logging ---", text_color="gray").pack(pady=(20, 5))
-        add_field("Enable Session Log:", "logging_enabled", is_bool=True)
-        add_field("Log Verbose (Prompts):", "log_verbose", is_bool=True)
-        add_field("Log Raw JSON on Fail:", "log_raw_json_on_failure", is_bool=True)
-        add_field("Debug Novelizer:", "debug_novelizer", is_bool=True)
-
         ctk.CTkLabel(scroll, text="--- Application UI ---", text_color="gray").pack(pady=(20, 5))
-        add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True)
-        add_field("Story Font Size:", "prose_font_size", is_number=True)
-        ctk.CTkLabel(scroll, text="(Requires application restart to fully apply UI scaling)", font=("Arial", 11, "italic"), text_color="gray").pack()
         
+        safe_fonts = ["Georgia", "Arial", "Times New Roman", "Courier New", "Consolas", "Trebuchet MS", "Verdana"]
+        row_font = ctk.CTkFrame(scroll, fg_color="transparent")
+        row_font.pack(fill="x", pady=5)
+        lbl_font = ctk.CTkLabel(row_font, text="Story Font Family:", font=("Arial", 14, "bold"), width=200, anchor="e")
+        lbl_font.pack(side="left", padx=(0, 15))
+        Tooltip(lbl_font, "The font face used for the story timeline and editors.")
+        
+        # Pull font directly from OptionMenu to prevent StringVar bugs
+        font_menu = ctk.CTkOptionMenu(row_font, values=safe_fonts, width=300)
+        font_menu.set(current_config.get("prose_font_family", "Georgia"))
+        font_menu.pack(side="left", expand=True, fill="x")
+
+        add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True, tooltip_text="Scales the entire application interface for 4K/high-res monitors. Requires restart.")
+        add_field("Story Font Size:", "prose_font_size", is_number=True, tooltip_text="The point size of the prose text in the main workspace.")
+        ctk.CTkLabel(scroll, text="(Requires application restart to fully apply UI scaling)", font=("Arial", 11, "italic"), text_color="gray").pack()
+
+        ctk.CTkLabel(scroll, text="--- Developer Logging ---", text_color="gray").pack(pady=(20, 5))
+        add_field("Enable Session Log:", "logging_enabled", is_bool=True, tooltip_text="Master switch to record all game events and API calls to session_log.txt.")
+        add_field("Log Verbose (Prompts):", "log_verbose", is_bool=True, tooltip_text="Includes the full, massive context prompt sent to the LLM in the session log.")
+        add_field("Log Raw JSON on Fail:", "log_raw_json_on_failure", is_bool=True, tooltip_text="Logs the exact broken string the AI outputted if it fails to parse.")
+
         def save_config():
             new_config = {}
             for k, w in fields.items():
@@ -493,18 +508,22 @@ class DashboardFrame(ctk.CTkFrame):
                     else:
                         new_config[k] = val
             
-            # Save to disk
-            config_path = ROOT_DIR / "configs" / "engine_config.json"
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(new_config, f, indent=4)
-                
-            # Update active engine config in memory
-            for k, v in new_config.items():
-                ENGINE_CONFIG[k] = v
-                
-            messagebox.showinfo("Saved", "Global Engine Settings saved successfully.")
-            dialog.destroy()
+            # Explicitly extract the font!
+            new_config["prose_font_family"] = font_menu.get().strip()
+            
+            try:
+                # 1. Save to disk
+                config_path = ROOT_DIR / "configs" / "engine_config.json"
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(new_config, f, indent=4)
+                    
+                # 2. Mutate active memory globally (CRITICAL FIX)
+                ENGINE_CONFIG.clear()
+                ENGINE_CONFIG.update(new_config)
+                    
+                messagebox.showinfo("Saved", "Global Engine Settings saved successfully.")
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save config: {e}")
 
         ctk.CTkButton(dialog, text="Save Global Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_config).pack(pady=20)
-        
-        

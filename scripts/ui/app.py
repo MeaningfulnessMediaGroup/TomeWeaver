@@ -1,8 +1,9 @@
+import json
 import customtkinter as ctk
 from tkinter import messagebox
 from pathlib import Path
 from api import TomeWeaverAPI
-from config import create_boilerplate_files
+from config import create_boilerplate_files, ENGINE_CONFIG, ROOT_DIR
 from ui.dashboard import DashboardFrame
 
 class TomeWeaverApp(ctk.CTk):
@@ -10,8 +11,27 @@ class TomeWeaverApp(ctk.CTk):
         super().__init__()
 
         self.title("TomeWeaver")
-        self.geometry("1100x750")
         self.minsize(900, 600)
+        
+        # --- RESTORE SAVED WINDOW GEOMETRY ---
+        saved_geom = ENGINE_CONFIG.get("window_geometry", "1100x750")
+        saved_state = ENGINE_CONFIG.get("window_state", "normal")
+        
+        # Apply Width, Height, and X/Y Screen Coordinates
+        self.geometry(saved_geom)
+        
+        # Apply Maximized state safely (Cross-platform compatibility)
+        if saved_state == "zoomed":
+            try:
+                self.state("zoomed") # Windows
+            except Exception:
+                try:
+                    self.attributes("-zoomed", True) # Linux X11
+                except Exception:
+                    pass
+
+        # Hook the OS 'X' close button to our custom save method
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
         self.container = ctk.CTkFrame(self, fg_color="transparent")
         self.container.pack(fill="both", expand=True)
@@ -23,6 +43,30 @@ class TomeWeaverApp(ctk.CTk):
         else:
             self.open_dashboard()
 
+    def _on_closing(self):
+        """Fires exactly when the user clicks the X to close the app. Saves window state."""
+        current_state = self.state()
+        
+        # Safety Check: Never save 'iconic' (minimized) state, or the app will be invisible on next boot!
+        if current_state == "iconic":
+            current_state = "normal"
+            
+        ENGINE_CONFIG["window_state"] = current_state
+        
+        # If maximized, Tkinter's geometry() returns the maximized dimensions.
+        # It's safer to save normal geometry if not zoomed, but we grab the raw string either way.
+        ENGINE_CONFIG["window_geometry"] = self.geometry()
+        
+        # Silently write to disk
+        config_path = ROOT_DIR / "configs" / "engine_config.json"
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(ENGINE_CONFIG, f, indent=4)
+        except Exception:
+            pass
+            
+        self.destroy()
+        
     def clear_container(self):
         if self.active_frame is not None:
             self.active_frame.destroy()
