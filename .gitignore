@@ -13,11 +13,8 @@ env/
 # (We ignore all folders inside adventures EXCEPT a 'sample' template if you want to provide one)
 adventures/*
 !adventures/Mallow the Cat/
-!adventures/The Clumsy Queen of High School/
-!adventures/The Tomb of the Sunken King/
-!adventures/Neon Rain Sector 4
-!adventures/Murder on the Midnight Express
-!adventures/Echoes of the Leviathan
+!adventures/Sandbox/
+!adventures/Campaign/
 !adventures/README.md
 
 # Logs and Exports

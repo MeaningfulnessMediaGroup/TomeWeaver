@@ -1,0 +1,50 @@
+{
+    "mode": "campaign",
+    "track_inventory": true,
+    "can_die": true,
+    "title": "Echoes of the Leviathan",
+    "tone": "Tense sci-fi survival horror with a claustrophobic atmosphere and an intense focus on resource management, isolation, and psychological distress.",
+    "main_character": "{\"name\": \"Elara\", \"age\": 34, \"personality_traits\": [\"Resourceful and adaptable in zero-G environments\", \"Plagued by claustrophobia and a fear of the dark\", \"Highly skilled with tools but struggles with panic attacks\"]}",
+    "lore_and_rules": "{\"key_facts_about_the_world\": [\"The Leviathan is an enormous deep-space mining vessel, 2.5 km long and filled with narrow corridors\", \"It has been adrift in silence for three months, the crew either dead or missing\"], \"technology_in_the_game\": {\"power_management\": \"Most areas are pitch-black; players must manage battery life on equipment\", \"zero-gravity_movement\": \"Elara can push off walls and use tethers to navigate\", \"oxygen_tanks_and_battery_power\": \"Elara's oxygen levels and flashlight batteries will deplete over time\"}}",
+    "inventory_and_state": "Items: Cryo-stasis suit (low oxygen), no tools. Health: weak from hibernation. State: heart racing from panic.",
+    "plot_outline": [
+        {
+            "title": "Awakening",
+            "setting": "The pitch-black cryo-bay of the Leviathan",
+            "pov": "Elara",
+            "goal": "Find a plasma cutter and restore auxiliary power to access ship schematics",
+            "obstacles": [
+                "Strange, skittering sounds coming from the vents and ductwork above",
+                "Depleting oxygen levels in her suit as she navigates by touch"
+            ]
+        },
+        {
+            "title": "The Hydroponics Lab",
+            "setting": "A flooded zero-G hydroponics bay filled with mutated plants and debris",
+            "pov": "Elara",
+            "goal": "Find the Captain's override keycard to gain access to restricted areas of the ship",
+            "obstacles": [
+                "The oxygen levels in her suit are dangerously low, and she must find a replacement tank quickly",
+                "The plants have grown monstrously large, their thorny vines capable of slashing at her if too close"
+            ]
+        },
+        {
+            "title": "Escape and Confrontation",
+            "setting": "The escape pod bay, with the ship's self-destruct sequence ticking down around her",
+            "pov": "Elara",
+            "goal": "Initiate the ship's self-destruct to destroy any remaining alien threats and escape on an escape pod",
+            "obstacles": [
+                "A final confrontation with a massive alien hunter that has been stalking her through the ship",
+                "She must choose between attempting to fight or evade the creature while navigating to the pods"
+            ]
+        }
+    ],
+    "narrative": {
+        "prologue": "as_is",
+        "epilogue": "as_is"
+    },
+    "allow_cheats": false,
+    "author": "Anonymous",
+    "version": "1.0",
+    "creation_date": "2026-05-18"
+}

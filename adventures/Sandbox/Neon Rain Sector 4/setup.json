@@ -1,0 +1,19 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+    "can_die": false,
+    "title": "Neon Rain: Sector 4",
+    "tone": "Neon Rain: Sector 4 is a gritty cyberpunk thriller set in a sprawling metropolis where technology and corruption intertwine. The atmosphere is thick with rain-soaked streets glistening under neon lights, where danger lurks around every corner and the line between right and wrong grows increasingly blurry.",
+    "goal": "[\"Jax must survive, uncover who framed him for murder and theft, clear his name, and recover a hidden data drive containing valuable encrypted information\", \"All while dodging corporate hitmen who would kill Jax to obtain the data for their own gain. Time is running out\"]",
+    "setting": "[\"A cramped, dimly-lit motel room in the seedy underbelly of Sector 4's neon-slicked sprawl. The walls are covered in chipped paint, stained with grime and old blood\", \"The window is cracked, rain pattering against it as the city lights flash outside. A flickering holographic advertisement for a shady stimulant glows from across the alley\"]",
+    "main_character": "{\"name\": \"Jax\", \"age\": \"42\", \"personality_traits\": [\"Cynical and world-weary private detective\", \"Dealing with a malfunctioning optical cyber-implant\", \"Plagued by a massive gambling debt to dangerous loan sharks\", \"Driven by a strong sense of self-preservation despite his flaws\"]}",
+    "starting_situation": "[\"Jax wakes up on the floor of the motel room with a splitting headache and blood caked onto his hands\", \"A corporate executive lies dead in front of him, a single gunshot wound to the head. A smoking .45-caliber pistol rests by Jax's side\", \"His malfunctioning optical implant sparks erratically as he tries to focus on the scene before him. He has no memory of what transpired over the past 12 hours\"]",
+    "allow_cheats": true,
+    "author": "Anonymous",
+    "version": "1.0",
+    "creation_date": "2026-05-18",
+    "lore_and_rules": "[\"Advanced cybernetics and neural implants are common, but not infallible. Implants can malfunction or be hacked.\", \"Flying cars fill the sky alongside traditional vehicles on gridlocked streets\", \"Corporations rule much of the city with an iron fist; police corruption is rife\", \"Hacking and computer security play a crucial role, as do street smarts and resourcefulness\"]",
+    "narrative": {
+        "prologue": "as_is"
+    }
+}

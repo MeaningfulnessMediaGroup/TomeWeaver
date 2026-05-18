@@ -1,0 +1,15 @@
+[
+    {
+        "chapter_number": 1,
+        "title": "Awakening",
+        "start_turn": 1,
+        "end_turn": null,
+        "setting": "The pitch-black cryo-bay of the Leviathan",
+        "pov": "Elara",
+        "goal": "Find a plasma cutter and restore auxiliary power to access ship schematics",
+        "obstacles": [
+            "Strange, skittering sounds coming from the vents and ductwork above",
+            "Depleting oxygen levels in her suit as she navigates by touch"
+        ]
+    }
+]

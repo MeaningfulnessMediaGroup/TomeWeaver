@@ -1,0 +1,12 @@
+[
+    {
+        "chapter_number": 1,
+        "title": "Chapter 1 - Dining Car",
+        "start_turn": 1,
+        "end_turn": null,
+        "setting": "The opulent first-class dining car of the Midnight Express. Rich wood paneling and crystal chandeliers cast a warm glow in sharp contrast to the snowy landscape outside. The aroma of fine cuisine wafts through the air, but it can't mask the growing unease as passengers whisper about the recent murder.",
+        "pov": "Arthur Pendelton",
+        "goal": "Secure the crime scene, find an initial clue, and interrogate three primary suspects: the widow, the business partner, and the maid.",
+        "obstacles": "The body must be moved quickly to avoid suspicion. The suspects are guarded by their own agendas and may try to mislead or obstruct you."
+    }
+]

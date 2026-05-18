@@ -1,0 +1,12 @@
+[
+    {
+        "chapter_number": 1,
+        "title": "The Overgrown Gates",
+        "start_turn": 1,
+        "end_turn": null,
+        "goal": "Find the 'Moonstone Key' hidden in the outer ruins, and use it to unlock the heavy stone doors to enter the Tomb.",
+        "obstacles": "A territorial shadow-panther prowls the ruins. Pit traps are hidden under the leaves. The door mechanism is heavily rusted.",
+        "setting": "The humid, vine-choked ruins outside the Tomb. Twilight.",
+        "pov": "Kaelen"
+    }
+]

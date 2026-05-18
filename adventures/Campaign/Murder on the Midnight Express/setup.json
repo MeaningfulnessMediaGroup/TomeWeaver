@@ -1,0 +1,55 @@
+{
+    "mode": "campaign",
+    "track_inventory": true,
+    "can_die": true,
+    "title": "Murder on the Midnight Express",
+    "tone": "Elegant and suspenseful, this classic mystery aboard a luxurious steam train evokes the charm of Agatha Christie's work. The isolated setting in the snowy Alps intensifies the atmosphere as passengers' hidden motives are slowly revealed through intricate dialogue and keen deduction.",
+    "main_character": "Arthur Pendelton, 59 years old, is a retired detective from Scotland Yard. He is sharp-witted but weary, often seen with his signature pipe and tweed coat. Despite his exhaustion, he is compelled to unravel the mystery after a murder occurs on board.",
+    "lore_and_rules": "The game takes place in the 1920s aboard the Midnight Express, a luxurious steam train traversing the snowy Alps. Modern technology is absent; deduction, logic, and social engineering are essential tools for solving crimes. The rules of physics apply as normal, but players must pay attention to subtle cues from characters' demeanor and dialogue.",
+    "plot_outline": [
+        {
+            "title": "Chapter 1 - Dining Car",
+            "setting": "The opulent first-class dining car of the Midnight Express. Rich wood paneling and crystal chandeliers cast a warm glow in sharp contrast to the snowy landscape outside. The aroma of fine cuisine wafts through the air, but it can't mask the growing unease as passengers whisper about the recent murder.",
+            "pov": "Arthur Pendelton",
+            "goal": "Secure the crime scene, find an initial clue, and interrogate three primary suspects: the widow, the business partner, and the maid.",
+            "obstacles": "The body must be moved quickly to avoid suspicion. The suspects are guarded by their own agendas and may try to mislead or obstruct you."
+        },
+        {
+            "title": "Chapter 2 - Baggage Car",
+            "setting": "A dimly lit baggage car, stacked with suitcases and trunks belonging to the train's first-class passengers. The scent of coal smoke and oil permeates the air. Suddenly, a conductor's footsteps echo in the distance.",
+            "pov": "Arthur Pendelton",
+            "goal": "Search the suspects' luggage for the poison vial and a missing will while avoiding detection by the strict train conductor.",
+            "obstacles": "The conductor makes regular rounds through the baggage car. Each trunk must be carefully searched, and any disturbance will alert him to your presence."
+        },
+        {
+            "title": "Chapter 3 - Lounge Car",
+            "setting": "A lavish lounge car with plush armchairs surrounding a crackling fireplace. The warm orange glow illuminates the strained faces of the remaining passengers as they await the revelation.",
+            "pov": "Arthur Pendelton",
+            "goal": "Gather everyone, reveal the killer's identity through dialogue, and survive their desperate attempt to escape justice.",
+            "obstacles": "The tension in the room is palpable. The killer must be carefully cornered through verbal sparring until they break, but your safety may be at risk when their true nature is exposed."
+        }
+    ],
+    "narrative": {
+        "prologue": "as_is",
+        "epilogue": "as_is"
+    },
+    "allow_cheats": false,
+    "author": "Anonymous",
+    "version": "1.0",
+    "creation_date": "2026-05-18",
+    "inventory_dictionary": {
+        "Items": {
+            "val": "A pocket watch, a pipe with tobacco, tweed coat, fedora hat, notebook with pencil",
+            "icon": "\ud83c\udf92",
+            "color": "#0080c0"
+        },
+        "Health": {
+            "val": "100%",
+            "icon": "\u2764\ufe0f",
+            "color": "#B71C1C"
+        }
+    },
+    "goal": "",
+    "setting": "",
+    "starting_situation": ""
+}
