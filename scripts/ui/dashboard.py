@@ -155,7 +155,7 @@ class DashboardFrame(ctk.CTkFrame):
 
     def load_data(self):
         """Asynchronously loads story data from disk to prevent UI freezes."""
-        if self.is_loading: return
+        if getattr(self, 'is_loading', False): return
         self.is_loading = True
         
         # Show loading indicator
@@ -169,11 +169,15 @@ class DashboardFrame(ctk.CTkFrame):
         self.btn_next.configure(state="disabled")
         self.btn_last.configure(state="disabled")
 
-        # Spawn background thread to read files via the Autonomous Index in api.py
         def worker():
-            data = TomeWeaverAPI.get_available_stories()
-            # Push the data back to the main GUI thread safely using `after`
-            self.after(0, lambda: self._on_data_loaded(data))
+            try:
+                data = TomeWeaverAPI.get_available_stories()
+            except Exception as e:
+                print(f"Index Error: {e}")
+                data = getattr(self, 'all_stories', []) # Fallback to existing data on crash
+            finally:
+                # CRITICAL: Always reset the loading flag, even if the disk read crashes
+                self.after(0, lambda: self._on_data_loaded(data))
             
         threading.Thread(target=worker, daemon=True).start()
 
@@ -357,11 +361,17 @@ class DashboardFrame(ctk.CTkFrame):
         opt_menu = ctk.CTkOptionMenu(
             btn_frame, 
             values=["Options...", "Restart", "Export to .zip", "Rename", "Delete"],
-            width=110,
-            command=lambda choice, f=story['folder_name'], t=story['title']: self.handle_card_option(choice, f, t)
+            width=110
         )
+        
+        # Secure local closure: Prevents variables from being garbage collected 
+        # and instantly resets the dropdown text without recursive traces.
+        def on_option_select(choice, f=story['folder_name'], t=story['title'], m=opt_menu):
+            m.set("Options...")
+            self.handle_card_option(choice, f, t)
+            
+        opt_menu.configure(command=on_option_select)
         opt_menu.pack(side="left", padx=5)
-        opt_menu.set("Options...")
 
 
     # ---------------------------------------------------------
@@ -370,6 +380,7 @@ class DashboardFrame(ctk.CTkFrame):
 
     def handle_card_option(self, choice, folder_name, current_title):
         """Routes actions from the 'Options...' dropdown on individual story cards."""
+        
         if choice == "Restart":
             warn_msg = (
                 f"Are you sure you want to RESTART '{current_title}'?\n\n"
@@ -378,8 +389,11 @@ class DashboardFrame(ctk.CTkFrame):
             )
             if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
                 success, msg = TomeWeaverAPI.restart_story(folder_name)
-                if success: self.load_data() # Refresh turns/status on Dashboard
-                else: messagebox.showerror("Restart Failed", msg)
+                if success:
+                    messagebox.showinfo("Restarted", "Story has been reset to Turn 0.")
+                    self.load_data() 
+                else: 
+                    messagebox.showerror("Restart Failed", msg)
 
         elif choice == "Export to .zip":
             path = filedialog.asksaveasfilename(defaultextension=".zip", initialfile=f"{folder_name}.zip", filetypes=[("ZIP files", "*.zip")])
@@ -389,18 +403,62 @@ class DashboardFrame(ctk.CTkFrame):
                 else: messagebox.showerror("Export Failed", msg)
 
         elif choice == "Rename":
-            dialog = ctk.CTkInputDialog(text="Enter new title:", title="Rename Story")
-            new_title = dialog.get_input()
-            if new_title and new_title != current_title:
+            # Custom dialog to allow pre-filling the current title
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Rename Story")
+            dialog.geometry("400x200")
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+
+            ctk.CTkLabel(dialog, text="Enter new title:", font=("Arial", 14, "bold")).pack(pady=(20, 10))
+            
+            new_title_var = ctk.StringVar(value=current_title)
+            entry = ctk.CTkEntry(dialog, textvariable=new_title_var, width=300, font=("Arial", 14))
+            entry.pack(pady=10)
+            entry.focus()
+            
+            # Select all text so the user can immediately type over it or use arrow keys to fix a typo
+            entry.select_range(0, 'end')
+
+            def on_rename():
+                new_title = new_title_var.get().strip()
+                if not new_title or new_title == current_title:
+                    dialog.destroy()
+                    return
+                
+                # CRITICAL: Destroy the top-level dialog BEFORE calling the API, 
+                # so the resulting messagebox doesn't get buried/deadlocked behind it.
+                dialog.destroy()
+                
                 success, msg = TomeWeaverAPI.rename_story(folder_name, new_title)
-                if success: self.load_data() 
-                else: messagebox.showerror("Rename Failed", msg)
+                
+                if success:
+                    messagebox.showinfo("Rename Successful", f"Story renamed to '{new_title}'")
+                    # A hard disk-read is required because renaming the physical folder breaks the GUI's internal path references
+                    self.is_loading = False 
+                    self.load_data()
+                else:
+                    messagebox.showerror("Rename Failed", msg)
+
+            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            btn_frame.pack(pady=20)
+            
+            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=10)
+            ctk.CTkButton(btn_frame, text="Rename", width=100, fg_color="#2E7D32", hover_color="#1B5E20", command=on_rename).pack(side="right", padx=10)
 
         elif choice == "Delete":
             if messagebox.askyesno("Confirm Delete", f"Are you sure you want to permanently delete '{current_title}'?"):
                 success, msg = TomeWeaverAPI.delete_story(folder_name)
-                if success: self.load_data() 
-                else: messagebox.showerror("Delete Failed", msg)
+                
+                if success: 
+                    messagebox.showinfo("Deleted", f"'{current_title}' has been successfully deleted.")
+                    self.is_loading = False 
+                    
+                    # Force instant UI update
+                    self.all_stories = [s for s in self.all_stories if s.get("folder_name") != folder_name]
+                    self.apply_search()
+                else: 
+                    messagebox.showerror("Delete Failed", f"Could not delete folder: {msg}")
 
     def import_zip(self):
         """Opens a file dialog to import a shared adventure cartridge."""
@@ -444,13 +502,30 @@ class DashboardFrame(ctk.CTkFrame):
         radio_frame.pack()
         ctk.CTkRadioButton(radio_frame, text="Sandbox (Open-World)", variable=mode_var, value="sandbox").pack(side="left", padx=10)
         ctk.CTkRadioButton(radio_frame, text="Campaign (Plot-Driven)", variable=mode_var, value="campaign").pack(side="left", padx=10)
+        
+        # Engine Rules Toggles
+        rules_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        rules_frame.pack(pady=15)
+        
+        inv_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(rules_frame, text="Track Inventory", variable=inv_var).pack(side="left", padx=(0, 20))
+        
+        die_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(rules_frame, text="Allow Death", variable=die_var).pack(side="left")
 
         def on_create():
             title = title_entry.get().strip()
             if not title:
                 messagebox.showwarning("Missing Info", "Please enter a title.")
                 return
-            success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get())
+                
+            rules_cfg = {
+                "track_inventory": inv_var.get(),
+                "can_die": die_var.get(),
+                "allow_cheats": True if mode_var.get() == "sandbox" else False
+            }
+                
+            success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get(), rules_cfg)
             
             # Auto-open logic added
             dialog.destroy() 
@@ -506,9 +581,9 @@ class DashboardFrame(ctk.CTkFrame):
         prompt_box.pack(fill="x", padx=20, pady=5)
         prompt_box.insert("1.0", "A dark fantasy heist where a master thief must break into the crypt of the Sunken King to steal a cursed ruby.")
 
-        # Generation Toggles
+        # Narrative Generation Toggles
         chk_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        chk_frame.pack(fill="x", padx=20, pady=0) # Reduced padding
+        chk_frame.pack(fill="x", padx=20, pady=0) 
         
         gen_pro_var = ctk.BooleanVar(value=True)
         ctk.CTkSwitch(chk_frame, text="Generate Prologue", variable=gen_pro_var).pack(side="left", padx=(0, 20))
@@ -516,10 +591,22 @@ class DashboardFrame(ctk.CTkFrame):
         gen_epi_var = ctk.BooleanVar(value=False)
         chk_epi = ctk.CTkSwitch(chk_frame, text="Generate Epilogue", variable=gen_epi_var, state="disabled")
         chk_epi.pack(side="left")
+        
+        # Engine Rules Toggles
+        rules_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        rules_frame.pack(fill="x", padx=20, pady=(10, 0))
+        
+        inv_var = ctk.BooleanVar(value=False)
+        inv_chk = ctk.CTkSwitch(rules_frame, text="Track Inventory/Status", variable=inv_var)
+        inv_chk.pack(side="left", padx=(0, 20))
+        
+        die_var = ctk.BooleanVar(value=False)
+        die_chk = ctk.CTkSwitch(rules_frame, text="Allow Game Over (Death)", variable=die_var)
+        die_chk.pack(side="left")
 
         # Status Label
         status_lbl = ctk.CTkLabel(dialog, text="", font=("Arial", 12, "italic"))
-        status_lbl.pack(pady=(5, 0)) # Reduced padding
+        status_lbl.pack(pady=(5, 0)) 
 
         # Submit Button
         def on_generate():
@@ -532,10 +619,17 @@ class DashboardFrame(ctk.CTkFrame):
             btn_gen.configure(state="disabled", text="Generating... Please wait.")
             status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
             
+            # Pack the user's mechanical choices into a dictionary
+            rules_cfg = {
+                "track_inventory": inv_var.get(),
+                "can_die": die_var.get(),
+                "allow_cheats": True if mode_var.get() == "sandbox" else False
+            }
+            
             def worker():
                 success, msg = TomeWeaverAPI.create_story_from_prompt(
                     title, author_entry.get().strip(), mode_var.get(), 
-                    prompt, gen_pro_var.get(), gen_epi_var.get()
+                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg
                 )
                 
                 def on_complete():

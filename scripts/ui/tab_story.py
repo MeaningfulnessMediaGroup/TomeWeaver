@@ -166,13 +166,19 @@ class StoryTab(ctk.CTkFrame):
             card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
             
             hdr_frame = ctk.CTkFrame(card, fg_color="transparent")
-            hdr_frame.pack(fill="x", padx=15, pady=(10, 5))
+            hdr_frame.pack(fill="x", padx=15, pady=(10, 0)) # Reduced bottom padding to make room for inventory
             
             btn_edit = ctk.CTkButton(hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
             btn_bridge = ctk.CTkButton(hdr_frame, text="✨ Bridge", width=60, height=24, fg_color="#00ACC1", hover_color="#00838F")
             
             hdr_lbl = ctk.CTkLabel(hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            
+            # Sub-header for Inventory & Status
+            inv_frame = ctk.CTkFrame(card, fg_color="transparent")
+            inv_frame.pack(fill="x", padx=15, pady=(0, 5))
+            inv_lbl = ctk.CTkLabel(inv_frame, text="", text_color="#0288D1", font=self.header_font, justify="left", anchor="w")
+            inv_lbl.pack(side="left", fill="x", expand=True, padx=2)
             
             prose_lbl = ctk.CTkLabel(card, text="", font=self.prose_font, justify="left", anchor="w")
             prose_lbl.pack(fill="x", padx=20, pady=5)
@@ -183,7 +189,8 @@ class StoryTab(ctk.CTkFrame):
             self.recycled_cards.append({
                 "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
                 "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
-                "card": card, "hdr": hdr_lbl, "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
+                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame, "inv_lbl": inv_lbl, 
+                "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
                 "choice": c_lbl, "btn_frame": btn_frame
             })
 
@@ -297,6 +304,14 @@ class StoryTab(ctk.CTkFrame):
                 loc = turn.get("location", "Unknown")
                 pov = turn.get("pov_character", "Unknown")
                 refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
+                
+                # Conditionally render the Inventory Sub-Header
+                refs["inv_frame"].pack_forget()
+                if self.engine.track_inventory:
+                    inv_data = turn.get("inventory_and_state", "")
+                    if inv_data:
+                        refs["inv_frame"].pack(fill="x", padx=15, pady=(0, 5))
+                        refs["inv_lbl"].configure(text=f"Status: {inv_data}")
                 
                 refs["btn_edit"].pack_forget()
                 refs["btn_bridge"].pack_forget()

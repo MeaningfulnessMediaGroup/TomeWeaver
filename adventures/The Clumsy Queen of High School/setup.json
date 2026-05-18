@@ -1,0 +1,20 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+    "can_die": false,
+    "title": "The Clumsy Queen of High School",
+    "tone": "A lighthearted, humorous coming-of-age story set in a high school environment.",
+    "goal": "Livvy wants to start the school year fresh, hoping to make new friends and leave her clumsy reputation behind. She's determined to stay out of trouble and focus on her studies, but with her track record, that might be easier said than done.",
+    "setting": "Livvy wakes up on the first day of her second year of high school. Her room is decorated with posters of her favorite bands, books, and TV shows. She has a messy desk covered in textbooks, notebooks, and half-finished art projects. The sun streams through her window, casting a warm glow over the room.",
+    "main_character": "Olivia 'Livvy' Thompson, age 15. She is kind-hearted, intelligent, and pretty but her extreme clumsiness often gets the best of her, making it hard to make friends. Her only real friend is her childhood pal, Mia, and even her younger brother makes fun of her.",
+    "starting_situation": "Livvy oversleeps on the first day of school after staying up late finishing her summer reading. She wakes up in a panic, realizing she has only an hour to get ready and make it to homeroom on time. Her alarm didn't go off because she accidentally unplugged it while tossing and turning.",
+    "allow_cheats": true,
+    "author": "dobrado76",
+    "version": "1.0",
+    "creation_date": "2026-05-18",
+    "lore_and_rules": "The world is our own, set in a modern high school with typical teenage drama. There are no magic or special abilities; the humor comes from Livvy's misadventures and social awkwardness.",
+    "narrative": {
+        "prologue": "as_is"
+    },
+    "starting_inventory": ""
+}

@@ -168,8 +168,8 @@ class TomeWeaverAPI:
     # ---------------------------------------------------------
 
     @staticmethod
-    def create_story(title, author, mode):
-        """Creates a new boilerplate adventure folder."""
+    def create_story(title, author, mode, rules_cfg=None):
+        """Creates a new boilerplate adventure folder and applies mechanical rules."""
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
             
@@ -188,6 +188,12 @@ class TomeWeaverAPI:
                 setup_data["author"] = author.strip() if author.strip() else "Anonymous"
                 setup_data["version"] = "1.0"
                 setup_data["creation_date"] = datetime.datetime.now().strftime("%Y-%m-%d")
+                
+                if rules_cfg:
+                    setup_data["track_inventory"] = rules_cfg.get("track_inventory", False)
+                    setup_data["can_die"] = rules_cfg.get("can_die", False)
+                    setup_data["allow_cheats"] = rules_cfg.get("allow_cheats", False)
+                    
                 with open(setup_file, "w", encoding="utf-8") as f:
                     json.dump(setup_data, f, indent=4)
                     
@@ -302,7 +308,57 @@ class TomeWeaverAPI:
             return False, str(e)
             
     @staticmethod
-    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi):
+    def delete_story(folder_name):
+        """Permanently deletes an adventure directory."""
+        target_dir = ADV_DIR / folder_name
+        if target_dir.exists() and target_dir.is_dir():
+            try:
+                shutil.rmtree(target_dir)
+                return True, "Story deleted."
+            except Exception as e:
+                return False, str(e)
+        return False, "Story not found."
+        
+    @staticmethod
+    def rename_story(folder_name, new_title):
+        """Safely renames both the physical folder and the JSON title property."""
+        import shutil
+        source_dir = ADV_DIR / folder_name
+        if not source_dir.exists(): return False, "Story not found."
+        
+        safe_new = sanitize_foldername(new_title)
+        target_dir = ADV_DIR / safe_new
+        
+        try:
+            if source_dir != target_dir:
+                if target_dir.exists(): return False, "A story with that name already exists."
+                
+                # Robust Rename: Fallback to deep copy if OS denies the atomic rename
+                try:
+                    source_dir.rename(target_dir)
+                except PermissionError:
+                    import time
+                    time.sleep(0.5) # Wait for OS handles to drop
+                    try:
+                        source_dir.rename(target_dir)
+                    except PermissionError:
+                        shutil.copytree(source_dir, target_dir)
+                        shutil.rmtree(source_dir)
+            
+            setup_file = target_dir / "setup.json"
+            if setup_file.exists():
+                with open(setup_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                data["title"] = new_title
+                with open(setup_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
+                    
+            return True, safe_new
+        except Exception as e:
+            return False, str(e)
+            
+    @staticmethod
+    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None):
         """
         AI World Generator. Contacts the LLM to dynamically generate the world data,
         extracts the title, safely creates the folder, and populates the schema files.
@@ -411,7 +467,8 @@ class TomeWeaverAPI:
                 final_title = f"{base_title} {counter}"
                 counter += 1
                 
-            success, folder_or_err = TomeWeaverAPI.create_story(final_title, author, mode)
+            # Pass the mechanical rules directly into the base builder so setup.json is perfectly formatted from the start
+            success, folder_or_err = TomeWeaverAPI.create_story(final_title, author, mode, rules_cfg)
             if not success: return False, f"Could not create folder: {folder_or_err}"
             
             folder_name = folder_or_err
