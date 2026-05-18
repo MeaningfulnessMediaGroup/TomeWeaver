@@ -19,6 +19,41 @@ from colorama import Fore, Style
 
 # Resolve the absolute path to the project root directory
 ROOT_DIR = Path(__file__).resolve().parent.parent
+API_CONFIGS_DIR = ROOT_DIR / "configs" / "API_configs"
+
+# ---------------------------------------------------------
+# API PROFILE UTILITIES
+# ---------------------------------------------------------
+
+def init_api_profiles():
+    """Ensures the API_configs folder exists and populates default templates."""
+    API_CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+    defaults = {
+        "LM_Studio": {"api_url": "http://localhost:1234/v1/chat/completions", "api_key": "", "model": "loaded-model", "max_query_per_minute": 0, "max_tokens": 2000},
+        "OpenRouter": {"api_url": "https://openrouter.ai/api/v1/chat/completions", "api_key": "", "model": "anthropic/claude-3.5-sonnet", "max_query_per_minute": 0, "max_tokens": 2000},
+        "OpenAI": {"api_url": "https://api.openai.com/v1/chat/completions", "api_key": "", "model": "gpt-4o", "max_query_per_minute": 0, "max_tokens": 2000},
+        "Gemini": {"api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent", "api_key": "", "model": "gemini-1.5-flash-latest", "max_query_per_minute": 15, "max_tokens": 2000}
+    }
+    for name, data in defaults.items():
+        fpath = API_CONFIGS_DIR / f"{name}.json"
+        if not fpath.exists():
+            import json
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+
+def get_api_profiles():
+    """Returns a sorted list of available API profile names."""
+    if not API_CONFIGS_DIR.exists(): return []
+    return sorted([f.stem for f in API_CONFIGS_DIR.glob("*.json")])
+
+def load_api_profile(name):
+    """Loads a specific API profile dictionary."""
+    fpath = API_CONFIGS_DIR / f"{name}.json"
+    if fpath.exists():
+        import json
+        with open(fpath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
 
 # ---------------------------------------------------------
@@ -102,8 +137,12 @@ def load_engine_config():
     configs_dir.mkdir(exist_ok=True)
     config_path = configs_dir / "engine_config.json"
     
+    # Ensure API connection profiles are built
+    init_api_profiles()
+    
     # Standard defaults for the TomeWeaver engine
     default_config = {
+        "active_api_profile": "LM_Studio",
         "api_url": "http://localhost:1234/v1/chat/completions",
         "api_key": "",
         "model": "loaded-model",

@@ -1,9 +1,22 @@
+"""
+    TomeWeaver: Story Timeline UI
+    -----------------------------
+    The core gameplay interface. Displays the adventure as a series of cards.
+    Implements UI Virtualization (re-using 3 cards) to maintain high performance 
+    even if the story grows to 500+ turns. Handles user input, Non-Destructive 
+    Editing (Visual Diffs), and asynchronous engine communication.
+"""
 import threading
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
 
+
 class StoryTab(ctk.CTkFrame):
+
+    """
+    Story Timeline UI
+    """
     def __init__(self, parent, engine, workspace):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
@@ -79,6 +92,7 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _apply_wrapping(self, width):
+        """Forces the Tkinter text labels to wrap cleanly based on canvas width."""
         safe_width = width - 120 
         scale = self._get_widget_scaling()
         adjusted_wrap = int(safe_width / scale)
@@ -91,6 +105,10 @@ class StoryTab(ctk.CTkFrame):
             refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
 
     def _wrap_heartbeat(self):
+        """
+        An infinitely repeating background loop. Checks if the user resized the 
+        application window, and recalculates the paragraph wrapping boundaries if so.
+        """
         current_width = self.timeline._parent_canvas.winfo_width()
         if current_width > 100 and current_width != self._last_width:
             self._last_width = current_width
@@ -114,7 +132,11 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _initialize_recycled_cards(self):
-        """Creates exactly 3 empty Card templates and 3 Bridge templates in memory."""
+        """
+        Creates exactly 3 empty Card templates and 3 Bridge templates in memory.
+        Instead of destroying and recreating UI elements (which causes memory leaks),
+        we simply slide data in and out of these permanent widget shells.
+        """
         from ui.tooltip import Tooltip
         
         for _ in range(self.MAX_CARDS):
@@ -162,7 +184,10 @@ class StoryTab(ctk.CTkFrame):
             })
 
     def refresh_timeline(self):
-        """Syncs the slider to the history length and triggers a visual update."""
+        """
+        Master Update Endpoint. Syncs the slider scale to the history length, 
+        evaluates UI configurations, and triggers a visual render of the cards.
+        """
         
         # 1. Repoll the global config
         from config import ENGINE_CONFIG
@@ -213,6 +238,7 @@ class StoryTab(ctk.CTkFrame):
         self._unlock_ui("Ready.")
 
     def _on_slider_move(self, value):
+        """Callback for the 'Time Travel' scroll bar."""
         new_idx = int(value)
         if new_idx != self.current_top_idx:
             self.current_top_idx = new_idx
@@ -221,6 +247,11 @@ class StoryTab(ctk.CTkFrame):
             self.timeline._parent_canvas.yview_moveto(0.0)
 
     def _render_visible_cards(self, auto_scroll=False):
+        """
+        Draws the actual history data into the 3 empty widget shells.
+        Automatically unpacks tools (like Edit, Polish, Fix) depending on 
+        whether the turn is historical or active.
+        """
         history = self.engine.history
         cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
         from ui.tooltip import Tooltip
@@ -550,7 +581,7 @@ class StoryTab(ctk.CTkFrame):
 
             
     def _open_edit_dialog_(self, turn_idx):
-        """Opens a modal dialog allowing the user to directly edit JSON history data."""
+        """(Legacy) Opens a modal dialog allowing the user to directly edit JSON history data."""
         if turn_idx < 0 or turn_idx >= len(self.engine.history): return
         turn = self.engine.history[turn_idx]
         
@@ -642,7 +673,11 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _show_draft_diff(self, draft_turn, action_type, instruction=None):
-        """Displays a modal comparing the original text with the AI's new draft."""
+        """
+        Displays a side-by-side modal comparing the original text with the AI's new draft.
+        Uses Python's difflib to highlight inserted/deleted words like a Git commit.
+        The player can Accept, Reroll, or Cancel the proposed draft.
+        """
         if not draft_turn:
             self._unlock_ui("Ready.")
             messagebox.showerror("Error", "The engine failed to generate a draft. Check the Developer Console.")
@@ -709,7 +744,7 @@ class StoryTab(ctk.CTkFrame):
         orig_tokens = re.split(r'(\s+)', orig_text)
         new_tokens = re.split(r'(\s+)', new_text)
 
-        # Compare the tokens
+        # Compare the tokens using difflib
         matcher = difflib.SequenceMatcher(None, orig_tokens, new_tokens)
         
         for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -774,6 +809,7 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def on_submit(self):
+        """Gathers text from the input bar and passes it to the engine."""
         raw_text = self.text_input.get().strip()
         if not raw_text: return
         
@@ -790,6 +826,7 @@ class StoryTab(ctk.CTkFrame):
         self._execute_action(final_action)
         
     def on_undo(self):
+        """Destructively pops the last action from history."""
         self._lock_ui("Undoing last choice...")
         def worker():
             self.engine.undo()
@@ -797,6 +834,7 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_redo(self):
+        """Destructively rerolls the entire current turn."""
         self._lock_ui("Generating alternative version...")
         def worker():
             # Directly call the destructive redo endpoint and refresh the screen
@@ -837,6 +875,7 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
         
     def _execute_action(self, action_string):
+        """Sends the user's action to the engine on a background thread to prevent UI freezing."""
         self._lock_ui(f"Submitting: '{action_string[:20]}...'")
         def worker():
             self.engine.submit_action(action_string)
@@ -873,11 +912,13 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
         
     def _async_init(self):
+        """Runs the Turn 1 / Prologue startup logic in the background."""
         try: self.engine.initialize_game()
         except Exception as e: self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))
         finally: self.after(0, self.refresh_timeline)
 
     def _lock_ui(self, status_msg):
+        """Disables all input controls while the AI is generating."""
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="disabled")
         self.btn_undo.configure(state="disabled")
@@ -890,6 +931,7 @@ class StoryTab(ctk.CTkFrame):
                 if isinstance(w, ctk.CTkButton): w.configure(state="disabled")
 
     def _unlock_ui(self, status_msg):
+        """Restores interactivity after an AI generation completes."""
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="normal")
         self.btn_undo.configure(state="normal")

@@ -1,0 +1,7 @@
+{
+    "api_url": "https://api.groq.com/openai/v1/chat/completions",
+    "api_key": "gsk_YOUR_GROQ_KEY",
+    "model": "llama-3.3-70b-versatile",
+    "max_query_per_minute": 0,
+    "max_tokens": 2000
+}

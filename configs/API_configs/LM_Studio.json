@@ -1,0 +1,7 @@
+{
+    "api_url": "http://localhost:1234/v1/chat/completions",
+    "api_key": "",
+    "model": "loaded-model",
+    "max_query_per_minute": 0,
+    "max_tokens": 2000
+}

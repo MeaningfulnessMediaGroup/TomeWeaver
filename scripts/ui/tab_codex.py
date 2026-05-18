@@ -1,8 +1,20 @@
+"""
+    TomeWeaver: World Builder & Lore Editor
+    ---------------------------------------
+    Provides a multi-tab interface for authoring the physical environment,
+    lore, system rules, and narrative bookends (Prologue/Epilogue) of the story.
+    Features a dynamic 'Visual JSON Editor' that constructs Lists and Dictionaries.
+"""
 import json
 import customtkinter as ctk
 from tkinter import messagebox
 
+
 class CodexTab(ctk.CTkFrame):
+
+    """
+    World Builder & Lore Editor
+    """
     def __init__(self, parent, engine):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
@@ -40,6 +52,7 @@ class CodexTab(ctk.CTkFrame):
     # PART 1: CORE SETTINGS TAB
     # ---------------------------------------------------------
     def _build_core_settings(self):
+        """Constructs the standard, fixed-schema UI fields for the setup.json."""
         scroll = ctk.CTkScrollableFrame(self.tab_core, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
         
@@ -125,6 +138,7 @@ class CodexTab(ctk.CTkFrame):
         ctk.CTkButton(scroll, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core).pack(pady=30)
 
     def _save_core(self):
+        """Extracts data from the standard form fields and writes to disk."""
         for key, widget in self.core_vars.items():
             if isinstance(widget, ctk.StringVar):
                 self.engine.setup_data[key] = widget.get().strip()
@@ -143,6 +157,7 @@ class CodexTab(ctk.CTkFrame):
     # PART 2: DYNAMIC LORE TAB (The Codex)
     # ---------------------------------------------------------
     def _build_custom_lore(self):
+        """Constructs the master-detail UI for arbitrary JSON schema manipulation."""
         # Left Pane (List of Keys)
         self.nav_frame = ctk.CTkScrollableFrame(self.tab_custom, width=200)
         self.nav_frame.pack(side="left", fill="y", padx=10, pady=10)
@@ -157,6 +172,7 @@ class CodexTab(ctk.CTkFrame):
         self._refresh_lore_list()
 
     def _refresh_lore_list(self):
+        """Rebuilds the left navigation list, filtering out system-reserved keys."""
         # We must cast winfo_children to a list() to prevent skipping widgets during destruction
         for widget in list(self.nav_frame.winfo_children()):
             # To be safe, we just destroy the entire row Frame holding the RadioButton and the Delete Button
@@ -176,6 +192,7 @@ class CodexTab(ctk.CTkFrame):
             btn_del.pack(side="right")
 
     def _add_new_lore_key(self):
+        """Spawns a dialog allowing the user to define a new JSON key and its data type."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add Lore Entry")
         dialog.geometry("350x250")
@@ -220,6 +237,7 @@ class CodexTab(ctk.CTkFrame):
         ctk.CTkButton(dialog, text="Add", command=confirm).pack(pady=20)
 
     def _delete_lore_key(self, key):
+        """Permanently removes a custom key from the JSON structure."""
         if messagebox.askyesno("Delete", f"Are you sure you want to delete '{key}'?"):
             del self.engine.setup_data[key]
             self._write_to_disk()
@@ -231,6 +249,11 @@ class CodexTab(ctk.CTkFrame):
             widget.destroy()
 
     def _render_lore_editor(self):
+        """
+        The Visual JSON Engine. 
+        Detects the underlying Python type of the selected key (str, list, dict, bool)
+        and generates the corresponding UI widgets to edit it safely without syntax errors.
+        """
         self._clear_editor()
         key = self.lore_selection.get()
         if not key or key not in self.engine.setup_data: return
@@ -265,13 +288,14 @@ class CodexTab(ctk.CTkFrame):
                 ctk.CTkLabel(row, text="•").pack(side="left", padx=5)
                 ctk.CTkEntry(row, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
                 
+                # Note: We must bind the variable using lambda v=var to force the closure to capture the correct reference
                 btn_del = ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda v=var: delete_list_item(v))
                 btn_del.pack(side="left", padx=(5, 0))
                 
                 self.dynamic_vars.append(var)
                 
             def add_list_item():
-                # Read unsaved UI state to prevent wiping user's typing
+                # Read unsaved UI state to prevent wiping user's typing when the widget redraws
                 self.engine.setup_data[key] = [v.get() for v in self.dynamic_vars]
                 self.engine.setup_data[key].append("")
                 self._render_lore_editor()
@@ -297,6 +321,7 @@ class CodexTab(ctk.CTkFrame):
                 ctk.CTkEntry(row, textvariable=var_k, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
                 ctk.CTkEntry(row, textvariable=var_v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
                 
+                # Note: Late-binding protection via lambda vk=var_k
                 btn_del = ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda vk=var_k: delete_dict_item(vk))
                 btn_del.pack(side="left", padx=(5, 0))
                 
@@ -344,6 +369,7 @@ class CodexTab(ctk.CTkFrame):
 
         # --- SAVE BUTTON ---
         def save_lore():
+            # Conditionally extracts the data back out depending on what type of widget was rendered
             if isinstance(self.dynamic_vars, ctk.CTkTextbox):
                 self.engine.setup_data[key] = self.dynamic_vars.get("1.0", "end").strip()
             elif isinstance(data, list):

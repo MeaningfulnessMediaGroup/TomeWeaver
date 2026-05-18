@@ -1,0 +1,7 @@
+{
+    "api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent",
+    "api_key": "",
+    "model": "gemini-1.5-flash-latest",
+    "max_query_per_minute": 15,
+    "max_tokens": 2000
+}

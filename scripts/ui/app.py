@@ -1,3 +1,9 @@
+"""
+    TomeWeaver: Root Application
+    ----------------------------
+    The top-level window manager for the application. Controls window scaling,
+    saved geometries, and handles switching between the Dashboard and Active Workspaces.
+"""
 import json
 import customtkinter as ctk
 from tkinter import messagebox
@@ -6,7 +12,12 @@ from api import TomeWeaverAPI
 from config import create_boilerplate_files, ENGINE_CONFIG, ROOT_DIR
 from ui.dashboard import DashboardFrame
 
+
 class TomeWeaverApp(ctk.CTk):
+
+    """
+    Root Application
+    """
     def __init__(self, startup_story=None):
         super().__init__()
 
@@ -68,6 +79,7 @@ class TomeWeaverApp(ctk.CTk):
         self.destroy()
         
     def clear_container(self):
+        """Destroys the current active view to make room for a new one."""
         if self.active_frame is not None:
             self.active_frame.destroy()
 

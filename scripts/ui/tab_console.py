@@ -1,8 +1,21 @@
+"""
+    TomeWeaver: Developer Console Tab
+    ---------------------------------
+    Provides a real-time, scrolling view of the engine's internal states,
+    API errors, and LLM JSON generation.
+"""
 import sys
 import re
 import customtkinter as ctk
 
+
 class ConsoleRedirector:
+
+    """
+    Hijacks Python's standard standard output (sys.stdout) and routes it to 
+    a Tkinter text widget. This allows backend print() statements to appear 
+    in the UI without modifying the backend code. Also strips colorama ANSI codes.
+    """
     def __init__(self, text_widget, status_callback=None):
         self.text_widget = text_widget
         self.original_stdout = sys.stdout
@@ -26,7 +39,11 @@ class ConsoleRedirector:
     def flush(self):
         self.original_stdout.flush()
 
+
 class ConsoleTab(ctk.CTkFrame):
+    """
+    Developer Console Tab
+    """
     def __init__(self, parent, engine, status_callback=None):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
@@ -40,4 +57,5 @@ class ConsoleTab(ctk.CTkFrame):
         print("TomeWeaver API Console initialized. Awaiting engine events...\n")
 
     def restore_stdout(self):
+        """CRITICAL: Must be called before closing the workspace to prevent crashes."""
         sys.stdout = self.redirector.original_stdout

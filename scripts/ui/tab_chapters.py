@@ -1,8 +1,20 @@
+"""
+    TomeWeaver: Campaign Outline Editor
+    -----------------------------------
+    A dedicated UI tab for managing Campaign Mode chapters.
+    Provides a master-detail interface where users can navigate, reorder,
+    add, and modify the goals and constraints of narrative chapters.
+"""
 import json
 import customtkinter as ctk
 from tkinter import messagebox
 
+
 class ChapterTab(ctk.CTkFrame):
+
+    """
+    Campaign Outline Editor
+    """
     def __init__(self, parent, engine):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
@@ -31,7 +43,7 @@ class ChapterTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _refresh_list(self):
-        """Clears and rebuilds the chapter list."""
+        """Clears and rebuilds the chapter navigation list in the left pane."""
         for w in list(self.list_container.winfo_children()):
             w.destroy()
 
@@ -56,13 +68,14 @@ class ChapterTab(ctk.CTkFrame):
             ctk.CTkButton(btn_frame, text="↓", width=20, command=lambda idx=i: self._move_down(idx)).pack(side="left", padx=1)
             ctk.CTkButton(btn_frame, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda idx=i: self._delete_chapter(idx)).pack(side="left", padx=(5,0))
 
-        # Auto-select the first item if nothing is selected
+        # Auto-select the first item if nothing is selected or if out of bounds
         if self.selected_idx.get() < 0 or self.selected_idx.get() >= len(outline):
             self.selected_idx.set(0)
         
         self._render_editor()
 
     def _move_up(self, idx):
+        """Swaps a chapter with the one above it in the plot array."""
         if idx > 0:
             outline = self.engine.setup_data["plot_outline"]
             outline[idx], outline[idx-1] = outline[idx-1], outline[idx]
@@ -71,6 +84,7 @@ class ChapterTab(ctk.CTkFrame):
             self._refresh_list()
 
     def _move_down(self, idx):
+        """Swaps a chapter with the one below it in the plot array."""
         outline = self.engine.setup_data["plot_outline"]
         if idx < len(outline) - 1:
             outline[idx], outline[idx+1] = outline[idx+1], outline[idx]
@@ -79,6 +93,7 @@ class ChapterTab(ctk.CTkFrame):
             self._refresh_list()
 
     def _delete_chapter(self, idx):
+        """Removes a chapter from the array with safety checks."""
         outline = self.engine.setup_data["plot_outline"]
         if len(outline) <= 1:
             messagebox.showerror("Error", "Campaigns must have at least one chapter.")
@@ -89,6 +104,7 @@ class ChapterTab(ctk.CTkFrame):
             self._refresh_list()
 
     def _add_chapter(self):
+        """Appends a new blank chapter template to the end of the array."""
         outline = self.engine.setup_data.setdefault("plot_outline", [])
         outline.append({
             "title": f"Chapter {len(outline)+1}",
@@ -104,11 +120,13 @@ class ChapterTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _clear_editor(self):
+        """Wipes the right-hand form editor clean."""
         for w in list(self.editor_frame.winfo_children()):
             w.destroy()
         self.fields.clear()
 
     def _render_editor(self):
+        """Rebuilds the form fields to match the data of the currently selected chapter."""
         self._clear_editor()
         idx = self.selected_idx.get()
         outline = self.engine.setup_data.get("plot_outline", [])
@@ -141,6 +159,7 @@ class ChapterTab(ctk.CTkFrame):
         ctk.CTkButton(self.editor_frame, text="Save Chapter", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_chapter).pack(pady=30)
 
     def _save_chapter(self):
+        """Extracts data from UI fields and writes it to the active memory array."""
         idx = self.selected_idx.get()
         outline = self.engine.setup_data.get("plot_outline", [])
         if idx < 0 or idx >= len(outline): return
@@ -156,6 +175,7 @@ class ChapterTab(ctk.CTkFrame):
         self._refresh_list() 
 
     def _write_to_disk(self):
+        """Commits the active memory dict to setup.json."""
         setup_file = self.engine.adv_dir / "setup.json"
         with open(setup_file, "w", encoding="utf-8") as f:
             json.dump(self.engine.setup_data, f, indent=4)

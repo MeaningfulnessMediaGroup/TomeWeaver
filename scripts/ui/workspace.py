@@ -1,3 +1,9 @@
+"""
+    TomeWeaver: Active Story Workspace
+    ----------------------------------
+    The main container for an actively loaded story. Holds the tab view 
+    that lets the user switch between Story Mode, Console, and World Builder.
+"""
 import customtkinter as ctk
 from ui.tab_console import ConsoleTab
 from ui.tab_story import StoryTab
@@ -7,6 +13,10 @@ from ui.tooltip import Tooltip
 
 
 class WorkspaceFrame(ctk.CTkFrame):
+
+    """
+    Active Story Workspace
+    """
     def __init__(self, parent, app, engine):
         super().__init__(parent, fg_color="transparent")
         self.app = app
@@ -87,7 +97,7 @@ class WorkspaceFrame(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _generate_recap(self):
-        """Asks the LLM to generate a summary of the adventure."""
+        """Asks the LLM to generate a summary of the adventure on a background thread."""
         if not self.engine.history:
             messagebox.showinfo("Recap", "The story hasn't started yet!")
             return
@@ -106,6 +116,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _show_recap_modal(self, text):
+        """Spawns a reading dialog when the recap generation completes."""
         if hasattr(self, 'story_tab'):
             self.story_tab.status_var.set("Ready.")
             
@@ -128,7 +139,7 @@ class WorkspaceFrame(ctk.CTkFrame):
             self.story_tab.refresh_timeline()
             
     def _export_dialog(self):
-        """Opens a dialog to configure and export the story."""
+        """Opens a configuration dialog allowing the user to select their export format."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Export Storybook")
         dialog.geometry("350x250")

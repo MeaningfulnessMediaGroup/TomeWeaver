@@ -1,3 +1,5 @@
+--- START OF FILE adventures/README.md ---
+
 # 📚 TomeWeaver Adventures
 
 This directory is the "Cartridge Slot" for TomeWeaver. Every folder inside here represents a unique, isolated story world containing its own configurations, characters, and save data.
@@ -14,7 +16,7 @@ We have included two sample adventures to demonstrate the flexibility of the dua
 You are Mallow, a slightly overweight, highly judgmental marshmallow-white ragdoll cat. Your kingdom is the eccentric Hawthorne Estate. 
 
 **Why play this sample?**
-This adventure demonstrates the power of **Sandbox Mode**. There is no strict plot outline and no automatic chapter progression. It showcases how the engine handles persistent world simulation, custom AI directives, and open-ended "What if?" exploration. Try using the `chapter` command to manually time-jump or change scenes when you get bored of the Sitting Room!
+This adventure demonstrates the power of **Sandbox Mode**. There is no strict plot outline and no automatic chapter progression. It showcases how the engine handles persistent world simulation, custom AI directives, and open-ended "What if?" exploration. Use the Director Dropdown in the UI to forcefully shift the POV or skip time!
 
 ---
 
@@ -32,12 +34,9 @@ This adventure demonstrates the strict logic of **Campaign Mode**. It utilizes a
 
 ## 🚀 How to Play
 
-To launch either of these adventures, use the desktop shortcuts generated in the root TomeWeaver directory:
-
-1. Double-click **`Story - Mallow the Cat.bat`**
-2. Or double-click **`Story - The Tomb of the Sunken King.bat`**
-
-*(Mac/Linux users: Run `python scripts/tome_weaver.py` to open the Main Menu and select your story from the list).*
+1. Open the TomeWeaver application (`python gui.py` or double-click your `.bat` launcher).
+2. Look at the Library Dashboard.
+3. Click the **Play** button next to *Mallow the Cat* or *The Tomb of the Sunken King*.
 
 ---
 
@@ -45,8 +44,7 @@ To launch either of these adventures, use the desktop shortcuts generated in the
 
 To start a brand new adventure, you **do not** need to create folders manually. 
 
-1. Double-click the **`Start_TomeWeaver.bat`** file in the root folder.
-2. Select **[Start a New Story]** from the menu.
-3. Type your title. 
-
-The engine will automatically generate the folder here, create a brand new `.bat` shortcut for your desktop, and build the boilerplate `setup.json` so you can start world-building immediately!
+1. On the Library Dashboard, click the green **+ Create New Story** button in the top right.
+2. Enter your Title and Author name, and choose your Mode.
+3. Click Play.
+4. Go to the **World Builder** tab to define your lore, characters, and settings before playing!

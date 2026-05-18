@@ -12,34 +12,44 @@ A Stateful Narrative Orchestration Engine for LLMs. TomeWeaver bridges the gap b
 
 Most AI storytelling tools are "chaos simulators"—they struggle with context drift, lose track of goals, and produce "jumpy" prose. **TomeWeaver** is a narrative pipeline that treats a story as a structured database. 
 
-It provides the "bones" of a game (inventory, chapters, goals) and the "soul" of a novel, resulting in a journey that is fun to play and beautiful to read back later.
+It provides the "bones" of a game engine (inventory, chapters, goals, UI virtualization) and the "soul" of a novel, resulting in a journey that is fun to play and beautiful to read back later.
 
 ## ✨ Key Features
 
-### 1. Dual-Mode Storytelling
-*   **Sandbox Mode:** Open-ended world simulation. Use the built-in **Chapter Wizard** to manually trigger scene shifts, POV changes, or time-jumps.
-*   **Campaign Mode:** Plot-driven adventures using a "Chapter Cartridge" system. The AI follows a `plot_outline` with specific goals and obstacles for every chapter.
+### 1. The "Non-Linear Video Editor" Timeline
+Say goodbye to scrolling endless walls of text. TomeWeaver renders your story as a virtualized timeline of **Cards**. You can scrub back through history using the Time Travel slider, edit past turns, regenerate choices, or branch the story effortlessly.
 
-### 2. Non-Destructive Narrative Bridging
+### 2. Non-Destructive Editing (Visual Diffs)
+When you ask the AI to "Polish" or "Expand" a scene, TomeWeaver does not blindly overwrite your history. It generates a **Draft** and opens a Git-style Visual Diff window, highlighting exactly what words the AI changed in Red and Green before you click "Accept."
+
+![Visual Diff Editor](docs/images/visual_diff.jpg "Screenshot of the Review Draft modal. It shows a split screen. On the left is the Original Text with red highlights for deleted words. On the right is the Proposed Revision with green highlights for inserted words. Buttons at the bottom: Cancel, Reroll, Accept.")
+
+### 3. The Visual "Codex" (Zero JSON Syntax Errors)
+You never have to look at raw JSON brackets again. The built-in **World Builder** dynamically generates UI forms for strings, bulleted lists, and dictionaries, allowing authors to build massive, deeply nested world lore safely.
+
+### 4. Dual-Mode Storytelling
+*   **Sandbox Mode:** Open-ended world simulation. Use the Director tools to manually trigger scene shifts, POV changes, or time-jumps.
+*   **Campaign Mode:** Plot-driven adventures. The AI strictly follows a `plot_outline`, tracking goals and obstacles, and automatically triggers chapter transitions when you succeed.
+
+### 5. Non-Destructive Narrative Bridging
 TomeWeaver solves the "narrative gap" common in AI games. 
-*   **The Problem:** In most games, you click "Go inside" and the next paragraph starts inside, leaving a jump-cut.
-*   **The Solution:** TomeWeaver generates a **Narrative Bridge**—a surgical patch that weaves your choice into the prose.
-*   **Integrity:** These bridges are stored as metadata. Your original human-curated prose is never modified or overwritten.
+*   **The Problem:** You click "Go inside" and the next paragraph starts inside, leaving a jarring jump-cut.
+*   **The Solution:** TomeWeaver auto-generates a **Narrative Bridge**—a surgical patch that weaves your action into the prose. These bridges are stored as metadata, meaning your original human-curated prose is never modified.
 
-### 3. The "Fortress" JSON Sanitizer
-Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stage sanitizer is built for resilience:
-*   **State-Machine Repair:** Uses a look-ahead parser to differentiate between structural JSON markers and rogue dialogue quotes.
-*   **Surgical Repair:** Uses error-coordinate metadata to "patch" missing quotes or trailing commas.
+### 6. The "Fortress" JSON Sanitizer
+Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stage sanitizer is built for extreme resilience:
+*   **State-Machine Repair:** Differentiates between structural JSON markers and rogue dialogue quotes.
+*   **Surgical Repair:** Uses Python's error-coordinate metadata to "patch" missing quotes or trailing commas before giving up.
 *   **Truncation Recovery:** If the AI hits its token limit mid-sentence, the engine auto-balances the JSON so you can continue playing without a crash.
 
-### 4. Storybook Compiler (Export)
+### 7. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
 ---
 
 ## 🧠 Supported LLM Providers
 
-TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI specification:
+TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI specification. Use the **API Connections Manager** in the UI to plug in:
 
 *   **LM Studio (Highly Recommended):** For 100% free, unlimited, and private local generations. This is the gold standard for testing and personal play.
 *   **OpenAI:** Native support for GPT-5 and GPT-5.5.
@@ -53,24 +63,10 @@ TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI 
 
 ### Prerequisites
 *   **Python 3.10+** (Ensure Python is added to your system PATH)
-*   **An LLM Provider:** 
-    *   **Local:** [LM Studio](https://lmstudio.ai/) (Recommended for privacy and zero cost).
-    *   **Cloud:** OpenAI, OpenRouter, or Gemini (API Key required).
-
-
-### ⚙️ Configure your LLM
-Before anything, edit the `engine_config.json` file in the configs/ directory to point to your chosen AI provider.
-
-**For LM Studio (Default):**
-```json
-{
-  "api_url": "http://localhost:1234/v1/chat/completions",
-  "model": "loaded-model"
-}
-```
+*   **An LLM Provider** (Local via LM Studio, or Cloud via an API key).
 
 ### Option A: Windows (Automated Setup)
-We provide an automated setup script that creates an isolated virtual environment and generates your Master Launcher.
+We provide an automated setup script that creates an isolated virtual environment, installs the UI dependencies, and generates your Master Launcher.
 
 1.  **Clone or Download the Repo:**
     ```cmd
@@ -78,10 +74,9 @@ We provide an automated setup script that creates an isolated virtual environmen
     cd TomeWeaver
     ```
 2.  **Run the Installer:**
-    Double-click the `setup.bat` file in the root directory. 
+    Double-click the `setup.bat` file in the root directory. This will download everything needed for the GUI.
 3.  **Launch the Engine:**
-    Double-click the newly generated `Start_TomeWeaver.bat`. This opens the **Main Menu Wizard**, allowing you to select an existing story or create a new one.
-
+    Double-click the newly generated `Start_TomeWeaver.bat`. This will boot the main Graphical Interface.
 
 ### Option B: macOS / Linux / Manual Setup
 If you are on a UNIX-based system or prefer setting up your environment manually:
@@ -100,85 +95,40 @@ If you are on a UNIX-based system or prefer setting up your environment manually
     ```bash
     pip install -r requirements.txt
     ```
-4.  **Launch the Main Menu:**
+4.  **Launch the GUI:**
     *(Ensure your virtual environment is active before running)*
     ```bash
-    python scripts/tome_weaver.py
+    python gui.py
     ```
+--
 
----
+## 📖 The Adventure "Cartridge" System
 
-## 📖 How to Build an Adventure
+TomeWeaver treats every adventure as a self-contained "Cartridge" (a folder inside `/adventures`). You can easily share your worlds or back up your saves just by zipping the folder.
 
-TomeWeaver treats every adventure as a self-contained "Cartridge" (a folder inside `/adventures`). 
-
-**The Easiest Way to Start:**
-1. Open the Main Menu (`Start_TomeWeaver.bat`).
-2. Select **[Start a New Story]**.
-3. Type a title. The engine will automatically generate the folder, create a desktop-friendly `.bat` shortcut (e.g., `Story - My Epic Tale.bat`), and prompt you to choose between Campaign or Sandbox mode.
-4. Open your new `adventures/Your_Title/setup.json` file to define your world, tone, and character.
-5. Double-click your new `Story - Your_Title.bat` shortcut to play!
-
-### Core Configuration Files
-*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics.
+### Core Configuration Files (Author Created)
+To build a new adventure, these files dictate the logic:
+*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics. *(Edited via the World Builder UI tab).*
 *   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
 *   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
 *   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.
 *   `start_turn.json` *(Optional)*: A "Story Seed." Provide a pre-generated Turn 1 JSON object to guarantee players begin with a specific, high-quality hook and set of choices.
 
----
-
-## ⌨️ Gameplay & In-Game Commands
-
-Playing TomeWeaver is as simple as typing the number of your desired choice. However, the engine is highly flexible. Instead of a number, you can type **any custom action or dialogue** (e.g., *"I draw my sword and demand to know who sent them!"*), and the AI will adapt the story instantly.
-
-You also have access to powerful "Director" commands to shape the narrative, edit history, or change the mechanics on the fly. 
-
-👉 **[Read the Full Command Guide (COMMAND_GUIDE.md)](COMMAND_GUIDE.md)**
-
-**Quick Reference:**
-*   `?` / `help`: Show the command menu.
-*   `undo`: Roll back the last turn.
-*   `redo`: Reroll the current AI response.
-*   `fix: [instruction]`: Instruct the AI to edit the current turn (e.g., `fix: make it raining`).
-*   `expand: [notes]`: *(Sandbox Only)* Co-write with the AI! Instruct it to expand your summary into full prose.
-*   `export`: Save your adventure to a readable TXT, Markdown, or HTML file.
-*   `restart`: Wipe progress and start from Turn 0.
-
----
-
-## 📖 The Adventure "Cartridge" System
-
-TomeWeaver treats every adventure as a self-contained folder. You can easily share your worlds or back up your saves just by zipping the folder.
-
-### Core Configuration Files (Author Created)
-To build a new adventure, you only need to create these files:
-*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics.
-*   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
-*   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
-*   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.
-*   `start_turn.json` *(Optional)*: A "Story Seed." Provide a pre-generated, hand-crafted Turn 1 JSON object to guarantee players begin with a specific, high-quality hook and set of choices.
-
 ### Engine State Files (Auto-Generated)
 As you play, TomeWeaver automatically generates and manages these files to maintain the game state:
 *   `history.json`: The master ledger. A perfect chronological record of every turn, AI response, player choice, and narrative bridge.
-*   `chapters.json`: The pacing metadata. Tracks where chapters begin and end, and stores Wizard overrides (like POV or Time jumps).
+*   `chapters.json`: The pacing metadata. Tracks where chapters begin and end.
 *   `session_log.txt`: The "Flight Recorder." A diagnostic log of every API call, retry, and raw JSON output for debugging your prompts.
 
 ---
 
-## ⚙️ Configuration & Documentation
+## 📚 Official Documentation
 
-TomeWeaver is designed for deep customization. For detailed instructions on API setup, campaign logic, and advanced world-building lore, please refer to the separate guide:
+TomeWeaver is a massive, feature-rich application. Please refer to our dedicated guides for detailed instructions on using the UI and configuring your worlds:
 
-👉 **[Adventure Configuration Guide (CONFIG_GUIDE.md)](CONFIG_GUIDE.md)**
-
-**This guide covers:**
-- Global API and "Fortress" settings (`engine_config.json`)
-- Differences between **Campaign** and **Sandbox** schemas (`setup.json`)
-- How to add custom fields for family trees, world lore, and AI instructions.
-- Narrative pacing and Prologue/Epilogue behavior.
-
+*   🖼️ **[The UI Walkthrough (docs/README.md)](docs/README.md)** - A visual guide to the Library Dashboard, Story Timeline, and Editors.
+*   ⌨️ **[Gameplay & User Guide (docs/COMMAND_GUIDE.md)](docs/COMMAND_GUIDE.md)** - How to play, time-travel, and use Director tools.
+*   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, goals, and JSON schemas.
 
 ---
 
