@@ -126,20 +126,39 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         
     missing_keys = [k for k in required_keys if k not in data]
     if missing_keys: return None, f"Missing required JSON keys: {missing_keys}"
+    
+    # --- THE PROSE FLATTENER (Hard-Return Removal) ---
+    # Many LLMs artificially wrap text at 80 characters by inserting single \n tags mid-sentence.
+    # We strip single newlines into spaces to allow the GUI to wrap dynamically, but preserve \n\n as paragraphs.
+    for text_key in ["story_text", "narrative_bridge"]:
+        if text_key in data and isinstance(data[text_key], str):
+            # 1. Normalize all massive gaps (3+ newlines) down to exactly 2
+            cleaned_text = re.sub(r'\n{3,}', '\n\n', data[text_key])
+            # 2. Replace single newlines (that aren't part of a double newline) with a space
+            cleaned_text = re.sub(r'(?<!\n)\n(?!\n)', ' ', cleaned_text)
+            # 3. Clean up any double spaces created by the previous step
+            cleaned_text = re.sub(r' {2,}', ' ', cleaned_text).strip()
+            data[text_key] = cleaned_text
         
     # --- THE CHOICE SCRUBBER ---
     if isinstance(data.get("choices"), list):
         cleaned_choices = []
         for c in data["choices"]:
-            c_str = str(c)
+            c_str = str(c).strip()
+            
             # 1. Remove LLM "Concatenation" artifacts (e.g. "Text" + "\n")
             c_str = c_str.replace('" + "', '').replace('\\" + \\"', '').replace('\" + \"', '')
-            # 2. Remove escaped internal quotes if the choice was entirely encased in them
-            # Fixes: "\"Tell me more.\"" -> "Tell me more."
-            if c_str.startswith('\\"') and c_str.endswith('\\"'):
-                c_str = c_str[2:-2]
-            # 3. Strip leading/trailing newlines, spaces, and accidental raw quotes
-            c_str = c_str.strip().strip("'\"")
+            
+            # 2. Strip surrounding wrapper quotes ONLY if they match on both sides
+            # Fixes instances where the AI outputs ["\"Action\""] instead of ["Action"]
+            if c_str.startswith('"') and c_str.endswith('"'):
+                c_str = c_str[1:-1].strip()
+            elif c_str.startswith("'") and c_str.endswith("'"):
+                c_str = c_str[1:-1].strip()
+                
+            # 3. Convert any internal dialogue double-quotes into single-quotes 
+            # This prevents the UI from looking sloppy and makes dialogue buttons look clean
+            c_str = c_str.replace('"', "'")
             
             if c_str:
                 cleaned_choices.append(c_str)
@@ -230,9 +249,16 @@ def sanitize_json(raw):
             # Remove existing invalid escapes on single quotes before processing
             clean_line = clean_line.replace("\\'", "'")
             
-            # Strip ALL outer quotes recursively (handles '"Text"')
-            while clean_line and clean_line[0] in ['"', "'"]: clean_line = clean_line[1:]
-            while clean_line and clean_line[-1] in ['"', "'"]: clean_line = clean_line[:-1]
+            # Strip list artifacts (- or *) that LLMs frequently mistakenly put inside the array
+            clean_line = re.sub(r'^[-*]\s+', '', clean_line)
+            
+            # Strip wrapper quotes carefully to avoid eating internal dialogue quotes.
+            # We only remove quotes if they match on BOTH ends.
+            for _ in range(2):
+                if len(clean_line) >= 2 and clean_line[0] == '"' and clean_line[-1] == '"':
+                    clean_line = clean_line[1:-1]
+                if len(clean_line) >= 2 and clean_line[0] == "'" and clean_line[-1] == "'":
+                    clean_line = clean_line[1:-1]
             
             if clean_line:
                 # 1. Temporarily protect already-escaped double quotes

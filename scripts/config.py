@@ -157,10 +157,12 @@ def load_engine_config():
         "auto_polish": False,
         "auto_narrative_bridge": False,
         "ui_scaling": 1.0,
+        "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
         "window_geometry": "1100x750",
-        "window_state": "normal"
+        "window_state": "normal",
+        "last_active_story": ""
     }
     
     # 1. Create default config if it doesn't exist

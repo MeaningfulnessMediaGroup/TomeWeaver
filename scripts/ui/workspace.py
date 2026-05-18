@@ -90,6 +90,17 @@ class WorkspaceFrame(ctk.CTkFrame):
         # CRITICAL: We must release the stdout redirector, or the app will crash 
         # trying to print to a destroyed widget when returning to the dashboard.
         self.console_tab.restore_stdout()
+        
+        # Clear the auto-resume memory so next boot goes to Dashboard
+        from config import ENGINE_CONFIG, ROOT_DIR
+        import json
+        ENGINE_CONFIG["last_active_story"] = ""
+        try:
+            with open(ROOT_DIR / "configs" / "engine_config.json", "w", encoding="utf-8") as f:
+                json.dump(ENGINE_CONFIG, f, indent=4)
+        except Exception:
+            pass
+            
         self.app.open_dashboard()
         
     # ---------------------------------------------------------

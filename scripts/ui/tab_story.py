@@ -73,9 +73,6 @@ class StoryTab(ctk.CTkFrame):
 
         self.btn_submit = ctk.CTkButton(input_frame, text="Submit", command=self.on_submit, width=100)
         self.btn_submit.pack(side="right", padx=10, pady=15)
-        
-        self.btn_undo = ctk.CTkButton(input_frame, text="↶ Undo", command=self.on_undo, width=60, fg_color="#FF9800", hover_color="#F57C00")
-        self.btn_undo.pack(side="right", padx=5, pady=15)
 
         self.status_var = ctk.StringVar(value="Ready.")
         ctk.CTkLabel(self, textvariable=self.status_var, font=("Arial", 12, "italic"), text_color="gray").pack(side="bottom", anchor="w", padx=15, pady=(0, 5))
@@ -93,9 +90,13 @@ class StoryTab(ctk.CTkFrame):
 
     def _apply_wrapping(self, width):
         """Forces the Tkinter text labels to wrap cleanly based on canvas width."""
-        safe_width = width - 120 
+        from config import ENGINE_CONFIG
+        wrap_margin = ENGINE_CONFIG.get("ui_wrap_margin", 150)
+        
+        safe_width = width - wrap_margin 
         scale = self._get_widget_scaling()
         adjusted_wrap = int(safe_width / scale)
+        
         for refs in self.recycled_cards:
             refs["prose"].configure(wraplength=adjusted_wrap)
             refs["hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
@@ -166,7 +167,10 @@ class StoryTab(ctk.CTkFrame):
             
             hdr_frame = ctk.CTkFrame(card, fg_color="transparent")
             hdr_frame.pack(fill="x", padx=15, pady=(10, 5))
+            
             btn_edit = ctk.CTkButton(hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
+            btn_bridge = ctk.CTkButton(hdr_frame, text="✨ Bridge", width=60, height=24, fg_color="#00ACC1", hover_color="#00838F")
+            
             hdr_lbl = ctk.CTkLabel(hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
             
@@ -179,7 +183,7 @@ class StoryTab(ctk.CTkFrame):
             self.recycled_cards.append({
                 "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
                 "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
-                "card": card, "hdr": hdr_lbl, "prose": prose_lbl, "btn_edit": btn_edit,
+                "card": card, "hdr": hdr_lbl, "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
                 "choice": c_lbl, "btn_frame": btn_frame
             })
 
@@ -203,10 +207,7 @@ class StoryTab(ctk.CTkFrame):
         
         # Toggle Global Undo Button Visibility dynamically
         self.btn_submit.pack_forget()
-        self.btn_undo.pack_forget()
         self.btn_submit.pack(side="right", padx=10, pady=15)
-        if self.engine.setup_data.get("allow_cheats", False):
-            self.btn_undo.pack(side="right", padx=5, pady=15)
 
         if not self.engine.history:
             self._lock_ui("Initializing story...")
@@ -270,8 +271,11 @@ class StoryTab(ctk.CTkFrame):
                 
                 # 1. RENDER BRIDGE CARD (Packed FIRST so it sits above the Story Card)
                 bridge = turn.get("narrative_bridge")
-                if target_idx > 0 and bridge and bridge not in ["[OK]", "[FAILED]", ""]:
-                    refs["br_card"].pack(fill="x", padx=20, pady=(15, 0))
+                is_valid_bridge = bridge and bridge not in ["[OK]", "[FAILED]", ""]
+                
+                if target_idx > 0 and is_valid_bridge:
+                    # Reduced top padding from 15 to 5, so it visually hugs the previous action
+                    refs["br_card"].pack(fill="x", padx=20, pady=(5, 0))
                     refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
                     refs["br_prose"].configure(text=bridge)
                     if cheats_allowed:
@@ -294,12 +298,19 @@ class StoryTab(ctk.CTkFrame):
                 pov = turn.get("pov_character", "Unknown")
                 refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
                 
+                refs["btn_edit"].pack_forget()
+                refs["btn_bridge"].pack_forget()
+                
                 if cheats_allowed:
                     refs["btn_edit"].pack(side="right")
                     refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                else:
-                    refs["btn_edit"].pack_forget()
-
+                    
+                    # RENDER '✨ BRIDGE' BUTTON: Only if bridge is missing/failed and not perfectly seamless [OK]
+                    if target_idx > 0 and not is_valid_bridge and bridge != "[OK]":
+                        refs["btn_bridge"].pack(side="right", padx=(0, 5))
+                        refs["btn_bridge"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
+                        Tooltip(refs["btn_bridge"], "Generate a narrative transition from the previous turn.")
+                        
                 prose_text = turn.get("story_text", "").replace("\\n", "\n") + "\n"
                 refs["prose"].configure(text=prose_text)
                 
@@ -331,33 +342,39 @@ class StoryTab(ctk.CTkFrame):
 
                     # Tools are hidden during Auto-Play
                     if not self.engine.is_test_mode:
-                        if show_redo or show_qol or show_fix:
-                            dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
-                            # FIX ARROW 3: 20px top margin separating the prose from the colorful buttons
-                            dir_frame.pack(fill="x", pady=(20, 15), padx=5)
-                            
-                            if show_redo:
-                                btn_rt = ctk.CTkButton(dir_frame, text="⟳ Redo Turn", width=60, fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
-                                btn_rt.pack(side="left", padx=(0, 5))
-                                Tooltip(btn_rt, "Reroll this entire scene.")
+                        # Always create the director frame so Undo has a place to live
+                        dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
+                        # FIX ARROW 3: 20px top margin separating the prose from the colorful buttons
+                        dir_frame.pack(fill="x", pady=(20, 15), padx=5)
+                        
+                        if show_redo:
+                            btn_rt = ctk.CTkButton(dir_frame, text="⟳ Redo Turn", width=60, fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
+                            btn_rt.pack(side="left", padx=(0, 5))
+                            Tooltip(btn_rt, "Reroll this entire scene.")
 
-                            if show_qol:
-                                btn_rc = ctk.CTkButton(dir_frame, text="⟳ Choices", width=60, fg_color="#0288D1", hover_color="#01579B", command=lambda: self._trigger_redo_choices(target_idx))
-                                btn_rc.pack(side="left", padx=5)
-                                Tooltip(btn_rc, "Keep text, but get new choices.")
-                                
-                                btn_exp = ctk.CTkButton(dir_frame, text="✨ Expand", width=60, fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_expansion(target_idx))
-                                btn_exp.pack(side="left", padx=5)
-                                Tooltip(btn_exp, "Add sensory depth to this scene.")
-
-                                btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(target_idx))
-                                btn_pol.pack(side="left", padx=5)
-                                Tooltip(btn_pol, "Fix grammar/style.")
+                        if show_qol:
+                            btn_rc = ctk.CTkButton(dir_frame, text="⟳ Choices", width=60, fg_color="#0288D1", hover_color="#01579B", command=lambda: self._trigger_redo_choices(target_idx))
+                            btn_rc.pack(side="left", padx=5)
+                            Tooltip(btn_rc, "Keep text, but get new choices.")
                             
-                            if show_fix:
-                                btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(target_idx))
-                                btn_fix.pack(side="left", padx=5)
-                                Tooltip(btn_fix, "Instruct AI to change a specific detail.")
+                            btn_exp = ctk.CTkButton(dir_frame, text="✨ Expand", width=60, fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_expansion(target_idx))
+                            btn_exp.pack(side="left", padx=5)
+                            Tooltip(btn_exp, "Add sensory depth to this scene.")
+
+                            btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(target_idx))
+                            btn_pol.pack(side="left", padx=5)
+                            Tooltip(btn_pol, "Fix grammar/style.")
+                        
+                        if show_fix:
+                            btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(target_idx))
+                            btn_fix.pack(side="left", padx=5)
+                            Tooltip(btn_fix, "Instruct AI to change a specific detail.")
+                            
+                        # Pack UNDO on the far right, perfectly isolated
+                        if cheats_allowed and len(history) > 1:
+                            btn_undo = ctk.CTkButton(dir_frame, text="↶ Undo Last Turn", width=120, fg_color="#FF9800", hover_color="#F57C00", command=self.on_undo)
+                            btn_undo.pack(side="right", padx=(5, 0))
+                            Tooltip(btn_undo, "Revert the game state to the previous turn.")
 
                     for c in turn.get("choices", []):
                         if not cheats_allowed and "Cheat Death" in c: continue
@@ -921,24 +938,33 @@ class StoryTab(ctk.CTkFrame):
         """Disables all input controls while the AI is generating."""
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="disabled")
-        self.btn_undo.configure(state="disabled")
         self.text_input.configure(state="disabled")
         self.cmd_dropdown.configure(state="disabled")
         self.history_slider.configure(state="disabled")
         
         for refs in self.recycled_cards:
+            if "btn_bridge" in refs: refs["btn_bridge"].configure(state="disabled")
+            if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="disabled")
+            
             for w in refs["btn_frame"].winfo_children():
-                if isinstance(w, ctk.CTkButton): w.configure(state="disabled")
+                if isinstance(w, ctk.CTkButton): 
+                    w.configure(state="disabled")
+                elif isinstance(w, ctk.CTkFrame): # Look inside dir_frame
+                    for sub_w in w.winfo_children():
+                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="disabled")
 
     def _unlock_ui(self, status_msg):
         """Restores interactivity after an AI generation completes."""
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="normal")
-        self.btn_undo.configure(state="normal")
         self.text_input.configure(state="normal")
         self.cmd_dropdown.configure(state="normal")
         if len(self.engine.history) > self.MAX_CARDS:
             self.history_slider.configure(state="normal")
+            
+        for refs in self.recycled_cards:
+            if "btn_bridge" in refs: refs["btn_bridge"].configure(state="normal")
+            if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="normal")
 
         # --- AUTOPILOT HOOK ---
         if self.engine.is_test_mode:

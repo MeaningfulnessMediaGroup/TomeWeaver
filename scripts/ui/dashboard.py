@@ -35,7 +35,17 @@ class DashboardFrame(ctk.CTkFrame):
         
         ctk.CTkLabel(header, text="TomeWeaver Library", font=("Georgia", 28, "bold")).pack(side="left")
         
-        btn_new = ctk.CTkButton(header, text="+ Create New Story", fg_color="#2E7D32", hover_color="#1B5E20", command=self.show_create_dialog)
+        # New Feature: The Split Dropdown Button
+        self.new_story_var = ctk.StringVar(value="+ Create New Story")
+        btn_new = ctk.CTkOptionMenu(
+            header, 
+            variable=self.new_story_var, 
+            values=["Manual Setup...", "Generate via AI..."], 
+            fg_color="#2E7D32", 
+            button_color="#1B5E20", 
+            button_hover_color="#0D3B13",
+            command=self._handle_create_menu
+        )
         btn_new.pack(side="right", padx=(10, 0))
         Tooltip(btn_new, "Initialize a new Sandbox or Campaign adventure.")
         
@@ -328,7 +338,11 @@ class DashboardFrame(ctk.CTkFrame):
         t_label = "Turn" if t_count == 1 else "Turns"
         t_text = f" • {t_count} {t_label}" if t_count > 0 else ""
         
-        meta_text = f"[{story.get('status', 'Unknown')}]{t_text} • {story.get('location', 'Unknown')}"
+        # Safely extract and truncate the location string if the AI made it absurdly long
+        raw_loc = str(story.get('location', 'Unknown')).replace('\n', ' ')
+        display_loc = raw_loc[:75].strip() + "..." if len(raw_loc) > 75 else raw_loc
+        
+        meta_text = f"[{story.get('status', 'Unknown')}]{t_text} • {display_loc}"
         ctk.CTkLabel(line2, text=meta_text, font=("Arial", 12), text_color="gray").pack(side="left")
 
         # --- RIGHT SIDE: ACTION BUTTONS ---
@@ -399,10 +413,18 @@ class DashboardFrame(ctk.CTkFrame):
             else:
                 messagebox.showerror("Import Failed", msg)
 
+    def _handle_create_menu(self, choice):
+        """Intercepts the dropdown selection and resets the button text."""
+        self.new_story_var.set("+ Create New Story")
+        if choice == "Manual Setup...":
+            self.show_create_dialog()
+        elif choice == "Generate via AI...":
+            self.show_ai_create_dialog()
+
     def show_create_dialog(self):
-        """Spawns the modal dialog for initializing a new adventure framework."""
+        """Spawns the modal dialog for initializing a new, empty adventure framework."""
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Create New Story")
+        dialog.title("Create New Story (Manual)")
         dialog.geometry("400x360")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
@@ -429,17 +451,111 @@ class DashboardFrame(ctk.CTkFrame):
                 messagebox.showwarning("Missing Info", "Please enter a title.")
                 return
             success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get())
+            
+            # Auto-open logic added
+            dialog.destroy() 
             if success:
                 self.load_data()
-                dialog.destroy()
+                self.app.open_workspace(msg) # 'msg' is the folder_name on success
             else:
                 messagebox.showerror("Creation Failed", msg)
 
         ctk.CTkButton(dialog, text="Create", command=on_create).pack(pady=25)
         
+    def show_ai_create_dialog(self):
+        """Spawns the advanced AI Generator modal."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("AI World Generator")
+        dialog.geometry("550x600") # Made wider and taller
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="AI World Generator", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
+        ctk.CTkLabel(dialog, text="Describe your concept. The AI will construct the setup and plot.", font=("Arial", 12, "italic"), text_color="gray").pack(pady=(0, 10))
+
+        # Title & Author
+        ta_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        ta_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(ta_frame, text="Title:", width=60, anchor="e").pack(side="left", padx=(0, 5))
+        title_entry = ctk.CTkEntry(ta_frame)
+        title_entry.pack(side="left", fill="x", expand=True)
+        
+        ctk.CTkLabel(ta_frame, text="Author:", width=50, anchor="e").pack(side="left", padx=(10, 5))
+        author_entry = ctk.CTkEntry(ta_frame, width=120)
+        author_entry.pack(side="left")
+
+        # Mode Selection
+        mode_var = ctk.StringVar(value="sandbox")
+        mode_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        mode_frame.pack(pady=5)
+        
+        def on_mode_change():
+            if mode_var.get() == "sandbox":
+                chk_epi.deselect()
+                chk_epi.configure(state="disabled")
+            else:
+                chk_epi.configure(state="normal")
+                
+        ctk.CTkRadioButton(mode_frame, text="Sandbox", variable=mode_var, value="sandbox", command=on_mode_change).pack(side="left", padx=10)
+        ctk.CTkRadioButton(mode_frame, text="Campaign", variable=mode_var, value="campaign", command=on_mode_change).pack(side="left", padx=10)
+
+        # AI Prompt (Taller Box)
+        ctk.CTkLabel(dialog, text="Adventure Prompt:").pack(anchor="w", padx=20, pady=(5, 0))
+        prompt_box = ctk.CTkTextbox(dialog, height=280, wrap="word", font=("Arial", 14)) # Taller textbox
+        prompt_box.pack(fill="x", padx=20, pady=5)
+        prompt_box.insert("1.0", "A dark fantasy heist where a master thief must break into the crypt of the Sunken King to steal a cursed ruby.")
+
+        # Generation Toggles
+        chk_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        chk_frame.pack(fill="x", padx=20, pady=0) # Reduced padding
+        
+        gen_pro_var = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(chk_frame, text="Generate Prologue", variable=gen_pro_var).pack(side="left", padx=(0, 20))
+        
+        gen_epi_var = ctk.BooleanVar(value=False)
+        chk_epi = ctk.CTkSwitch(chk_frame, text="Generate Epilogue", variable=gen_epi_var, state="disabled")
+        chk_epi.pack(side="left")
+
+        # Status Label
+        status_lbl = ctk.CTkLabel(dialog, text="", font=("Arial", 12, "italic"))
+        status_lbl.pack(pady=(5, 0)) # Reduced padding
+
+        # Submit Button
+        def on_generate():
+            title = title_entry.get().strip()
+            prompt = prompt_box.get("1.0", "end").strip()
+            if not prompt:
+                messagebox.showwarning("Missing Info", "Please enter an adventure concept prompt.")
+                return
+
+            btn_gen.configure(state="disabled", text="Generating... Please wait.")
+            status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
+            
+            def worker():
+                success, msg = TomeWeaverAPI.create_story_from_prompt(
+                    title, author_entry.get().strip(), mode_var.get(), 
+                    prompt, gen_pro_var.get(), gen_epi_var.get()
+                )
+                
+                def on_complete():
+                    # CRITICAL FIX: Destroy dialog first to prevent hidden messagebox deadlock!
+                    dialog.destroy() 
+                    if success:
+                        self.load_data() # Update the dashboard list behind the scenes
+                        self.app.open_workspace(msg) # Automatically open the newly generated story
+                    else:
+                        messagebox.showerror("AI Generation Error", msg)
+                        
+                self.after(0, on_complete)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_gen = ctk.CTkButton(dialog, text="✨ Generate World", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", height=40, command=on_generate)
+        btn_gen.pack(pady=(5, 10)) # Reduced padding before/after button
         
     def show_global_settings(self):
-        """Opens a modal to edit configs/engine_config.json containing global AI and UI behaviors."""
+        """Opens a modal to edit configs/engine_config.json."""
         from config import load_engine_config, ROOT_DIR, ENGINE_CONFIG
         from ui.tooltip import Tooltip
         import json
@@ -459,7 +575,6 @@ class DashboardFrame(ctk.CTkFrame):
         fields = {}
 
         def add_field(label_text, key_name, is_bool=False, is_number=False, tooltip_text=""):
-            """Helper closure to procedurally generate settings form rows."""
             val = current_config.get(key_name)
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x", pady=5)
@@ -528,6 +643,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True, tooltip_text="Scales the entire application interface for 4K/high-res monitors. Requires restart.")
         add_field("Story Font Size:", "prose_font_size", is_number=True, tooltip_text="The point size of the prose text in the main workspace.")
+        add_field("Text Wrap Margin (Pixels):", "ui_wrap_margin", is_number=True, tooltip_text="Adjusts the right-side padding for text in the timeline. Increase this if your text is being cut off on the right.")
         ctk.CTkLabel(scroll, text="(Requires application restart to fully apply UI scaling)", font=("Arial", 11, "italic"), text_color="gray").pack()
 
         ctk.CTkLabel(scroll, text="--- Developer Logging ---", text_color="gray").pack(pady=(20, 5))

@@ -168,8 +168,8 @@ class TomeWeaverAPI:
     # ---------------------------------------------------------
 
     @staticmethod
-    def create_story(title, author, mode, create_shortcut=True):
-        """Creates a new boilerplate adventure folder and an optional launcher shortcut."""
+    def create_story(title, author, mode):
+        """Creates a new boilerplate adventure folder."""
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
             
@@ -191,74 +191,7 @@ class TomeWeaverAPI:
                 with open(setup_file, "w", encoding="utf-8") as f:
                     json.dump(setup_data, f, indent=4)
                     
-            if create_shortcut:
-                bat_path = Path.cwd() / f"!Story - {safe_title}.bat"
-                bat_content = f"""@echo off
-setlocal EnableDelayedExpansion
-set "ADVENTURE_FOLDER={safe_title}"
-title TomeWeaver: %ADVENTURE_FOLDER%
-echo ===================================================
-echo   Loading Adventure: %ADVENTURE_FOLDER%
-echo ===================================================
-echo.
-cd /d "%~dp0"
-if exist "venv\\Scripts\\activate.bat" (
-    call venv\\Scripts\\activate.bat
-) else (
-    echo [WARNING] Virtual environment not found. Attempting global Python...
-)
-python gui.py "adventures\\%ADVENTURE_FOLDER%"
-if %errorlevel% neq 0 (
-    echo.
-    echo [SYSTEM] The engine exited with an error.
-    pause
-) else (
-    timeout /t 2 >nul
-)
-exit /b 0
-"""
-                with open(bat_path, "w", encoding="utf-8") as f:
-                    f.write(bat_content)
-                    
             return True, safe_title
-        except Exception as e:
-            return False, str(e)
-
-    @staticmethod
-    def delete_story(folder_name):
-        """Permanently deletes an adventure directory."""
-        target_dir = ADV_DIR / folder_name
-        if target_dir.exists() and target_dir.is_dir():
-            try:
-                shutil.rmtree(target_dir)
-                return True, "Story deleted."
-            except Exception as e:
-                return False, str(e)
-        return False, "Story not found."
-
-    @staticmethod
-    def rename_story(folder_name, new_title):
-        """Safely renames both the physical folder and the JSON title property."""
-        source_dir = ADV_DIR / folder_name
-        if not source_dir.exists(): return False, "Story not found."
-        
-        safe_new = sanitize_foldername(new_title)
-        target_dir = ADV_DIR / safe_new
-        
-        try:
-            if source_dir != target_dir:
-                if target_dir.exists(): return False, "A story with that name already exists."
-                source_dir.rename(target_dir)
-            
-            setup_file = target_dir / "setup.json"
-            if setup_file.exists():
-                with open(setup_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                data["title"] = new_title
-                with open(setup_file, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=4)
-                    
-            return True, safe_new
         except Exception as e:
             return False, str(e)
 
@@ -361,12 +294,186 @@ exit /b 0
                     json.dump(initial, f, indent=4)
 
             # 3. Flush Log
+            # 3. Flush Log
             if log_file.exists(): log_file.unlink()
 
             return True, "Story reset to Turn 0."
         except Exception as e:
             return False, str(e)
             
+    @staticmethod
+    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi):
+        """
+        AI World Generator. Contacts the LLM to dynamically generate the world data,
+        extracts the title, safely creates the folder, and populates the schema files.
+        """
+        from config import ENGINE_CONFIG
+        from llm import sanitize_json
+        import requests, re, time
+        
+        # Hardened prompt to prevent the AI from nesting the requested keys inside a "world" object
+        sys_prompt = "You are a master world-builder and interactive fiction designer. Output ONLY a flat JSON object matching the exact keys below. Do not nest them under a parent object."
+        
+        # 1. Build the strict JSON schema request dynamically based on user inputs
+        schema = "{\n"
+        if not title:
+            schema += '  "title": "A catchy, compelling title for this adventure",\n'
+            
+        schema += '  "tone": "Brief description of the atmosphere and genre",\n'
+        schema += '  "main_character": "Name, age, and brief personality traits",\n'
+        schema += '  "lore_and_rules": "Key facts about the world, magic, or technology",\n'
+        
+        if mode == "sandbox":
+            schema += '  "setting": "Detailed description of the starting location",\n'
+            schema += '  "starting_situation": "The exact situation the player wakes up in",\n'
+            schema += '  "goal": "A loose overarching motivation for the character"\n'
+        else:
+            schema += '  "starting_inventory": "A string listing initial items and health state",\n'
+            schema += '  "plot_outline": [\n    {"title": "Chapter 1", "setting": "Description", "pov": "Character Name", "goal": "Specific objective", "obstacles": "Specific threats"}\n  ],\n'
+            
+        if gen_pro: schema += '  "prologue_text": "Write 3 to 4 paragraphs of rich, cinematic opening prose setting the scene",\n'
+        if gen_epi and mode == "campaign": schema += '  "epilogue_text": "Write 2 to 3 paragraphs of satisfying concluding prose"\n'
+            
+        schema = schema.rstrip(",\n") + "\n}"
+        
+        user_msg = f"MODE: {mode.upper()}\nUSER CONCEPT: '{prompt_text}'\n"
+        if title: user_msg += f"TITLE: {title}\n"
+        user_msg += f"\nTASK: Generate the game configuration using this EXACT JSON schema. Write highly detailed, creative content for the values:\n{schema}"
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        max_retries = ENGINE_CONFIG.get("max_retries", 5)
+        active_messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_msg}
+        ]
+        
+        data = None
+        err = None
+        
+        # 2. Call the API with the Fortress Retry Loop
+        for attempt in range(max_retries):
+            if attempt > 0 and err:
+                active_messages.append({"role": "user", "content": f"Your previous JSON was invalid. Error: {err}. Please correct it and return ONLY valid JSON."})
+                
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": active_messages,
+                "temperature": max(0.2, 0.8 - (attempt * 0.15)),
+                "max_tokens": 3000
+            }
+            
+            try:
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = f"API Error {resp.status_code}"
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not match:
+                    err = "No JSON object found."
+                    continue
+                    
+                clean_json = sanitize_json(match.group(0))
+                data = json.loads(clean_json, strict=False)
+                
+                if mode == "campaign" and not isinstance(data.get("plot_outline"), list):
+                    err = "'plot_outline' must be a JSON array."
+                    data = None
+                    continue
+                    
+                break # Success!
+                
+            except Exception as e:
+                err = str(e)
+                time.sleep(1)
+                continue
+
+        if not data:
+            return False, f"Failed to generate world after {max_retries} attempts. Last error: {err}"
+            
+        try:
+            # 3. Secure the Title & Create Folder
+            raw_title = title.strip() if title and title.strip() else data.get("title", "Generated Adventure").strip()
+            
+            from api import sanitize_foldername
+            if not sanitize_foldername(raw_title):
+                raw_title = "AI Generated Adventure"
+                
+            final_title = raw_title
+            base_title = raw_title
+            counter = 1
+            
+            while (ADV_DIR / sanitize_foldername(final_title)).exists():
+                final_title = f"{base_title} {counter}"
+                counter += 1
+                
+            success, folder_or_err = TomeWeaverAPI.create_story(final_title, author, mode)
+            if not success: return False, f"Could not create folder: {folder_or_err}"
+            
+            folder_name = folder_or_err
+            target_dir = ADV_DIR / folder_name
+
+            # 4. Apply to setup.json
+            setup_file = target_dir / "setup.json"
+            with open(setup_file, "r", encoding="utf-8") as f:
+                setup_data = json.load(f)
+                
+            keys_to_merge = ["title", "tone", "main_character", "lore_and_rules", "setting", "starting_situation", "goal", "starting_inventory", "plot_outline"]
+            for k in keys_to_merge:
+                if k in data:
+                    # Defensive cast: If the AI hallucinates a list/dict for a string field, flatten it so the UI doesn't crash
+                    if isinstance(data[k], (dict, list)) and k != "plot_outline":
+                        setup_data[k] = json.dumps(data[k])
+                    else:
+                        setup_data[k] = data[k]
+                
+            # 5. Handle Narrative Text Files (Robust string casting)
+            if gen_pro and data.get("prologue_text"):
+                pro_data = data["prologue_text"]
+                pro_str = "\n\n".join([str(p) for p in pro_data]) if isinstance(pro_data, list) else str(pro_data)
+                if pro_str.strip():
+                    with open(target_dir / "prologue.txt", "w", encoding="utf-8") as f:
+                        f.write(pro_str.strip())
+                    setup_data.setdefault("narrative", {})["prologue"] = "as_is"
+                
+            if gen_epi and mode == "campaign" and data.get("epilogue_text"):
+                epi_data = data["epilogue_text"]
+                epi_str = "\n\n".join([str(e) for e in epi_data]) if isinstance(epi_data, list) else str(epi_data)
+                if epi_str.strip():
+                    with open(target_dir / "epilogue.txt", "w", encoding="utf-8") as f:
+                        f.write(epi_str.strip())
+                    setup_data.setdefault("narrative", {})["epilogue"] = "as_is"
+                
+            with open(setup_file, "w", encoding="utf-8") as f:
+                json.dump(setup_data, f, indent=4)
+                
+            # 6. Initialize chapters.json if Campaign Mode
+            if mode == "campaign" and "plot_outline" in data:
+                chapters_file = target_dir / "chapters.json"
+                first_chap = data["plot_outline"][0] if data["plot_outline"] else {}
+                initial_chapters = [{
+                    "chapter_number": 1,
+                    "title": first_chap.get("title", "Chapter 1"),
+                    "start_turn": 1, "end_turn": None,
+                    "setting": first_chap.get("setting"),
+                    "pov": first_chap.get("pov"),
+                    "goal": first_chap.get("goal"),
+                    "obstacles": first_chap.get("obstacles")
+                }]
+                with open(chapters_file, "w", encoding="utf-8") as f:
+                    json.dump(initial_chapters, f, indent=4)
+                    
+            return True, folder_name
+            
+        except Exception as e:
+            # CRITICAL FIX: Ensure we use the exact folder_name variable to clean up the bad generation
+            TomeWeaverAPI.delete_story(folder_name) 
+            return False, f"File Generation Failed: {str(e)}"
+
     # ---------------------------------------------------------
     # ENGINE LAUNCHER
     # ---------------------------------------------------------
