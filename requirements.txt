@@ -1,7 +1,23 @@
+# ==========================================
 # TomeWeaver Core Dependencies
+# ==========================================
 
-# For handling API requests to LM Studio, OpenAI, OpenRouter, etc.
+# For handling API requests to local and cloud Large Language Models
 requests>=2.31.0
 
-# For cross-platform terminal coloring and styling
+# For terminal coloring (Used by the Headless API to format logs for the GUI Developer Console)
 colorama>=0.4.6
+
+
+# ==========================================
+# TomeWeaver GUI Dependencies (Desktop App)
+# ==========================================
+
+# The modern, dark-mode UI framework (Pure Python WinForms equivalent)
+customtkinter>=5.2.2
+
+# Helper library used by CustomTkinter to automatically detect OS Dark/Light mode
+darkdetect>=0.8.0
+
+# Standard utility often required by UI frameworks for version parsing
+packaging>=23.1
