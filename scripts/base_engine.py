@@ -739,9 +739,10 @@ class BaseEngine:
                     feedback += PROMPTS.get("FEEDBACK_CONTROL_CHAR", "")
                 active_messages.append({"role": "user", "content": f"{feedback} Please correct it."})
 
+            inv_schema = self.setup_data.get("inventory_dictionary", {})
             turn_data, err, raw = get_llm_response(
                 active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
-                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
+                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode, inv_schema
             )
             
             if turn_data:
@@ -799,9 +800,10 @@ class BaseEngine:
         ]
         
         for p_attempt in range(max_retries):
+            inv_schema = self.setup_data.get("inventory_dictionary", {})
             polished_data, _, _ = get_llm_response(
                 polish_msgs, p_attempt, self.adv_dir, prev_turn_obj, False, 
-                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode
+                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode, inv_schema
             )
             if polished_data:
                 # Inheritance protection to ensure the editor didn't break game logic

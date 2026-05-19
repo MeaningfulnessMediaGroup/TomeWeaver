@@ -329,12 +329,18 @@ class TomeWeaverAPI:
         if not source_dir.exists(): return False, "Story not found."
         
         safe_new = sanitize_foldername(new_title)
-        target_dir = ADV_DIR / safe_new
+        
+        # FIX: Keep the story in its current sub-directory, do not move it to root
+        target_dir = source_dir.parent / safe_new
         
         try:
-            if source_dir != target_dir:
-                if target_dir.exists(): return False, "A story with that name already exists."
+            # Allow case-only renames (e.g. "test" -> "Test") without triggering a collision
+            is_case_change = (source_dir.name.lower() == safe_new.lower())
+            
+            if not is_case_change and target_dir.exists():
+                return False, f"A folder named '{safe_new}' already exists in this location."
                 
+            if source_dir.name != safe_new:
                 # Robust Rename: Fallback to deep copy if OS denies the atomic rename
                 try:
                     source_dir.rename(target_dir)
@@ -355,7 +361,8 @@ class TomeWeaverAPI:
                 with open(setup_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
                     
-            return True, safe_new
+            # CRITICAL FIX: Return the full relative path so nested folders can be reopened by the UI
+            return True, target_dir.relative_to(ADV_DIR).as_posix()
         except Exception as e:
             return False, str(e)
             
@@ -373,7 +380,11 @@ class TomeWeaverAPI:
         story_basename = os.path.basename(folder_name)
         target_dir = target_parent / story_basename
         
-        if target_dir.exists(): return False, f"A story named '{story_basename}' already exists in that folder."
+        if source_dir.resolve() == target_dir.resolve():
+            return False, "The story is already in that folder."
+            
+        if target_dir.exists(): 
+            return False, f"A folder named '{story_basename}' already exists in the destination."
         
         try:
             # Fallback to copy/delete if atomic rename fails
@@ -569,6 +580,101 @@ class TomeWeaverAPI:
             TomeWeaverAPI.delete_story(folder_name) 
             return False, f"File Generation Failed: {str(e)}"
 
+
+    @staticmethod
+    def generate_field_data(setup_data, field_name, shorthand=None):
+        """
+        AI Field Generator for the World Builder UI.
+        If 'shorthand' is provided, it acts as an "Inspire/Expand" tool.
+        If 'shorthand' is None, it acts as a "Blank Slate Reroll" tool.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit
+        import requests, time
+        
+        # 1. Build World Context from existing setup data
+        # We only feed the AI the most critical narrative fields so it understands the vibe.
+        context_parts = []
+        for key in ["title", "tone", "main_character", "setting", "goal", "lore_and_rules"]:
+            val = setup_data.get(key)
+            if val and isinstance(val, str) and val.strip():
+                context_parts.append(f"{key.replace('_', ' ').title()}: {val.strip()}")
+                
+        context_str = "\n".join(context_parts) if context_parts else "A brand new, undefined world."
+        
+        # Determine the correct length constraint based on the UI field
+        if field_name == "title":
+            length_constraint = "Write ONLY a short, punchy title (Max 10 words). Do not use quotes"
+        elif field_name == "tone":
+            length_constraint = "Write a comma-separated list of atmospheric keywords or a single brief sentence"
+        elif field_name == "goal":
+            length_constraint = "Write exactly one concise sentence describing the main objective"
+        else:
+            length_constraint = "Write 1 to 3 rich, descriptive paragraphs"
+
+        # 2. Select Prompt based on mode
+        sys_prompt = PROMPTS.get("SYS_FIELD_GEN", "")
+        
+        if shorthand and shorthand.strip():
+            user_prompt = PROMPTS.get("USER_FIELD_INSPIRE", "")
+            user_prompt = user_prompt.replace("{context}", context_str)
+            user_prompt = user_prompt.replace("{field_name}", field_name)
+            user_prompt = user_prompt.replace("{shorthand}", shorthand.strip())
+            user_prompt = user_prompt.replace("{length_constraint}", length_constraint)
+        else:
+            user_prompt = PROMPTS.get("USER_FIELD_REROLL", "")
+            user_prompt = user_prompt.replace("{context}", context_str)
+            user_prompt = user_prompt.replace("{field_name}", field_name)
+            user_prompt = user_prompt.replace("{length_constraint}", length_constraint)
+            
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        # 3. Call LLM
+        max_retries = 3
+        for attempt in range(max_retries):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.8,
+                "max_tokens": 1000
+            }
+            
+            try:
+                from llm import enforce_rate_limit
+                enforce_rate_limit()
+                
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                
+                # Clean common LLM artifacts
+                raw = raw.strip('"\'') # Remove wrapping quotes
+                if raw.lower().startswith("here is"):
+                    raw = raw.split("\n", 1)[-1].strip() # Strip preamble
+                
+                # Strip annoying labels the LLM might prepend
+                import re
+                raw = re.sub(r'^(Title|Tone|Goal|Setting|Main Character):\s*', '', raw, flags=re.IGNORECASE).strip('"\'')
+                    
+                return True, raw
+                
+            except Exception as e:
+                time.sleep(2)
+                continue
+                
+        return False, "Failed to generate field data. Check API connection."
+        
+        
     @staticmethod
     def browse_path(rel_path):
         """Opens the physical OS File Explorer at the target directory."""
@@ -604,7 +710,11 @@ class TomeWeaverAPI:
         safe_new = sanitize_foldername(new_name)
         if not safe_new: return False, "Invalid name."
         target_dir = source_dir.parent / safe_new
-        if target_dir.exists(): return False, "Folder already exists."
+        
+        is_case_change = (source_dir.name.lower() == safe_new.lower())
+        if not is_case_change and target_dir.exists(): 
+            return False, f"A folder named '{safe_new}' already exists."
+            
         try:
             source_dir.rename(target_dir)
             return True, target_dir.relative_to(ADV_DIR).as_posix()
@@ -636,7 +746,11 @@ class TomeWeaverAPI:
         folder_basename = os.path.basename(rel_path)
         target_dir = target_parent / folder_basename
         
-        if target_dir.exists(): return False, f"A folder named '{folder_basename}' already exists there."
+        if source_dir.resolve() == target_dir.resolve():
+            return False, "The folder is already in that location."
+            
+        if target_dir.exists(): 
+            return False, f"A folder named '{folder_basename}' already exists in the destination."
         
         try:
             try:

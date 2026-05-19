@@ -62,7 +62,7 @@ def enforce_rate_limit():
 # SCHEMA VALIDATION
 # ---------------------------------------------------------
 
-def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False):
+def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None):
     """
     Final validation gatekeeper. Ensures the dictionary matches the required
     game engine schema. Auto-fills missing static metadata from the previous turn 
@@ -71,7 +71,6 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
     if not isinstance(data, dict): return None, "Output is not a dictionary"
     
     # --- AUTO-HEALING (METADATA FALLBACKS) ---
-    # If the AI got lazy and omitted static fields, we infer them from the previous turn
     if prev_turn:
         if "pov_character" not in data:
             data["pov_character"] = prev_turn.get("pov_character", "Unknown")
@@ -80,7 +79,6 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             data["location"] = prev_turn.get("location", "Unknown")
             
         if "is_game_over" not in data and can_die:
-            # Assume survival unless explicitly stated otherwise
             data["is_game_over"] = False
             
         # --- THE INVENTORY PATCHER ---
@@ -93,19 +91,22 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
                 
                 prev_dict = {}
                 for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str):
-                    prev_dict[k.strip()] = v.strip(' .,;')
+                    clean_k = k.strip()
+                    if inv_schema and clean_k not in inv_schema: continue
+                    # Chop off newlines to strip out hallucinated block text (like Goal Progress)
+                    prev_dict[clean_k] = v.split('\n')[0].strip(' .,;')
                     
                 curr_dict = {}
                 for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str):
-                    curr_dict[k.strip()] = v.strip(' .,;')
+                    clean_k = k.strip()
+                    if inv_schema and clean_k not in inv_schema: continue
+                    curr_dict[clean_k] = v.split('\n')[0].strip(' .,;')
                     
                 if curr_dict:
-                    # Merge dictionaries (Current LLM output overwrites Previous state)
                     merged = prev_dict.copy()
                     merged.update(curr_dict)
                     data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged.items()]).strip()
                 else:
-                    # If the LLM hallucinated a plain sentence with no keys, discard it to protect the state
                     data["inventory_and_state"] = prev_turn["inventory_and_state"]
 
         if "chapter_goal_achieved" not in data and is_campaign:
@@ -473,7 +474,7 @@ def extract_api_error(response):
         return response.text
 
     
-def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False):
+def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None):
     """
     Master API request function. Handles payload construction, dynamic 
     temperature scaling (cools down for syntax errors, heats up for loops), 
@@ -528,7 +529,7 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
             
             # Pass prev_turn to the schema validator for auto-healing
             prev_turn = prev_story_text if isinstance(prev_story_text, dict) else None
-            validated, err = validate_turn_schema(data, prev_turn, is_campaign, track_inventory, can_die, is_test_mode)
+            validated, err = validate_turn_schema(data, prev_turn, is_campaign, track_inventory, can_die, is_test_mode, inv_schema)
             
             if validated:
                 prev_text_str = prev_turn.get("story_text", "") if prev_turn else ""

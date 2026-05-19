@@ -23,28 +23,35 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.engine = engine
         self.folder_name = folder_name # Store the exact string passed from Dashboard
 
-        # --- Top Header ---
+       # --- Top Header ---
         header = ctk.CTkFrame(self)
         header.pack(fill="x", padx=10, pady=5)
         
-        title_lbl = ctk.CTkLabel(header, text=f"Playing: {engine.setup_data.get('title', 'Unknown')}", font=("Arial", 16, "bold"))
-        title_lbl.pack(side="left", padx=15, pady=10)
+        # Determine Mode and Color
+        mode_str = str(self.engine.setup_data.get('mode', 'sandbox')).upper()
+        mode_color = "#2196F3" if mode_str == "SANDBOX" else "#9C27B0"
+        
+        # Split into two labels so the Mode can be uniquely colored
+        mode_lbl = ctk.CTkLabel(header, text=f"{mode_str}:", font=("Arial", 16, "bold"), text_color=mode_color)
+        mode_lbl.pack(side="left", padx=(15, 5), pady=10)
+        
+        title_lbl = ctk.CTkLabel(header, text=engine.setup_data.get('title', 'Unknown'), font=("Arial", 16, "bold"))
+        title_lbl.pack(side="left", pady=10)
         
         btn_close = ctk.CTkButton(header, text="Close Workspace", command=self.close_workspace, width=120, fg_color="#B71C1C", hover_color="#7F0000")
         btn_close.pack(side="right", padx=15)
         Tooltip(btn_close, "Safely save and return to the Dashboard.")
         
-        btn_export = ctk.CTkButton(header, text="Export Story", command=self._export_dialog, width=100, fg_color="#4CAF50", hover_color="#388E3C")
-        btn_export.pack(side="right", padx=10)
-        Tooltip(btn_export, "Convert your played adventure into a readable TXT, MD, or HTML book.")
-        
-        btn_recap = ctk.CTkButton(header, text="Generate Recap", command=self._generate_recap, width=120, fg_color="#FF9800", hover_color="#F57C00")
-        btn_recap.pack(side="right", padx=10)
-        Tooltip(btn_recap, "Ask the AI to read your history and generate a 'Story So Far' summary.")
-
-        btn_restart = ctk.CTkButton(header, text="Restart Story", command=self._restart_story, width=100, fg_color="#4A4A4A", hover_color="#333333")
-        btn_restart.pack(side="right", padx=10)
-        Tooltip(btn_restart, "Wipe all progress and start from Turn 0. (Requires confirmation)")
+        # Combined Options Menu
+        self.opt_var = ctk.StringVar(value="Options...")
+        opt_menu = ctk.CTkOptionMenu(
+            header, 
+            variable=self.opt_var, 
+            values=["Generate Recap", "Export Story", "Restart Story"], 
+            width=130,
+            command=self._handle_options_menu
+        )
+        opt_menu.pack(side="right", padx=10)
 
         # ONLY show Test Mode for Campaigns. Sandbox has no defined 'end' to test against.
         if self.engine.is_campaign:
@@ -105,6 +112,16 @@ class WorkspaceFrame(ctk.CTkFrame):
     # ---------------------------------------------------------
     # WORKSPACE UTILITIES (Recap & Export)
     # ---------------------------------------------------------
+
+    def _handle_options_menu(self, choice):
+        """Routes actions from the combined workspace options dropdown."""
+        self.opt_var.set("Options...") # Reset label immediately
+        if choice == "Generate Recap":
+            self._generate_recap()
+        elif choice == "Export Story":
+            self._export_dialog()
+        elif choice == "Restart Story":
+            self._restart_story()
 
     def _generate_recap(self):
         """Asks the LLM to generate a summary of the adventure on a background thread."""
@@ -193,7 +210,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         ctk.CTkButton(dialog, text="Export", fg_color="#4CAF50", hover_color="#388E3C", command=on_export).pack(pady=10)
         
     def _restart_story(self):
-        """Wipes history and restarts the adventure with a warning."""
+        """Wipes history and returns the adventure to the Start Button state."""
         from tkinter import messagebox
         warn_msg = (
             "Are you sure you want to RESTART this adventure?\n\n"
@@ -201,14 +218,35 @@ class WorkspaceFrame(ctk.CTkFrame):
             "You will be returned to the very beginning. This action cannot be undone!"
         )
         if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
-            # 1. Trigger the backend wipe
-            self.engine.restart_campaign()
+            # 1. Wipe the backend state but do NOT generate a new turn
+            from logger import log_event
+            log_event(self.engine.adv_dir, "Command: RESTART ADVENTURE")
             
-            # 2. Refresh the UI timeline to show the new Turn 0/1
+            self.engine.history.clear()
+            
+            # Reset Chapter bounds depending on Mode
+            if self.engine.is_campaign:
+                for c in self.engine.chapters:
+                    c["start_turn"] = 1 if c["chapter_number"] == 1 else None
+                    c["end_turn"] = None
+            else:
+                self.engine.chapters = [self.engine.chapters[0]]
+                self.engine.chapters[0]["start_turn"] = 1
+                self.engine.chapters[0]["end_turn"] = None
+            
+            # Flush the session log file
+            log_file = self.engine.adv_dir / "session_log.txt"
+            if log_file.exists():
+                try: log_file.unlink() 
+                except Exception: pass
+
+            self.engine.save_state()
+            
+            # 2. Redraw the UI to show the big "Start Adventure" button
             if hasattr(self, 'story_tab'):
                 self.story_tab.refresh_timeline()
             
-            messagebox.showinfo("Reset Complete", "The story has been reverted to the beginning.")
+            messagebox.showinfo("Reset Complete", "The story has been reverted. You may edit your world in the World Builder before clicking Start Adventure.")
             
             
     def _toggle_test(self):

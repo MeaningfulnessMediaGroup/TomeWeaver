@@ -82,8 +82,22 @@ class StoryTab(ctk.CTkFrame):
         self.status_var = ctk.StringVar(value="Ready.")
         ctk.CTkLabel(self, textvariable=self.status_var, font=("Arial", 12, "italic"), text_color="gray").pack(side="bottom", anchor="w", padx=15, pady=(0, 5))
 
-        # --- INITIALIZATION ---
+        # --- INITIALIZATION & VIRTUALIZATION ---
         self._initialize_recycled_cards()
+        
+        # --- STARTUP FRAME (Deferred Generation) ---
+        self.startup_frame = ctk.CTkFrame(self.timeline, fg_color="transparent")
+        self.btn_start_adv = ctk.CTkButton(
+            self.startup_frame, 
+            text="✨ Start Adventure (Generate Opening Scene) ✨", 
+            font=("Arial", 18, "bold"), 
+            height=60, 
+            fg_color="#2E7D32", 
+            hover_color="#1B5E20",
+            command=self._trigger_startup
+        )
+        self.btn_start_adv.pack(expand=True)
+
         self.refresh_timeline()
         # Start the silent heartbeat to manage text wrapping
         self._wrap_heartbeat()
@@ -219,9 +233,29 @@ class StoryTab(ctk.CTkFrame):
         self.btn_submit.pack(side="right", padx=0, pady=10)
 
         if not self.engine.history:
-            self._lock_ui("Initializing story...")
-            threading.Thread(target=self._async_init, daemon=True).start()
+            self._unlock_ui("Waiting for Director to start the adventure...")
+            
+            # Lock the input tools explicitly so they can't type before the game starts
+            self.btn_submit.configure(state="disabled")
+            self.text_input.configure(state="disabled")
+            self.cmd_dropdown.configure(state="disabled")
+            self.history_slider.configure(state="disabled")
+            
+            # Hide recycled cards and show the giant Start button
+            for refs in self.recycled_cards:
+                refs["br_card"].pack_forget()
+                refs["card"].pack_forget()
+                
+            self.startup_frame.pack(fill="both", expand=True, pady=(100, 0))
+            
+            # FIX: Force the canvas to recalculate its height and snap to the absolute top
+            self.timeline.update_idletasks()
+            if hasattr(self.timeline, "_parent_canvas"):
+                self.timeline._parent_canvas.yview_moveto(0.0)
+                
             return
+            
+        self.startup_frame.pack_forget()
 
         # 1. Calculate boundaries and update slider
         max_start = max(0, len(self.engine.history) - self.MAX_CARDS)
@@ -240,8 +274,14 @@ class StoryTab(ctk.CTkFrame):
         
         # 3. Unlock the UI explicitly (Resets all states)
         self._unlock_ui("Ready.")
-        
-        
+
+    def _trigger_startup(self):
+        """Fires when the user clicks the giant Start Adventure button on an empty timeline."""
+        self.startup_frame.pack_forget()
+        self._lock_ui("Generating opening scene...")
+        import threading
+        threading.Thread(target=self._async_init, daemon=True).start()
+
     def _calculate_inventory_state(self, up_to_idx):
         """Rebuilds the current inventory state by parsing history up to the target index."""
         base_schema = self.engine.setup_data.get("inventory_and_state", {})
@@ -351,6 +391,9 @@ class StoryTab(ctk.CTkFrame):
 
                     for key, val in current_state.items():
                         if not val or str(val).lower() == "none": continue
+                        
+                        # FIX: Strictly enforce schema. Do not render hallucinatory keys.
+                        if key not in schema: continue
                         
                         info = schema.get(key, {})
                         icon = info.get("icon", "🎒")

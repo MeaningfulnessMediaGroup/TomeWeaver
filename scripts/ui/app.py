@@ -112,6 +112,13 @@ class TomeWeaverApp(ctk.CTk):
 
         try:
             engine = TomeWeaverAPI.load_engine(folder_name)
+            
+            # CRITICAL FIX: Unhook the custom console before destroying the UI, 
+            # otherwise background print() statements will crash Tkinter.
+            if hasattr(self, 'active_frame') and self.active_frame.__class__.__name__ == "WorkspaceFrame":
+                if hasattr(self.active_frame, 'console_tab'):
+                    self.active_frame.console_tab.restore_stdout()
+                    
             self.clear_container()
             
             from ui.workspace import WorkspaceFrame

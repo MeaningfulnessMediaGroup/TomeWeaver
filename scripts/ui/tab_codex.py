@@ -8,7 +8,7 @@
 import json
 import customtkinter as ctk
 from tkinter import messagebox
-
+from ui.tooltip import Tooltip
 
 class CodexTab(ctk.CTkFrame):
 
@@ -56,12 +56,13 @@ class CodexTab(ctk.CTkFrame):
         scroll = ctk.CTkScrollableFrame(self.tab_core, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
         
-        from ui.tooltip import Tooltip
-
         # Helper to create consistent labeled textboxes with tooltips
-        def add_field(parent, label_text, key, is_multiline=False, tooltip_text=""):
-            lbl = ctk.CTkLabel(parent, text=label_text, font=("Arial", 14, "bold"))
-            lbl.pack(anchor="w", pady=(10, 2))
+        def add_field(parent, label_text, key, is_multiline=False, tooltip_text="", show_ai=False):
+            hdr = ctk.CTkFrame(parent, fg_color="transparent")
+            hdr.pack(fill="x", pady=(10, 2))
+            
+            lbl = ctk.CTkLabel(hdr, text=label_text, font=("Arial", 14, "bold"))
+            lbl.pack(side="left")
             if tooltip_text: Tooltip(lbl, tooltip_text)
             
             val = self.engine.setup_data.get(key, "")
@@ -69,15 +70,31 @@ class CodexTab(ctk.CTkFrame):
                 box = ctk.CTkTextbox(parent, height=80, wrap="word", font=("Arial", 14))
                 box.insert("1.0", val)
                 box.pack(fill="x")
-                return box
+                widget = box
             else:
                 var = ctk.StringVar(value=val)
-                ctk.CTkEntry(parent, textvariable=var, font=("Arial", 14)).pack(fill="x")
-                return var
+                entry = ctk.CTkEntry(parent, textvariable=var, font=("Arial", 14))
+                entry.pack(fill="x")
+                widget = var
+                
+            if show_ai:
+                btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+                btn_inspire.pack(side="right", padx=2)
+                Tooltip(btn_inspire, "Expand your shorthand text into a rich description.")
+                
+                btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+                btn_reroll.pack(side="right", padx=2)
+                Tooltip(btn_reroll, "Generate a completely new, creative idea for this field.")
+                
+                # Bind the async generator
+                btn_reroll.configure(command=lambda k=key, w=widget, btn=btn_reroll: self._generate_field_ui(k, w, btn, False))
+                btn_inspire.configure(command=lambda k=key, w=widget, btn=btn_inspire: self._generate_field_ui(k, w, btn, True))
+
+            return widget
 
         self.core_vars = {}
         
-        self.core_vars["title"] = add_field(scroll, "Adventure Title:", "title", tooltip_text="The display name of your story.")
+        self.core_vars["title"] = add_field(scroll, "Adventure Title:", "title", tooltip_text="The display name of your story.", show_ai=True)
         
         # Group Author, Version, and Date into 3 neat columns
         av_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -113,12 +130,12 @@ class CodexTab(ctk.CTkFrame):
         self.core_vars["creation_date"] = ctk.StringVar(value=self.engine.setup_data.get("creation_date", "Unknown"))
         ctk.CTkEntry(date_frame, textvariable=self.core_vars["creation_date"], font=("Arial", 14), width=120).pack(fill="x")
 
-        self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", tooltip_text="Instructs the AI on the writing style (e.g., Gritty, Fast-paced, Humorous).")
-        self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", True, tooltip_text="Name and brief description of the protagonist.")
-        self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", True, tooltip_text="The ultimate motivation driving the protagonist (mainly used in Sandbox).")
-        self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", True, tooltip_text="The initial environment where the story begins.")
-        self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", True, tooltip_text="Sets the immediate context for Turn 1.")
-        self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", True, tooltip_text="Hard rules the AI must follow (e.g., 'Magic does not exist', 'Vampires burn in sunlight').")
+        self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", tooltip_text="Instructs the AI on the writing style (e.g., Gritty, Fast-paced, Humorous).", show_ai=True)
+        self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", True, tooltip_text="Name and brief description of the protagonist.", show_ai=True)
+        self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", True, tooltip_text="The ultimate motivation driving the protagonist (mainly used in Sandbox).", show_ai=True)
+        self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", True, tooltip_text="The initial environment where the story begins.", show_ai=True)
+        self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", True, tooltip_text="Sets the immediate context for Turn 1.", show_ai=True)
+        self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", True, tooltip_text="Hard rules the AI must follow (e.g., 'Magic does not exist', 'Vampires burn in sunlight').", show_ai=True)
         
         # --- INVENTORY SCHEMA EDITOR ---
         lbl = ctk.CTkLabel(scroll, text="Inventory & State Schema (Max 8 Slots):", font=("Arial", 14, "bold"))
@@ -130,7 +147,6 @@ class CodexTab(ctk.CTkFrame):
         self.inv_schema_vars = []
         self._render_inv_editor()
         
-        # Settings Row
         
         # Settings Row
         settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -148,8 +164,11 @@ class CodexTab(ctk.CTkFrame):
         # Save Button
         ctk.CTkButton(scroll, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core).pack(pady=30)
 
-    def _save_core(self):
-        """Extracts data from the standard form fields and writes to disk."""
+    def _save_core(self, memory_only=False):
+        """Extracts data from the standard form fields. Writes to disk unless memory_only is True."""
+        old_title = self.engine.setup_data.get("title", "")
+        new_title = self.core_vars["title"].get().strip()
+        
         for key, widget in self.core_vars.items():
             if isinstance(widget, ctk.StringVar):
                 self.engine.setup_data[key] = widget.get().strip()
@@ -172,7 +191,41 @@ class CodexTab(ctk.CTkFrame):
                 }
         self.engine.setup_data["inventory_dictionary"] = new_schema
         
+        if memory_only: 
+            return
+            
+        # Actual explicit save clicked by user
         self._write_to_disk()
+        
+        # --- TITLE RENAME HOOK ---
+        if new_title and new_title != old_title:
+            msg = f"You changed the title to '{new_title}'.\n\nWould you like to rename the physical folder on your hard drive to match this new title?"
+            if messagebox.askyesno("Rename Folder?", msg):
+                from api import TomeWeaverAPI
+                
+                # 1. Capture the FULL relative path (e.g. 'Sandbox/MyStory')
+                from api import ADV_DIR
+                current_folder = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
+                
+                # 2. Get the app controller before closing
+                app = self.winfo_toplevel()
+                
+                # 3. Request the rename from the API
+                success, new_folder_name = TomeWeaverAPI.rename_story(current_folder, new_title)
+                
+                if success:
+                    messagebox.showinfo("Saved", f"Folder renamed to '{new_folder_name}'.")
+                    # 4. CRITICAL: Safely kill the active workspace *before* attempting to reload it
+                    app.clear_container() 
+                    
+                    from config import ENGINE_CONFIG
+                    ENGINE_CONFIG["last_active_story"] = new_folder_name
+                    # 5. Relaunch the workspace cleanly
+                    app.open_workspace(new_folder_name)
+                    return
+                else:
+                    messagebox.showerror("Rename Failed", new_folder_name)
+                    
         messagebox.showinfo("Saved", "Core Settings updated successfully.")
 
     def _render_inv_editor(self):
@@ -333,7 +386,6 @@ class CodexTab(ctk.CTkFrame):
             elif "Boolean" in t: self.engine.setup_data[key] = True
             elif "Number" in t: self.engine.setup_data[key] = 0
             
-            self._write_to_disk()
             self._refresh_lore_list()
             self.lore_selection.set(key)
             self._render_lore_editor()
@@ -345,7 +397,6 @@ class CodexTab(ctk.CTkFrame):
         """Permanently removes a custom key from the JSON structure."""
         if messagebox.askyesno("Delete", f"Are you sure you want to delete '{key}'?"):
             del self.engine.setup_data[key]
-            self._write_to_disk()
             self._refresh_lore_list()
             self._clear_editor()
 
@@ -374,10 +425,22 @@ class CodexTab(ctk.CTkFrame):
 
         # --- TYPE: STRING ---
         if isinstance(data, str):
+            hdr = ctk.CTkFrame(container, fg_color="transparent")
+            hdr.pack(fill="x", pady=(0, 5))
+            
+            btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_inspire.pack(side="right", padx=2)
+            
+            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=2)
+            
             box = ctk.CTkTextbox(container, height=300, wrap="word", font=("Arial", 14))
             box.insert("1.0", data)
             box.pack(fill="both", expand=True)
             self.dynamic_vars = box
+            
+            btn_reroll.configure(command=lambda k=key, w=box, btn=btn_reroll: self._generate_field_ui(k, w, btn, False))
+            btn_inspire.configure(command=lambda k=key, w=box, btn=btn_inspire: self._generate_field_ui(k, w, btn, True))
 
         # --- TYPE: LIST ---
         elif isinstance(data, list):
@@ -546,10 +609,26 @@ class CodexTab(ctk.CTkFrame):
         ctk.CTkLabel(parent_frame, text=help_text, text_color="gray", justify="left").pack(anchor="w", padx=20, pady=5)
 
         # --- Text Editor ---
-        ctk.CTkLabel(parent_frame, text=f"{narr_type.capitalize()} Content:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+        txt_hdr = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        txt_hdr.pack(fill="x", padx=20, pady=(15, 2))
+        
+        ctk.CTkLabel(txt_hdr, text=f"{narr_type.capitalize()} Content:", font=("Arial", 14, "bold")).pack(side="left")
+        
+        btn_inspire = ctk.CTkButton(txt_hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+        btn_inspire.pack(side="right", padx=2)
+        Tooltip(btn_inspire, "Expand your shorthand notes into rich, cinematic prose.")
+        
+        btn_reroll = ctk.CTkButton(txt_hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+        btn_reroll.pack(side="right", padx=2)
+        Tooltip(btn_reroll, "Generate a brand new opening/closing narrative from scratch.")
         
         txt_box = ctk.CTkTextbox(parent_frame, wrap="word", font=("Georgia", 15))
         txt_box.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        # Map the AI tools to the appropriate key in setup.json
+        field_key = "prologue_text" if narr_type == "prologue" else "epilogue_text"
+        btn_reroll.configure(command=lambda k=field_key, w=txt_box, btn=btn_reroll: self._generate_field_ui(k, w, btn, False))
+        btn_inspire.configure(command=lambda k=field_key, w=txt_box, btn=btn_inspire: self._generate_field_ui(k, w, btn, True))
         
         # Load content from engine memory
         content = self.engine.prologue_content if narr_type == "prologue" else self.engine.epilogue_content
@@ -607,3 +686,43 @@ class CodexTab(ctk.CTkFrame):
                 messagebox.showinfo("Saved", "System prompt updated safely.")
 
         ctk.CTkButton(self.tab_prompt, text="Save System Prompt", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_prompt).pack(pady=20)
+        
+    # ---------------------------------------------------------
+    # AI FIELD GENERATION (Reroll / Inspire)
+    # ---------------------------------------------------------
+    def _generate_field_ui(self, field_key, widget, button, is_inspire):
+        """Asynchronously calls the API to generate or expand data for a single UI field."""
+        shorthand = None
+        if is_inspire:
+            if isinstance(widget, ctk.StringVar): shorthand = widget.get().strip()
+            else: shorthand = widget.get("1.0", "end").strip()
+                
+            if not shorthand:
+                messagebox.showwarning("Missing Input", "Type some shorthand ideas in the box first to inspire the AI!")
+                return
+                
+        orig_text = button.cget("text")
+        button.configure(state="disabled", text="...")
+        
+        # Pull UI edits into the engine memory so the LLM has up-to-date context, but DO NOT write to disk.
+        self._save_core(memory_only=True)
+        
+        def worker():
+            from api import TomeWeaverAPI
+            success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, field_key, shorthand)
+            
+            def update_ui():
+                button.configure(state="normal", text=orig_text)
+                if success:
+                    if isinstance(widget, ctk.StringVar):
+                        widget.set(result)
+                    else:
+                        widget.delete("1.0", "end")
+                        widget.insert("1.0", result)
+                else:
+                    messagebox.showerror("Generation Error", result)
+                    
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()

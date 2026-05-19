@@ -80,7 +80,6 @@ class ChapterTab(ctk.CTkFrame):
             outline = self.engine.setup_data["plot_outline"]
             outline[idx], outline[idx-1] = outline[idx-1], outline[idx]
             self.selected_idx.set(idx-1)
-            self._write_to_disk()
             self._refresh_list()
 
     def _move_down(self, idx):
@@ -89,7 +88,6 @@ class ChapterTab(ctk.CTkFrame):
         if idx < len(outline) - 1:
             outline[idx], outline[idx+1] = outline[idx+1], outline[idx]
             self.selected_idx.set(idx+1)
-            self._write_to_disk()
             self._refresh_list()
 
     def _delete_chapter(self, idx):
@@ -100,7 +98,6 @@ class ChapterTab(ctk.CTkFrame):
             return
         if messagebox.askyesno("Delete", "Are you sure you want to delete this chapter?"):
             outline.pop(idx)
-            self._write_to_disk()
             self._refresh_list()
 
     def _add_chapter(self):
@@ -112,7 +109,6 @@ class ChapterTab(ctk.CTkFrame):
             "goal": "New Goal", "obstacles": "None"
         })
         self.selected_idx.set(len(outline)-1)
-        self._write_to_disk()
         self._refresh_list()
 
     # ---------------------------------------------------------
