@@ -6,7 +6,6 @@
     "tone": "Tense sci-fi survival horror with a claustrophobic atmosphere and an intense focus on resource management, isolation, and psychological distress.",
     "main_character": "{\"name\": \"Elara\", \"age\": 34, \"personality_traits\": [\"Resourceful and adaptable in zero-G environments\", \"Plagued by claustrophobia and a fear of the dark\", \"Highly skilled with tools but struggles with panic attacks\"]}",
     "lore_and_rules": "{\"key_facts_about_the_world\": [\"The Leviathan is an enormous deep-space mining vessel, 2.5 km long and filled with narrow corridors\", \"It has been adrift in silence for three months, the crew either dead or missing\"], \"technology_in_the_game\": {\"power_management\": \"Most areas are pitch-black; players must manage battery life on equipment\", \"zero-gravity_movement\": \"Elara can push off walls and use tethers to navigate\", \"oxygen_tanks_and_battery_power\": \"Elara's oxygen levels and flashlight batteries will deplete over time\"}}",
-    "inventory_and_state": "Items: Cryo-stasis suit (low oxygen), no tools. Health: weak from hibernation. State: heart racing from panic.",
     "plot_outline": [
         {
             "title": "Awakening",
@@ -46,5 +45,22 @@
     "allow_cheats": false,
     "author": "Anonymous",
     "version": "1.0",
-    "creation_date": "2026-05-18"
+    "creation_date": "2026-05-18",
+    "inventory_dictionary": {
+        "Items": {
+            "val": "Cryo-stasis suit (low oxygen), no tools",
+            "icon": "\ud83c\udf92",
+            "color": "#1F6AA5"
+        },
+        "Health": {
+            "val": "weak from hibernation",
+            "icon": "\u2764\ufe0f",
+            "color": "#B71C1C"
+        },
+        "State": {
+            "val": "heart racing from panic",
+            "icon": "\ud83e\udde0",
+            "color": "#7B1FA2"
+        }
+    }
 }
