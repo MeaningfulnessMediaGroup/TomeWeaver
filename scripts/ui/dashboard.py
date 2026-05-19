@@ -18,7 +18,7 @@ class DashboardFrame(ctk.CTkFrame):
     """
     Main Dashboard UI
     """
-    def __init__(self, parent, app_controller):
+    def __init__(self, parent, app_controller, initial_dir=""):
         super().__init__(parent, fg_color="transparent")
         self.app = app_controller
 
@@ -58,17 +58,9 @@ class DashboardFrame(ctk.CTkFrame):
         Tooltip(btn_settings, "Configure global AI API keys, limits, and engine rules.")
 
         # --- SEARCH & FILTER BAR ---
-        # Packed FIRST so it sits directly below the header
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
         search_frame.pack(fill="x", padx=20, pady=(0, 10))
         
-        # --- BREADCRUMB BAR (FOLDER NAVIGATION) ---
-        # Packed SECOND so it sits directly above the file list
-        self.current_dir = ""
-        self.breadcrumb_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.breadcrumb_frame.pack(fill="x", padx=20, pady=(0, 5))
-        self.update_breadcrumbs()
-
         # --- Group 1: SEARCH ACTION (Left Aligned) ---
         search_left_group = ctk.CTkFrame(search_frame, fg_color="transparent")
         search_left_group.pack(side="left")
@@ -105,14 +97,15 @@ class DashboardFrame(ctk.CTkFrame):
         )
         sort_menu.pack(side="left")
 
-        # Order Toggle
         self.asc_var = ctk.BooleanVar(value=True)
-        self.btn_order = ctk.CTkButton(
-            search_right_group, text="↑ Asc", width=60, 
-            fg_color="#4A4A4A", hover_color="#333333",
-            command=self.toggle_order
-        )
+        self.btn_order = ctk.CTkButton(search_right_group, text="↑ Asc", width=60, fg_color="#4A4A4A", hover_color="#333333", command=self.toggle_order)
         self.btn_order.pack(side="left", padx=(5, 0))
+
+        # --- BREADCRUMB BAR (FOLDER NAVIGATION) ---
+        self.current_dir = initial_dir
+        self.breadcrumb_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.breadcrumb_frame.pack(fill="x", padx=20, pady=(0, 5))
+        self.update_breadcrumbs()
 
         # --- STORY GRID (SCROLLABLE) ---
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -126,30 +119,20 @@ class DashboardFrame(ctk.CTkFrame):
         per_page_frame = ctk.CTkFrame(footer, fg_color="transparent")
         per_page_frame.pack(side="left")
         ctk.CTkLabel(per_page_frame, text="Show:", font=("Arial", 12)).pack(side="left", padx=(0, 5))
-        
         self.per_page_var = ctk.StringVar(value="10")
-        per_page_menu = ctk.CTkOptionMenu(
-            per_page_frame, variable=self.per_page_var, values=["10", "20", "50", "100"], width=70,
-            command=self.change_items_per_page
-        )
-        per_page_menu.pack(side="left")
+        ctk.CTkOptionMenu(per_page_frame, variable=self.per_page_var, values=["10", "20", "50", "100"], width=70, command=self.change_items_per_page).pack(side="left")
 
         # Page Controls
         page_ctrl_frame = ctk.CTkFrame(footer, fg_color="transparent")
         page_ctrl_frame.pack(side="right")
-
         self.btn_first = ctk.CTkButton(page_ctrl_frame, text="<<", width=40, fg_color="#4A4A4A", command=lambda: self.change_page(exact=1))
         self.btn_first.pack(side="left", padx=2)
-        
         self.btn_prev = ctk.CTkButton(page_ctrl_frame, text="<", width=40, fg_color="#4A4A4A", command=lambda: self.change_page(delta=-1))
         self.btn_prev.pack(side="left", padx=(2, 15))
-        
         self.lbl_page = ctk.CTkLabel(page_ctrl_frame, text="Page 1 of 1", font=("Arial", 12, "bold"))
         self.lbl_page.pack(side="left", padx=5)
-        
         self.btn_next = ctk.CTkButton(page_ctrl_frame, text=">", width=40, fg_color="#4A4A4A", command=lambda: self.change_page(delta=1))
         self.btn_next.pack(side="left", padx=(15, 2))
-        
         self.btn_last = ctk.CTkButton(page_ctrl_frame, text=">>", width=40, fg_color="#4A4A4A", command=lambda: self.change_page(exact=-1))
         self.btn_last.pack(side="left", padx=2)
 
@@ -378,42 +361,36 @@ class DashboardFrame(ctk.CTkFrame):
                 
             refs = self.card_pool[i]
             
-            def bind_click(container, command):
-                container.bind("<Button-1>", command)
-                for child in container.winfo_children():
-                    child.bind("<Button-1>", command)
-                    if isinstance(child, ctk.CTkFrame):
-                        for subchild in child.winfo_children():
-                            subchild.bind("<Button-1>", command)
+            # --- UPDATE SECURE STATE VARIABLES ---
+            # These are read by the events bound during card creation
+            refs["current_title"] = item.get("title", "")
             
             # --- RENDER LOGIC SWITCH ---
             if item.get("is_up_dir"):
+                refs["current_target"] = item["target"] # State
+                
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
                 refs["f_icon_lbl"].configure(text="🔙", text_color="white")
                 refs["f_title_lbl"].configure(text="[ .. ] Go back")
                 refs["f_count_lbl"].configure(text="(Parent Directory)")
-                refs["f_opt_menu"].pack_forget() # Hide options for the 'Go Back' row
-                
-                bind_click(refs["folder_content"], lambda e, p=item["target"]: self.change_dir(p))
+                refs["f_opt_menu"].pack_forget()
                 
             elif item.get("is_folder"):
+                refs["current_target"] = item["folder_name"] # State
+                
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
                 refs["f_icon_lbl"].configure(text="📁", text_color="#FFCA28") 
                 refs["f_title_lbl"].configure(text=item["title"])
                 cnt = item["count"]
                 refs["f_count_lbl"].configure(text=f"({cnt} item{'s' if cnt != 1 else ''})")
-                
-                # Show Folder Options
                 refs["f_opt_menu"].pack(side="right", padx=15)
-                def make_f_closure(f=item['folder_name'], t=item['title'], m=refs["f_opt_menu"]):
-                    return lambda choice: [m.set("Options..."), self.handle_folder_option(choice, f, t)]
-                refs["f_opt_menu"].configure(command=make_f_closure())
-                
-                bind_click(refs["folder_content"], lambda e, p=item["folder_name"]: self.change_dir(p))
                 
             else:
+                refs["current_target"] = item["folder_name"] # State
+                refs["is_playable"] = item['mode'] != "error" # State
+                
                 refs["folder_container"].pack_forget()
                 refs["story_container"].pack(fill="both", expand=True)
                 
@@ -430,19 +407,11 @@ class DashboardFrame(ctk.CTkFrame):
                 display_loc = raw_loc[:75].strip() + "..." if len(raw_loc) > 75 else raw_loc
                 refs["meta_lbl"].configure(text=f"[{item.get('status', 'Unknown')}]{t_text} • {display_loc}")
                 
-                if item['mode'] != "error":
-                    refs["frame"].configure(cursor="hand2")
-                    bind_click(refs["content_frame"], lambda e, f=item['folder_name']: self.app.open_workspace(f))
-                else:
-                    refs["frame"].configure(cursor="arrow")
-                    bind_click(refs["content_frame"], lambda e: None)
+                state = "normal" if refs["is_playable"] else "disabled"
+                refs["btn_play"].configure(state=state)
                 
-                # Update options to include Browse Here
                 opt_values = ["Options...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"]
                 refs["opt_menu"].configure(values=opt_values)
-                def make_s_closure(f=item['folder_name'], t=item['title'], m=refs["opt_menu"]):
-                    return lambda choice: [m.set("Options..."), self.handle_card_option(choice, f, t)]
-                refs["opt_menu"].configure(command=make_s_closure())
             
             refs["frame"].pack(fill="x", pady=4, padx=10)
             
@@ -457,6 +426,14 @@ class DashboardFrame(ctk.CTkFrame):
         """Instantiates a single, dual-purpose (Folder/Story) reusable Card object."""
         card = ctk.CTkFrame(self.scroll, corner_radius=8, cursor="hand2")
         
+        # State Dictionary for this specific card
+        refs = {
+            "frame": card,
+            "current_target": "",
+            "current_title": "",
+            "is_playable": False
+        }
+        
         # --- SUB-CONTAINER 1: FOLDER ---
         folder_container = ctk.CTkFrame(card, fg_color="transparent")
         
@@ -470,8 +447,24 @@ class DashboardFrame(ctk.CTkFrame):
         f_count_lbl = ctk.CTkLabel(folder_content, text="", font=("Arial", 12, "italic"), text_color="gray", cursor="hand2")
         f_count_lbl.pack(side="left", padx=10, pady=10)
         
+        # Bind Folder Click
+        def on_f_click(e):
+            if refs["current_target"] is not None:
+                self.change_dir(refs["current_target"])
+                
+        folder_content.bind("<Button-1>", on_f_click)
+        for c in folder_content.winfo_children():
+            c.bind("<Button-1>", on_f_click)
+        
+        # Bind Folder Menu
         f_opt_menu = ctk.CTkOptionMenu(folder_container, values=["Options...", "Rename", "Delete", "Browse Here"], width=110)
         f_opt_menu.pack(side="right", padx=15, pady=10)
+        
+        def on_f_opt(choice):
+            f_opt_menu.set("Options...")
+            self.handle_folder_option(choice, refs["current_target"], refs["current_title"])
+        f_opt_menu.configure(command=on_f_opt)
+        
         
         # --- SUB-CONTAINER 2: STORY ---
         story_container = ctk.CTkFrame(card, fg_color="transparent")
@@ -492,23 +485,43 @@ class DashboardFrame(ctk.CTkFrame):
         line2.pack(fill="x", pady=(2, 0))
         meta_lbl = ctk.CTkLabel(line2, text="", font=("Arial", 12), text_color="gray", cursor="hand2")
         meta_lbl.pack(side="left")
+        
+        # Bind Story Click
+        def on_s_click(e):
+            if refs["current_target"] and refs["is_playable"]:
+                self.app.open_workspace(refs["current_target"])
+                
+        content_frame.bind("<Button-1>", on_s_click)
+        for c in content_frame.winfo_children():
+            c.bind("<Button-1>", on_s_click)
+            if isinstance(c, ctk.CTkFrame):
+                for sub in c.winfo_children():
+                    sub.bind("<Button-1>", on_s_click)
 
         btn_frame = ctk.CTkFrame(story_container, fg_color="transparent")
         btn_frame.pack(side="right", padx=15)
+        
+        btn_play = ctk.CTkButton(btn_frame, text="Play", width=80)
+        btn_play.pack(side="left", padx=5)
+        btn_play.configure(command=lambda: self.app.open_workspace(refs["current_target"]) if refs["is_playable"] else None)
+        
         opt_menu = ctk.CTkOptionMenu(btn_frame, values=["Options...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"], width=110)
         opt_menu.pack(side="left", padx=5)
+        
+        def on_s_opt(choice):
+            opt_menu.set("Options...")
+            self.handle_card_option(choice, refs["current_target"], refs["current_title"])
+        opt_menu.configure(command=on_s_opt)
 
-        return {
-            "frame": card,
-            "folder_container": folder_container,
-            "folder_content": folder_content,
+        # Store component references in the state dictionary
+        refs.update({
+            "folder_container": folder_container, "folder_content": folder_content,
             "f_icon_lbl": f_icon_lbl, "f_title_lbl": f_title_lbl, "f_count_lbl": f_count_lbl, "f_opt_menu": f_opt_menu,
-            "story_container": story_container,
-            "content_frame": content_frame,
+            "story_container": story_container, "content_frame": content_frame,
             "mode_lbl": mode_lbl, "title_lbl": title_lbl, "auth_lbl": auth_lbl, "meta_lbl": meta_lbl,
-            "opt_menu": opt_menu
-        }
-
+            "btn_play": btn_play, "opt_menu": opt_menu
+        })
+        return refs
 
     # ---------------------------------------------------------
     # ACTION HANDLERS

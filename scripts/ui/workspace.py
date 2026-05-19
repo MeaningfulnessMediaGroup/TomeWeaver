@@ -17,10 +17,11 @@ class WorkspaceFrame(ctk.CTkFrame):
     """
     Active Story Workspace
     """
-    def __init__(self, parent, app, engine):
+    def __init__(self, parent, app, engine, folder_name=""):
         super().__init__(parent, fg_color="transparent")
         self.app = app
         self.engine = engine
+        self.folder_name = folder_name # Store the exact string passed from Dashboard
 
         # --- Top Header ---
         header = ctk.CTkFrame(self)
@@ -86,12 +87,9 @@ class WorkspaceFrame(ctk.CTkFrame):
             self.chapters_tab.pack(fill="both", expand=True)
 
     def close_workspace(self):
-        """Safely shuts down the workspace and returns to the dashboard."""
-        # CRITICAL: We must release the stdout redirector, or the app will crash 
-        # trying to print to a destroyed widget when returning to the dashboard.
+        """Safely shuts down the workspace and returns to the dashboard context."""
         self.console_tab.restore_stdout()
         
-        # Clear the auto-resume memory so next boot goes to Dashboard
         from config import ENGINE_CONFIG, ROOT_DIR
         import json
         ENGINE_CONFIG["last_active_story"] = ""
@@ -101,6 +99,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         except Exception:
             pass
             
+        # Tell the app to open the dashboard with NO overrides. Let the App handle the memory.
         self.app.open_dashboard()
         
     # ---------------------------------------------------------

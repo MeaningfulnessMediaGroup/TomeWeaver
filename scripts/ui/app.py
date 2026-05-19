@@ -48,8 +48,7 @@ class TomeWeaverApp(ctk.CTk):
         self.container.pack(fill="both", expand=True)
 
         self.active_frame = None
-
-        self.active_frame = None
+        self.last_dashboard_dir = "" # CRITICAL FIX: The app remembers where the user was looking
 
         if startup_story:
             self.open_workspace(startup_story)
@@ -88,13 +87,23 @@ class TomeWeaverApp(ctk.CTk):
             self.active_frame.destroy()
 
     def open_dashboard(self):
-        """Loads the Screen 1: Dashboard."""
+        """Loads the Screen 1: Dashboard, instantly restoring the previous directory state."""
         self.clear_container()
-        self.active_frame = DashboardFrame(self.container, self)
+        
+        # Retrieve the safely stored memory, defaulting to root if the app just booted
+        restore_dir = getattr(self, 'last_dashboard_dir', "")
+            
+        from ui.dashboard import DashboardFrame
+        self.active_frame = DashboardFrame(self.container, self, initial_dir=restore_dir)
         self.active_frame.pack(fill="both", expand=True)
 
     def open_workspace(self, folder_name):
         """Loads the Screen 2: Workspace for a specific story."""
+        
+        # Safely lock the active directory into the App's memory BEFORE destroying the Dashboard
+        if hasattr(self, 'active_frame') and self.active_frame.__class__.__name__ == "DashboardFrame":
+            self.last_dashboard_dir = self.active_frame.current_dir
+            
         setup_file = Path("adventures") / folder_name / "setup.json"
         
         if not setup_file.exists():
@@ -109,15 +118,14 @@ class TomeWeaverApp(ctk.CTk):
             self.active_frame = WorkspaceFrame(self.container, self, engine)
             self.active_frame.pack(fill="both", expand=True)
             
-            # Save this workspace as the active session for next boot
+            from config import ENGINE_CONFIG
             ENGINE_CONFIG["last_active_story"] = folder_name
             self._save_config_silently()
             
         except Exception as e:
-            # If the engine fails to load, ensure we don't trap the user in a crash loop
+            from config import ENGINE_CONFIG
             ENGINE_CONFIG["last_active_story"] = ""
             self._save_config_silently()
-            
             messagebox.showerror("Engine Error", f"Failed to load story: {e}")
             self.open_dashboard()
             
