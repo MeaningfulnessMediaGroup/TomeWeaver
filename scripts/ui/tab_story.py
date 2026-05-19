@@ -11,7 +11,65 @@ import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
 
+        
+        
+def get_darker_shade(hex_color, factor=0.4):
+    """Generates a deep-background pill color from a bright hex code."""
+    try:
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) != 6: return "#1A1A1B" # Default dark grey
+        rgb = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
+        dark = [max(0, int(c * factor)) for c in rgb]
+        return f"#{dark[0]:02x}{dark[1]:02x}{dark[2]:02x}"
+    except Exception:
+        return "#1A1A1B"
 
+
+class CTkFlowFrame(ctk.CTkFrame):
+    """A custom frame that uses native packing to simulate a flow layout."""
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self.rows = []
+
+    def flow(self, pill_widgets):
+        """Packs a list of widgets into horizontal rows, wrapping as needed."""
+        # 1. Clear existing rows
+        for row in self.rows:
+            row.destroy()
+        self.rows.clear()
+        
+        if not pill_widgets: return
+        
+        self.update_idletasks()
+        max_width = self.winfo_width()
+        if max_width <= 10: max_width = 800
+        
+        # 2. Start the first row
+        current_row = ctk.CTkFrame(self, fg_color="transparent")
+        current_row.pack(fill="x", anchor="w", pady=(0, 5))
+        self.rows.append(current_row)
+        
+        current_width = 0
+        pad_x = 8
+        
+        # 3. Pack widgets into the row until full, then spawn a new row
+        for pill in pill_widgets:
+            pill.update_idletasks()
+            w = pill.winfo_reqwidth()
+            
+            if current_width + w > max_width and current_width > 0:
+                current_row = ctk.CTkFrame(self, fg_color="transparent")
+                current_row.pack(fill="x", anchor="w", pady=(0, 5))
+                self.rows.append(current_row)
+                current_width = 0
+                
+            # Reparent the pill into the row and pack it natively
+            pill.master = current_row
+            pill.pack(side="left", padx=(0, pad_x))
+            current_width += w + pad_x
+
+
+        
 class StoryTab(ctk.CTkFrame):
 
     """
@@ -120,9 +178,22 @@ class StoryTab(ctk.CTkFrame):
             refs["prose"].configure(wraplength=adjusted_wrap)
             refs["hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
             refs["choice"].configure(wraplength=adjusted_wrap)
-            # Apply wrapping to the new Bridge Card
-            refs["br_prose"].configure(wraplength=adjusted_wrap)
-            refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
+            if "br_prose" in refs: refs["br_prose"].configure(wraplength=adjusted_wrap)
+            if "br_hdr" in refs: refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
+            
+            # Dynamic Height calculation for the Inventory Textbox
+            if "inv_box" in refs and refs["inv_box"].winfo_exists():
+                tb = refs["inv_box"]._textbox
+                # Query the C-engine for the exact number of wrapped display lines
+                lines = tb.count("1.0", "end", "displaylines")
+                num_lines = lines[0] if lines else 1
+                
+                # 32px per line + 10px padding provides a perfect, tight fit for the embedded frames
+                calc_h = (num_lines * 32) + 10
+                
+                # Only configure if changed to prevent visual jitter
+                if refs["inv_box"].cget("height") != calc_h:
+                    refs["inv_box"].configure(height=calc_h)
 
     def _wrap_heartbeat(self):
         """
@@ -160,6 +231,11 @@ class StoryTab(ctk.CTkFrame):
         from ui.tooltip import Tooltip
         
         for _ in range(self.MAX_CARDS):
+            # --- 0. THE CHAPTER MARKER CARD ---
+            chap_card = ctk.CTkFrame(self.timeline, fg_color="transparent")
+            chap_lbl = ctk.CTkLabel(chap_card, text="", font=("Georgia", 22, "bold", "italic"), text_color="#00ACC1")
+            chap_lbl.pack(pady=(40, 10))
+            
             # --- 1. THE BRIDGE CARD ---
             br_card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
             
@@ -185,7 +261,7 @@ class StoryTab(ctk.CTkFrame):
             card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
             
             hdr_frame = ctk.CTkFrame(card, fg_color="transparent")
-            hdr_frame.pack(fill="x", padx=15, pady=(10, 0)) # Reduced bottom padding to make room for inventory
+            hdr_frame.pack(fill="x", padx=15, pady=(10, 0))
             
             btn_edit = ctk.CTkButton(hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
             btn_bridge = ctk.CTkButton(hdr_frame, text="✨ Bridge", width=60, height=24, fg_color="#00ACC1", hover_color="#00838F")
@@ -193,22 +269,23 @@ class StoryTab(ctk.CTkFrame):
             hdr_lbl = ctk.CTkLabel(hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
             
-            # Sub-header for Inventory & Status
+            # Native horizontal row container for inventory pills
             inv_frame = ctk.CTkFrame(card, fg_color="transparent")
             inv_frame.pack(fill="x", padx=15, pady=(0, 5))
-            inv_lbl = ctk.CTkLabel(inv_frame, text="", text_color="#0288D1", font=self.header_font, justify="left", anchor="w")
-            inv_lbl.pack(side="left", fill="x", expand=True, padx=2)
             
-            prose_lbl = ctk.CTkLabel(card, text="", font=self.prose_font, justify="left", anchor="w")
+            # FIX: Anchor North-West so text always hugs the top, rather than floating in center
+            prose_lbl = ctk.CTkLabel(card, text="", font=self.prose_font, justify="left", anchor="nw")
             prose_lbl.pack(fill="x", padx=20, pady=5)
             
-            c_lbl = ctk.CTkLabel(card, text="", font=self.action_font, text_color="#4CAF50", justify="left", anchor="w")
+            # FIX: Anchor North-West for the choice label as well
+            c_lbl = ctk.CTkLabel(card, text="", font=self.action_font, text_color="#4CAF50", justify="left", anchor="nw")
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             
             self.recycled_cards.append({
+                "chap_card": chap_card, "chap_lbl": chap_lbl,
                 "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
                 "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
-                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame, "inv_lbl": inv_lbl, 
+                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame, 
                 "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
                 "choice": c_lbl, "btn_frame": btn_frame
             })
@@ -243,6 +320,7 @@ class StoryTab(ctk.CTkFrame):
             
             # Hide recycled cards and show the giant Start button
             for refs in self.recycled_cards:
+                if "chap_card" in refs: refs["chap_card"].pack_forget()
                 refs["br_card"].pack_forget()
                 refs["card"].pack_forget()
                 
@@ -325,6 +403,7 @@ class StoryTab(ctk.CTkFrame):
 
         # 0. Unpack EVERYTHING first to guarantee correct visual rendering order
         for refs in self.recycled_cards:
+            if "chap_card" in refs: refs["chap_card"].pack_forget()
             refs["br_card"].pack_forget()
             refs["card"].pack_forget()
 
@@ -335,12 +414,53 @@ class StoryTab(ctk.CTkFrame):
             if target_idx < len(history):
                 turn = history[target_idx]
                 
-                # 1. RENDER BRIDGE CARD (Packed FIRST so it sits above the Story Card)
+                try: actual_turn = int(turn.get("turn", 0))
+                except (ValueError, TypeError): actual_turn = 0
+                
+                # --- CHAPTER IDENTIFICATION LOGIC ---
+                active_chap = self.engine.chapters[0]
+                for c in reversed(self.engine.chapters):
+                    s_turn = c.get("start_turn")
+                    if s_turn is not None and s_turn <= actual_turn:
+                        active_chap = c
+                        break
+                        
+                is_epilogue = str(turn.get("is_game_over", False)).lower() == "true" and str(turn.get("chapter_goal_achieved", False)).lower() == "true"
+                is_chap_start = False
+                chap_title_for_card = ""
+                chap_name_for_header = ""
+                
+                if actual_turn == 0:
+                    chap_name_for_header = "Prologue"
+                    if target_idx == 0:
+                        is_chap_start = True
+                        chap_title_for_card = "Prologue"
+                elif is_epilogue:
+                    chap_name_for_header = "Epilogue"
+                    prev_over = str(history[target_idx-1].get("is_game_over", False)).lower() == "true" if target_idx > 0 else False
+                    if not prev_over:
+                        is_chap_start = True
+                        chap_title_for_card = "Epilogue"
+                else:
+                    chap_name_for_header = f"Chapter {active_chap.get('chapter_number', 1)}"
+                    if active_chap.get("start_turn") == actual_turn:
+                        is_chap_start = True
+                        c_title = active_chap.get('title', chap_name_for_header)
+                        if c_title.lower() == chap_name_for_header.lower():
+                            chap_title_for_card = chap_name_for_header
+                        else:
+                            chap_title_for_card = f"{chap_name_for_header}: {c_title}"
+                            
+                # 1. RENDER CHAPTER MARKER (Packed FIRST so it sits above everything)
+                if is_chap_start and "chap_card" in refs:
+                    refs["chap_card"].pack(fill="x")
+                    refs["chap_lbl"].configure(text=f"~ {chap_title_for_card} ~")
+                
+                # 2. RENDER BRIDGE CARD (Packed SECOND)
                 bridge = turn.get("narrative_bridge")
                 is_valid_bridge = bridge and bridge not in ["[OK]", "[FAILED]", ""]
                 
                 if target_idx > 0 and is_valid_bridge:
-                    # Reduced top padding from 15 to 5, so it visually hugs the previous action
                     refs["br_card"].pack(fill="x", padx=20, pady=(5, 0))
                     refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
                     refs["br_prose"].configure(text=bridge)
@@ -348,7 +468,6 @@ class StoryTab(ctk.CTkFrame):
                         refs["br_btn_del"].pack(side="right", padx=(5, 0))
                         refs["br_btn_gen"].pack(side="right", padx=(5, 0))
                         refs["br_btn_edit"].pack(side="right", padx=(5, 0))
-                        
                         refs["br_btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
                         refs["br_btn_gen"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
                         refs["br_btn_del"].configure(command=lambda idx=target_idx: self._delete_bridge_timeline(idx))
@@ -357,96 +476,122 @@ class StoryTab(ctk.CTkFrame):
                         refs["br_btn_gen"].pack_forget()
                         refs["br_btn_edit"].pack_forget()
 
-                # 2. RENDER STORY CARD (Packed SECOND)
+
+                # 3. RENDER STORY CARD (Packed THIRD)
                 refs["card"].pack(fill="x", padx=20, pady=10) 
                 
-                loc = turn.get("location", "Unknown")
-                pov = turn.get("pov_character", "Unknown")
-                refs["hdr"].configure(text=f"Turn {turn.get('turn', '?')} • [{loc}] • POV: {pov}")
+                loc_raw = turn.get("location", "Unknown").strip()
+                pov_raw = turn.get("pov_character", "Unknown").strip()
                 
-                # 3. RENDER RPG INVENTORY PILLS (Persistent Virtual State) ---
+                # Smart Header formatting: Prevent massive lore dumps from breaking the single-line UI
+                loc_hdr = loc_raw if len(loc_raw) <= 100 else "Current Location"
+                pov_hdr = pov_raw if len(pov_raw) <= 100 else "Main Character"
+                
+                refs["hdr"].configure(text=f"{chap_name_for_header} - Turn {actual_turn} • [{loc_hdr}] • POV: {pov_hdr}")
+                
+                
+                # 4. RENDER RPG INVENTORY PILLS
                 refs["inv_frame"].pack_forget()
-                for w in refs["inv_frame"].winfo_children(): w.destroy()
+                for w in refs["inv_frame"].winfo_children(): 
+                    w.destroy()
                 
                 schema = self.engine.setup_data.get("inventory_dictionary", {})
-                if self.engine.track_inventory and schema and isinstance(schema, dict):
-                    # Parse the perfectly patched string guaranteed by llm.py
+                is_game_over = str(turn.get("is_game_over", False)).lower() == "true"
+                
+                if self.engine.track_inventory and schema and isinstance(schema, dict) and not is_game_over:
                     inv_str = turn.get("inventory_and_state", "").replace("[Status]", "").strip()
                     import re
                     current_state = {}
                     for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str):
                         current_state[k.strip()] = v.strip(' .,;')
                     
-                    refs["inv_frame"].pack(fill="x", padx=20, pady=(0, 10))
+                    refs["inv_frame"].pack(fill="x", padx=20, pady=(15, 0))
                     
-                    def get_darker_shade(hex_color, factor=0.4):
-                        """Generates the deep-background pill color from the icon's bright hex."""
-                        try:
-                            hex_color = hex_color.lstrip('#')
-                            if len(hex_color) != 6: return "#333333"
-                            rgb = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
-                            dark = [max(0, int(c * factor)) for c in rgb]
-                            return f"#{dark[0]:02x}{dark[1]:02x}{dark[2]:02x}"
-                        except: return "#333333"
-
-                    for key, val in current_state.items():
-                        if not val or str(val).lower() == "none": continue
+                    # THE ULTIMATE TKINTER HACK: Textbox Window Embedding.
+                    inv_box = ctk.CTkTextbox(
+                        refs["inv_frame"], 
+                        wrap="word", 
+                        height=42, # Start tightly collapsed for 1 line
+                        fg_color="transparent",
+                        font=("Arial", 13, "bold"),
+                        # API-Safe scrollbar cloaking (matches the card background exactly)
+                        scrollbar_button_color=("#EBEBEB", "#22252A"),
+                        scrollbar_button_hover_color=("#EBEBEB", "#22252A")
+                    )
+                    inv_box.pack(fill="x")
+                    
+                    # Save reference so the heartbeat can dynamically adjust the height
+                    refs["inv_box"] = inv_box
+                    
+                    schema_items = list(schema.items())
+                    for idx, (key, info) in enumerate(schema_items):
+                        val = current_state.get(key, "None")
+                        if not val or str(val).strip() == "": val = "None"
                         
-                        # FIX: Strictly enforce schema. Do not render hallucinatory keys.
-                        if key not in schema: continue
-                        
-                        info = schema.get(key, {})
                         icon = info.get("icon", "🎒")
                         base_color = info.get("color", "#1F6AA5")
-                        bg_color = get_darker_shade(base_color)
+                        is_last = (idx == len(schema_items) - 1)
                         
-                        # The Pill Container
-                        pill = ctk.CTkFrame(refs["inv_frame"], corner_radius=15, fg_color=bg_color)
-                        pill.pack(side="left", padx=(0, 8))
+                        # Create a flat, transparent container for the icon + text
+                        p_frame = ctk.CTkFrame(inv_box, fg_color="transparent")
                         
-                        # The Colored Icon
-                        icon_lbl = ctk.CTkLabel(pill, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color)
-                        icon_lbl.pack(side="left", padx=(8, 2), pady=2)
+                        i_lbl = ctk.CTkLabel(p_frame, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color, width=0)
+                        i_lbl.pack(side="left", padx=(0, 4))
                         
-                        # The Value Text
-                        val_lbl = ctk.CTkLabel(pill, text=val, font=("Arial", 11, "bold"), text_color="#E0E0E0")
-                        val_lbl.pack(side="left", padx=(0, 10), pady=2)
+                        v_lbl = ctk.CTkLabel(p_frame, text=val, font=("Arial", 12, "bold"), text_color="#B3E5FC", width=0)
+                        v_lbl.pack(side="left")
                         
-                        # Hover Tooltip shows the actual Key Name
-                        Tooltip(pill, key)
+                        Tooltip(p_frame, key)
+                        
+                        # MAGIC: Embed the entire UI frame directly into the textbox
+                        inv_box._textbox.window_create("end", window=p_frame)
+                        
+                        if not is_last:
+                            inv_box.insert("end", "   |   ", "sep")
+                            
+                    inv_box.configure(state="disabled")
+                            
                 
-                # 4. RENDER BRIDGE and EDIT buttons
+                # 5. RENDER EDIT BUTTONS & TEXT
                 refs["btn_edit"].pack_forget()
                 refs["btn_bridge"].pack_forget()
                 
                 if cheats_allowed:
                     refs["btn_edit"].pack(side="right")
                     refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                    
-                    # RENDER '✨ BRIDGE' BUTTON: Only if bridge is missing/failed and not perfectly seamless [OK]
                     if target_idx > 0 and not is_valid_bridge and bridge != "[OK]":
                         refs["btn_bridge"].pack(side="right", padx=(0, 5))
                         refs["btn_bridge"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
                         Tooltip(refs["btn_bridge"], "Generate a narrative transition from the previous turn.")
                         
-                prose_text = turn.get("story_text", "").replace("\\n", "\n") + "\n"
-                refs["prose"].configure(text=prose_text)
+                # FIX: Aggressively strip trailing newlines to prevent phantom vertical space
+                prose_text = turn.get("story_text", "").replace("\\n", "\n").strip()
                 
-                # 3. RENDER FOOTER
+                # Inject massive lore dumps into the main prose body so they are readable
+                injected_lore = ""
+                if len(loc_raw) > 100: injected_lore += f"[Location]: {loc_raw}\n\n"
+                if len(pov_raw) > 100: injected_lore += f"[POV]: {pov_raw}\n\n"
+                
+                if injected_lore:
+                    prose_text = f"{injected_lore.strip()}\n\n***\n\n{prose_text}"
+                    
+                # Ensure the text box doesn't have internal padding fighting our layout
+                refs["prose"].configure(text=prose_text)
+                refs["prose"].pack(fill="x", padx=20, pady=(5, 0)) # Snap to top
+                
+                # 6. RENDER FOOTER & CHOICES
                 refs["choice"].pack_forget()
                 refs["btn_frame"].pack_forget()
                 for w in refs["btn_frame"].winfo_children(): w.destroy()
                 
                 choice = turn.get("player_choice")
                 if choice is not None:
-                    # RENDER PAST TURN (Just shows what the player typed/clicked)
                     refs["choice"].configure(text=f"❯ {choice}")
-                    # FIX ARROW 1: Massive 25px top padding to separate the old choice from the prose
-                    refs["choice"].pack(fill="x", padx=20, pady=(25, 20))
+                    refs["choice"].pack(fill="x", padx=20, pady=(10, 15))
                 else:
-                    # RENDER ACTIVE TURN (Shows Director Tools and Choices)
+                    # FIX: Explicitly clear the string to force Tkinter to drop the cached height
+                    refs["choice"].configure(text="")
                     refs["btn_frame"].pack(fill="x", padx=15, pady=(0, 20))
-                    
                     is_over = str(turn.get("is_game_over", False)).lower() == "true"
                     is_victory = turn.get("chapter_goal_achieved", False)
                     
@@ -458,11 +603,8 @@ class StoryTab(ctk.CTkFrame):
                     show_qol = not is_over
                     show_fix = cheats_allowed and not is_over
 
-                    # Tools are hidden during Auto-Play
                     if not self.engine.is_test_mode:
-                        # Always create the director frame so Undo has a place to live
                         dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
-                        # FIX ARROW 3: 20px top margin separating the prose from the colorful buttons
                         dir_frame.pack(fill="x", pady=(20, 15), padx=5)
                         
                         if show_redo:
@@ -492,7 +634,6 @@ class StoryTab(ctk.CTkFrame):
                             btn_fix.pack(side="left", padx=5)
                             Tooltip(btn_fix, "Instruct AI to change a specific detail.")
                             
-                        # Pack UNDO on the far right, perfectly isolated
                         if cheats_allowed and len(history) > 1:
                             btn_undo = ctk.CTkButton(dir_frame, text="↶ Undo Last Turn", width=120, fg_color="#FF9800", hover_color="#F57C00", command=self.on_undo)
                             btn_undo.pack(side="right", padx=(5, 0))
@@ -519,7 +660,8 @@ class StoryTab(ctk.CTkFrame):
             self._force_scroll_bottom() 
             for ms in [50, 150, 300, 500, 850]:
                 self.after(ms, self._force_scroll_bottom)
-
+                
+                
     # ---------------------------------------------------------
     # UI CARD EDITOR (The "Magic Pencil")
     # ---------------------------------------------------------
@@ -1169,16 +1311,22 @@ class StoryTab(ctk.CTkFrame):
             # Check if there is an active turn with choices to click
             if self.engine.history:
                 last_turn = self.engine.history[-1]
-                is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
                 
-                if not is_over and last_turn.get("choices"):
+                # Check for Game Over OR Epilogue completion
+                is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
+                is_victory = str(last_turn.get("chapter_goal_achieved", False)).lower() == "true"
+                
+                # If it's a Victory Epilogue, it sets is_game_over to True, so we must stop.
+                if is_over or (is_victory and last_turn.get("turn", 0) > 0):
+                    self.workspace._toggle_test()
+                    self.status_var.set("Autopilot finished: Campaign Complete.")
+                    return
+                
+                if last_turn.get("choices"):
                     # Select Choice #1 (The Golden Path)
                     auto_choice = last_turn["choices"][0]
                     self.status_var.set(f"Autopilot: Selecting '{auto_choice[:20]}...' in 2s")
                     
-                    # --- SAFETY CHECK LAMBDA ---
-                    # We check is_test_mode inside the timer. If the user clicked 
-                    # "Stop Test" during the 2s wait, this will gracefully abort.
                     def auto_step():
                         if self.engine.is_test_mode:
                             self._execute_action(auto_choice)
@@ -1186,6 +1334,5 @@ class StoryTab(ctk.CTkFrame):
                             self.status_var.set("Autopilot aborted.")
 
                     self.after(2000, auto_step)
-                elif is_over:
-                    # Game ended, stop the test
-                    self.workspace._toggle_test()
+                    
+                    

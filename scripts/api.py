@@ -56,21 +56,33 @@ class TomeWeaverAPI:
             try:
                 with open(history_file, "r", encoding="utf-8") as hf:
                     history = json.load(hf)
-                    if history:
+                    
+                    # Fix: Make sure it's actually a populated list, not just an empty [] from a Restart
+                    if isinstance(history, list) and len(history) > 0:
                         # Find the actual highest turn number recorded (handles Turn 0 correctly)
                         max_turn = max([int(t.get("turn", 0)) for t in history])
                         turns = max_turn
                         
                         last_turn = history[-1]
-                        location = last_turn.get("location", location)
                         
-                        if last_turn.get("is_game_over", False):
-                            status = "Victory" if last_turn.get("chapter_goal_achieved", False) else "Game Over"
+                        # Only inherit the location if it actually exists, otherwise fallback to setup
+                        location = last_turn.get("location", location)
+                        if not location or not location.strip():
+                            location = data.get("setting", "Unknown")
+                        
+                        # Safe boolean casting for game_over checks
+                        is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
+                        is_victory = str(last_turn.get("chapter_goal_achieved", False)).lower() == "true"
+                        
+                        # FIX: High-Priority Override. If we are on Turn 0, it is NOT started, 
+                        # even if history.json physically exists on disk.
+                        if max_turn == 0:
+                            status = "Not Started"
+                        elif is_over:
+                            status = "Victory" if is_victory else "Game Over"
                         else:
-                            if max_turn == 0:
-                                status = "Not Started"
-                            else:
-                                status = "In Progress"
+                            status = "In Progress"
+                            
                     else:
                         status = "Not Started"
             except Exception:
@@ -674,6 +686,124 @@ class TomeWeaverAPI:
                 
         return False, "Failed to generate field data. Check API connection."
         
+     
+    @staticmethod
+    def generate_schema_data(setup_data, schema_type, field_name="", shorthand=None):
+        """
+        AI Schema Generator. Returns complex JSON objects (Dicts, Lists) instead of raw strings.
+        schema_type: "inventory", "list", or "dict"
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json
+        
+        # 1. Build Context
+        context_parts = []
+        for key in ["title", "tone", "main_character", "setting", "goal", "lore_and_rules"]:
+            val = setup_data.get(key)
+            if val and isinstance(val, str) and val.strip():
+                context_parts.append(f"{key.replace('_', ' ').title()}: {val.strip()}")
+        context_str = "\n".join(context_parts) if context_parts else "A brand new, undefined world."
+        
+        # 2. Route Prompt
+        sys_prompt = PROMPTS.get("SYS_SCHEMA_GEN", "")
+        shorthand_str = shorthand.strip() if shorthand else "Invent something creative and fitting."
+        
+        if schema_type == "inventory":
+            if shorthand:
+                user_prompt = PROMPTS.get("USER_INV_INSPIRE", "")
+            else:
+                user_prompt = PROMPTS.get("USER_INV_REROLL", "")
+        elif schema_type == "list":
+            user_prompt = PROMPTS.get("USER_LIST_GEN", "")
+        elif schema_type == "dict":
+            user_prompt = PROMPTS.get("USER_DICT_GEN", "")
+        else:
+            return False, "Invalid schema type requested."
+            
+        user_prompt = user_prompt.replace("{context}", context_str)
+        user_prompt = user_prompt.replace("{field_name}", field_name)
+        user_prompt = user_prompt.replace("{shorthand}", shorthand_str)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        # 3. Call LLM with Fortress Parsing
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1500
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                
+                # Basic Validation
+                if schema_type == "list" and isinstance(data, list): return True, data
+                if schema_type in ["dict", "inventory"] and isinstance(data, dict): return True, data
+                
+                # If AI returned wrong type (e.g. dict instead of list), trigger retry
+                time.sleep(1)
+                
+            except Exception as e:
+                time.sleep(2)
+                continue
+                
+        return False, "Failed to generate valid JSON schema. Try again."
+
+
+    @staticmethod
+    def autofill_inventory_styles(inventory_dict):
+        """
+        Scans an inventory dictionary for empty icons or colors and asks the AI to 
+        intelligently guess fitting emojis and hex codes based on the keys and values.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_SCHEMA_GEN", "You are an expert game designer. Output ONLY valid JSON.")
+        user_prompt = PROMPTS.get("USER_AUTO_STYLE", "")
+        user_prompt = user_prompt.replace("{inventory_json}", json.dumps(inventory_dict, indent=2))
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.3, # Low temp so it just fixes the formatting reliably
+                "max_tokens": 500
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict):
+                        return True, data
+            except Exception:
+                time.sleep(1)
+                
+        return False, inventory_dict
         
     @staticmethod
     def browse_path(rel_path):

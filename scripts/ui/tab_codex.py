@@ -23,8 +23,9 @@ class CodexTab(ctk.CTkFrame):
         self.core_keys = [
             "mode", "title", "author", "version", "creation_date", "tone", 
             "goal", "setting", "main_character", "starting_situation", 
-            "starting_inventory", "lore_and_rules", "track_inventory", 
-            "can_die", "allow_cheats", "plot_outline", "narrative"
+            "starting_inventory", "inventory_dictionary", "inventory_and_state", 
+            "lore_and_rules", "track_inventory", "can_die", "allow_cheats", 
+            "plot_outline", "narrative"
         ]
 
         self.tabs = ctk.CTkTabview(self)
@@ -162,7 +163,8 @@ class CodexTab(ctk.CTkFrame):
         ctk.CTkSwitch(settings_frame, text="Allow Editing (Cheats)", variable=self.var_cheats).pack(side="left", padx=(0, 20))
         
         # Save Button
-        ctk.CTkButton(scroll, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core).pack(pady=30)
+        self.btn_save_core = ctk.CTkButton(scroll, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core)
+        self.btn_save_core.pack(pady=30)
 
     def _save_core(self, memory_only=False):
         """Extracts data from the standard form fields. Writes to disk unless memory_only is True."""
@@ -181,51 +183,77 @@ class CodexTab(ctk.CTkFrame):
         
         # Extract Inventory Schema
         new_schema = {}
+        needs_ai = False
         for k_var, v_var, i_var, c_var in self.inv_schema_vars:
             k = k_var.get().strip().replace(" ", "_")
             if k:
+                i_val = i_var.get().strip()
+                c_val = c_var.get().strip()
+                if not i_val or not c_val:
+                    needs_ai = True
                 new_schema[k] = {
                     "val": v_var.get().strip(),
-                    "icon": i_var.get().strip() or "🎒",
-                    "color": c_var.get().strip() or "#1F6AA5"
+                    "icon": i_val,
+                    "color": c_val
                 }
         self.engine.setup_data["inventory_dictionary"] = new_schema
         
         if memory_only: 
             return
+
+        if needs_ai:
+            # Prevent user from spamming save while AI is styling
+            self.btn_save_core.configure(state="disabled", text="Auto-Styling Inventory...")
             
+            def worker():
+                from api import TomeWeaverAPI
+                success, updated_schema = TomeWeaverAPI.autofill_inventory_styles(new_schema)
+                
+                # Apply absolute fallbacks if the API drops out or fails to fill a specific key
+                for key, info in updated_schema.items():
+                    if not info.get("icon"): info["icon"] = "🎒"
+                    if not info.get("color"): info["color"] = "#1F6AA5"
+                    
+                self.engine.setup_data["inventory_dictionary"] = updated_schema
+                
+                def update_ui():
+                    self.btn_save_core.configure(state="normal", text="Save Core Settings")
+                    self._render_inv_editor() # Visually populate the boxes with the new emojis/hex codes
+                    self._finalize_save_core(old_title, new_title)
+                self.after(0, update_ui)
+                
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            self._finalize_save_core(old_title, new_title)
+
+    def _finalize_save_core(self, old_title, new_title):
+        """Handles the physical disk write and directory rename hooks after all AI processing is complete."""
         # Actual explicit save clicked by user
         self._write_to_disk()
         
         # --- TITLE RENAME HOOK ---
         if new_title and new_title != old_title:
+            from tkinter import messagebox
             msg = f"You changed the title to '{new_title}'.\n\nWould you like to rename the physical folder on your hard drive to match this new title?"
             if messagebox.askyesno("Rename Folder?", msg):
                 from api import TomeWeaverAPI
-                
-                # 1. Capture the FULL relative path (e.g. 'Sandbox/MyStory')
                 from api import ADV_DIR
                 current_folder = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
-                
-                # 2. Get the app controller before closing
                 app = self.winfo_toplevel()
-                
-                # 3. Request the rename from the API
                 success, new_folder_name = TomeWeaverAPI.rename_story(current_folder, new_title)
                 
                 if success:
                     messagebox.showinfo("Saved", f"Folder renamed to '{new_folder_name}'.")
-                    # 4. CRITICAL: Safely kill the active workspace *before* attempting to reload it
                     app.clear_container() 
-                    
                     from config import ENGINE_CONFIG
                     ENGINE_CONFIG["last_active_story"] = new_folder_name
-                    # 5. Relaunch the workspace cleanly
                     app.open_workspace(new_folder_name)
                     return
                 else:
                     messagebox.showerror("Rename Failed", new_folder_name)
                     
+        from tkinter import messagebox
         messagebox.showinfo("Saved", "Core Settings updated successfully.")
 
     def _render_inv_editor(self):
@@ -233,6 +261,21 @@ class CodexTab(ctk.CTkFrame):
         for w in self.inv_editor_frame.winfo_children(): w.destroy()
         self.inv_schema_vars.clear()
         
+        # --- AI TOOLS HEADER ---
+        ai_hdr = ctk.CTkFrame(self.inv_editor_frame, fg_color="transparent")
+        ai_hdr.pack(fill="x", pady=(0, 10))
+        
+        btn_inspire = ctk.CTkButton(ai_hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+        btn_inspire.pack(side="right", padx=2)
+        Tooltip(btn_inspire, "Ask the AI to generate an inventory based on an idea (e.g. 'Cyberpunk gear').")
+        
+        btn_reroll = ctk.CTkButton(ai_hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+        btn_reroll.pack(side="right", padx=2)
+        Tooltip(btn_reroll, "Ask the AI to invent a brand new starting inventory schema fitting this world.")
+        
+        btn_reroll.configure(command=lambda btn=btn_reroll: self._generate_schema_ui("inventory_dictionary", "inventory", btn, False))
+        btn_inspire.configure(command=lambda btn=btn_inspire: self._generate_schema_ui("inventory_dictionary", "inventory", btn, True))
+
         # We need a dedicated container just for the rows so the +Add button stays firmly at the bottom
         self.inv_rows_container = ctk.CTkFrame(self.inv_editor_frame, fg_color="transparent")
         self.inv_rows_container.pack(fill="x")
@@ -444,6 +487,18 @@ class CodexTab(ctk.CTkFrame):
 
         # --- TYPE: LIST ---
         elif isinstance(data, list):
+            hdr = ctk.CTkFrame(container, fg_color="transparent")
+            hdr.pack(fill="x", pady=(0, 5))
+            
+            btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_inspire.pack(side="right", padx=2)
+            
+            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=2)
+            
+            btn_reroll.configure(command=lambda k=key, btn=btn_reroll: self._generate_schema_ui(k, "list", btn, False))
+            btn_inspire.configure(command=lambda k=key, btn=btn_inspire: self._generate_schema_ui(k, "list", btn, True))
+
             def delete_list_item(target_var):
                 # Save current UI state, excluding the deleted item
                 self.engine.setup_data[key] = [v.get() for v in self.dynamic_vars if v != target_var]
@@ -472,6 +527,18 @@ class CodexTab(ctk.CTkFrame):
 
         # --- TYPE: DICTIONARY ---
         elif isinstance(data, dict):
+            hdr = ctk.CTkFrame(container, fg_color="transparent")
+            hdr.pack(fill="x", pady=(0, 5))
+            
+            btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_inspire.pack(side="right", padx=2)
+            
+            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=2)
+            
+            btn_reroll.configure(command=lambda k=key, btn=btn_reroll: self._generate_schema_ui(k, "dict", btn, False))
+            btn_inspire.configure(command=lambda k=key, btn=btn_inspire: self._generate_schema_ui(k, "dict", btn, True))
+
             def delete_dict_item(target_k_var):
                 new_dict = {}
                 for vk, vv in self.dynamic_vars:
@@ -719,6 +786,43 @@ class CodexTab(ctk.CTkFrame):
                     else:
                         widget.delete("1.0", "end")
                         widget.insert("1.0", result)
+                else:
+                    messagebox.showerror("Generation Error", result)
+                    
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+        
+        
+    def _generate_schema_ui(self, field_key, schema_type, button, is_inspire):
+        """Asynchronously generates complex JSON (Lists/Dicts/Inventory) and triggers a full UI redraw."""
+        shorthand = None
+        if is_inspire:
+            dialog = ctk.CTkInputDialog(text="Enter an idea for this field (e.g. 'Cyberpunk hacker gear'):", title="AI Inspiration")
+            shorthand = dialog.get_input()
+            if not shorthand: return
+                
+        orig_text = button.cget("text")
+        button.configure(state="disabled", text="...")
+        
+        self._save_core(memory_only=True)
+        
+        def worker():
+            from api import TomeWeaverAPI
+            success, result = TomeWeaverAPI.generate_schema_data(self.engine.setup_data, schema_type, field_key, shorthand)
+            
+            def update_ui():
+                button.configure(state="normal", text=orig_text)
+                if success:
+                    # Update active memory with the newly generated JSON object
+                    self.engine.setup_data[field_key] = result
+                    
+                    # Force a UI redraw depending on which tab we are in
+                    if schema_type == "inventory":
+                        self._render_inv_editor()
+                    else:
+                        self._render_lore_editor()
                 else:
                     messagebox.showerror("Generation Error", result)
                     

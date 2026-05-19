@@ -258,6 +258,8 @@ class WorkspaceFrame(ctk.CTkFrame):
             self.btn_test.configure(text="🛑 Stop Auto-Play", fg_color="#D32F2F", hover_color="#9A0007")
             # If we are in Story Mode, trigger the first auto-step immediately
             if self.tabs.get() == "Story Mode" and hasattr(self, 'story_tab'):
-                self.story_tab.refresh_timeline()
+                # Calling _unlock_ui forces the Autopilot hook to immediately evaluate the active card
+                self.story_tab._unlock_ui("Autopilot engaged. Starting sequence...")
         else:
             self.btn_test.configure(text="▶︎ Auto-Play", fg_color="#4A4A4A", hover_color="#333333")
+            

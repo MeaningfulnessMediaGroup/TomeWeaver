@@ -22,6 +22,7 @@ JSON STRUCTURE TEMPLATE:
     "Second possible action as a plain string.",
     "Third possible action as a plain string."
   ],
+  {inv_template}
   "text_prompt": null,
   "is_game_over": false,
   "turn": 59,

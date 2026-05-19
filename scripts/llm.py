@@ -81,33 +81,38 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         if "is_game_over" not in data and can_die:
             data["is_game_over"] = False
             
-        # --- THE INVENTORY PATCHER ---
+        # --- THE INVENTORY PATCHER (Zero-Trust) ---
         if track_inventory:
-            if "inventory_and_state" not in data or not isinstance(data["inventory_and_state"], str):
-                data["inventory_and_state"] = prev_turn.get("inventory_and_state", "") if prev_turn else ""
-            elif prev_turn and prev_turn.get("inventory_and_state"):
-                prev_str = prev_turn["inventory_and_state"].replace("[Status]", "").strip()
-                curr_str = data["inventory_and_state"].replace("[Status]", "").strip()
+            curr_str = data.get("inventory_and_state", "")
+            if not isinstance(curr_str, str): curr_str = ""
+            
+            # Baseline: Establish the strict skeleton from setup.json so keys are NEVER dropped
+            merged_dict = {k: "None" for k in inv_schema.keys()} if inv_schema else {}
+            
+            # 1. Overlay the previous turn's data to establish continuity
+            prev_str = ""
+            if prev_turn:
+                # Failsafe in case a legacy Turn 0 with the wrong key name exists in memory
+                prev_str = prev_turn.get("inventory_and_state", prev_turn.get("inventory_dictionary", ""))
                 
-                prev_dict = {}
-                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str):
+            if prev_str and isinstance(prev_str, str):
+                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str.replace("[Status]", "")):
                     clean_k = k.strip()
                     if inv_schema and clean_k not in inv_schema: continue
-                    # Chop off newlines to strip out hallucinated block text (like Goal Progress)
-                    prev_dict[clean_k] = v.split('\n')[0].strip(' .,;')
+                    merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
                     
-                curr_dict = {}
-                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str):
+            # 2. Overlay the AI's current hallucinated data (Only allowing approved keys to overwrite)
+            if curr_str:
+                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str.replace("[Status]", "")):
                     clean_k = k.strip()
                     if inv_schema and clean_k not in inv_schema: continue
-                    curr_dict[clean_k] = v.split('\n')[0].strip(' .,;')
+                    merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
                     
-                if curr_dict:
-                    merged = prev_dict.copy()
-                    merged.update(curr_dict)
-                    data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged.items()]).strip()
-                else:
-                    data["inventory_and_state"] = prev_turn["inventory_and_state"]
+            # 3. Rebuild the perfect string
+            if merged_dict:
+                data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged_dict.items()]).strip()
+            else:
+                data["inventory_and_state"] = prev_str
 
         if "chapter_goal_achieved" not in data and is_campaign:
             # Safest assumption: Goal is not met unless AI says so

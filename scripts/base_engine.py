@@ -246,7 +246,6 @@ class BaseEngine:
             self._process_valid_turn(turn_data)
         return turn_data
 
-
     def _check_startup_bypasses(self):
         """Checks for As-Is Prologues, Epilogues, or start_turn.json seeds."""
         is_first_turn = (len(self.history) == 0)
@@ -275,10 +274,12 @@ class BaseEngine:
             if self.track_inventory: 
                 inv_setup = self.setup_data.get("inventory_dictionary", "")
                 if isinstance(inv_setup, dict):
-                    turn_data["inventory_dictionary"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
+                    turn_data["inventory_and_state"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
                 else:
-                    turn_data["inventory_dictionary"] = str(inv_setup)
-            if self.can_die: turn_data["is_game_over"] = False
+                    turn_data["inventory_and_state"] = str(inv_setup)
+            
+            # FIX: Turn 0 is mathematically incapable of being a Game Over. Force False.
+            turn_data["is_game_over"] = False
             return turn_data
 
         # --- EPILOGUE AS-IS BYPASS ---
@@ -296,12 +297,8 @@ class BaseEngine:
             if self.is_campaign:
                 turn_data["goal_progress"] = "Journey Complete."
                 turn_data["chapter_goal_achieved"] = True
-            if self.track_inventory: 
-                inv_setup = self.setup_data.get("inventory_dictionary", "")
-                if isinstance(inv_setup, dict):
-                    turn_data["inventory_dictionary"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
-                else:
-                    turn_data["inventory_dictionary"] = str(inv_setup)
+                
+            # FIX: Explicitly omit inventory data from the Epilogue
             turn_data["is_game_over"] = True
             return turn_data
 
@@ -311,7 +308,6 @@ class BaseEngine:
 
         if is_at_start and seed_file.exists():
             seed_data = load_json_safely(seed_file, "start_turn.json")
-            # Safely handle empty lists to prevent IndexError crashes
             if isinstance(seed_data, list) and len(seed_data) > 0:
                 turn_data = seed_data[-1]
             elif isinstance(seed_data, dict):
@@ -322,8 +318,12 @@ class BaseEngine:
             if turn_data:
                 turn_data["turn"] = self.get_next_turn_number()
                 turn_data["player_choice"] = None
+                # FIX: Protect against "dirty" seeds that were saved during a Game Over state
+                turn_data["is_game_over"] = False
+                if "chapter_goal_achieved" in turn_data:
+                    turn_data["chapter_goal_achieved"] = False
                 return turn_data
-
+                
         return None
 
 
@@ -829,7 +829,9 @@ class BaseEngine:
 
         # 3. Mortality/Victory Interceptor
         if self.can_die:
-            if str(turn_data.get("is_game_over", False)).lower() == "true":
+            # FIX: Explicitly ignore Turn 0 (Prologue/Seed) because the player cannot die before the game starts.
+            # A malformed key from a bypass or a seed file might accidentally trigger this.
+            if turn_data.get("turn", 0) > 0 and str(turn_data.get("is_game_over", False)).lower() == "true":
                 prev_choice = self.history[-1].get("player_choice", "") if self.history else ""
                 if prev_choice == "Conclude the Story":
                     print(f"\n{Fore.GREEN}[System: CAMPAIGN COMPLETE! Victory achieved.]{Style.RESET_ALL}")

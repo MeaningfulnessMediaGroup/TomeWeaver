@@ -120,7 +120,30 @@ class CampaignEngine(BaseEngine):
         # 1. CONSTRUCT THE SYSTEM PROMPT (The "God Rules")
         # ==========================================
         # This forms the absolute baseline instructions for the LLM.
-        system_content = self.system_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
+        
+        # --- FETCH CURRENT STATE ---
+        current_inv_state = ""
+        if self.track_inventory:
+            if completed_history:
+                current_inv_state = completed_history[-1].get("inventory_and_state", "")
+            
+            # Fallback to Turn 0 setup if history is empty or string is missing
+            if not current_inv_state:
+                inv_schema = self.setup_data.get("inventory_dictionary", {})
+                if isinstance(inv_schema, dict) and inv_schema:
+                    current_inv_state = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_schema.items()]).strip()
+                else:
+                    current_inv_state = str(inv_schema)
+
+        # Dynamically inject the EXACT CURRENT STATE into the JSON template example
+        active_prompt_text = self.system_prompt_text
+        if self.track_inventory and current_inv_state:
+            inv_template_str = f'"inventory_and_state": "{current_inv_state}",\n'
+            active_prompt_text = active_prompt_text.replace("{inv_template}", inv_template_str)
+        else:
+            active_prompt_text = active_prompt_text.replace("{inv_template}", "")
+            
+        system_content = active_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         
         goal_text = active_chapter.get('goal', 'Survive')
@@ -137,7 +160,9 @@ class CampaignEngine(BaseEngine):
         system_content += "\n\n" + PROMPTS.get("FRAG_STATE_RULE", "")
 
         if self.track_inventory:
-            system_content += "\n\n" + PROMPTS.get("FRAG_INVENTORY", "")
+            # FIX: Force the rule fragment to use the CURRENT state, not the setup schema
+            frag = PROMPTS.get("FRAG_INVENTORY", "").replace("{inv_format}", current_inv_state)
+            system_content += "\n\n" + frag
 
         if self.can_die:
             system_content += "\n\n" + PROMPTS.get("FRAG_CAN_DIE", "")
@@ -151,8 +176,12 @@ class CampaignEngine(BaseEngine):
         is_epilogue = completed_history and completed_history[-1].get("player_choice") == "Conclude the Story"
         
         req_keys = ["'goal_progress' (string)"]
-        if self.track_inventory: req_keys.append("'inventory_and_state' (string)")
-        if self.can_die or is_epilogue: req_keys.append("'is_game_over' (boolean)")
+        # FIX: The AI does not need to output inventory on the Epilogue turn
+        if self.track_inventory and not is_epilogue: 
+            req_keys.append("'inventory_and_state' (string)")
+            
+        if self.can_die or is_epilogue: 
+            req_keys.append("'is_game_over' (boolean)")
         
         req_str = ""
         if req_keys:

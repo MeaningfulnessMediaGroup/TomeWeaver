@@ -41,7 +41,6 @@ JSON STRUCTURE TEMPLATE:
   "story_text": "Paragraph one goes here.\\n\\nParagraph two goes here.\\n\\nParagraph three goes here.\\n\\nParagraph four goes here.\\n\\nParagraph five goes here.",
   "pov_character": "Name of the current POV character",
   "location": "Current location name",
-  "inventory_and_state": "Health: Good. Items: comma separated list of initial inventory items. State: None.",
   "input_type": "choice", 
   "choices":[
     "First possible action as a plain string.",
@@ -49,6 +48,7 @@ JSON STRUCTURE TEMPLATE:
     "Third possible action as a plain string."
   ],
   "text_prompt": null,
+  {inv_template}
   "goal_progress": "Use Sun Shield: [DONE]\nSteal Crown: [PENDING]\nEscape: [TODO]",
   "chapter_goal_achieved": false,
   "is_game_over": false,

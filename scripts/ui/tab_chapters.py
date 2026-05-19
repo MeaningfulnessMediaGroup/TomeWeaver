@@ -8,6 +8,7 @@
 import json
 import customtkinter as ctk
 from tkinter import messagebox
+from ui.tooltip import Tooltip
 
 
 class ChapterTab(ctk.CTkFrame):
@@ -132,29 +133,87 @@ class ChapterTab(ctk.CTkFrame):
 
         ctk.CTkLabel(self.editor_frame, text=f"Editing Chapter {idx+1}", font=("Arial", 18, "bold"), text_color="#4CAF50").pack(anchor="w", padx=10, pady=(5, 15))
 
-        def add_entry(label_text, key):
-            ctk.CTkLabel(self.editor_frame, text=label_text, font=("Arial", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
-            var = ctk.StringVar(value=chap.get(key, ""))
-            ctk.CTkEntry(self.editor_frame, textvariable=var, font=("Arial", 14)).pack(fill="x", padx=10)
-            self.fields[key] = var
+        def add_field(label_text, key, is_multiline=False, show_ai=False):
+            hdr = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+            hdr.pack(fill="x", padx=10, pady=(10, 2))
+            
+            lbl = ctk.CTkLabel(hdr, text=label_text, font=("Arial", 14, "bold"))
+            lbl.pack(side="left")
+            
+            if is_multiline:
+                box = ctk.CTkTextbox(self.editor_frame, height=100, wrap="word", font=("Arial", 14))
+                box.insert("1.0", chap.get(key, ""))
+                box.pack(fill="x", padx=10)
+                widget = box
+            else:
+                var = ctk.StringVar(value=chap.get(key, ""))
+                entry = ctk.CTkEntry(self.editor_frame, textvariable=var, font=("Arial", 14))
+                entry.pack(fill="x", padx=10)
+                widget = var
+                
+            self.fields[key] = widget
+            
+            if show_ai:
+                btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+                btn_inspire.pack(side="right", padx=2)
+                Tooltip(btn_inspire, "Expand your shorthand text into a rich description.")
+                
+                btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+                btn_reroll.pack(side="right", padx=2)
+                Tooltip(btn_reroll, "Generate a completely new, creative idea for this field.")
+                
+                btn_reroll.configure(command=lambda k=key, w=widget, btn=btn_reroll: self._generate_chapter_field(k, w, btn, False))
+                btn_inspire.configure(command=lambda k=key, w=widget, btn=btn_inspire: self._generate_chapter_field(k, w, btn, True))
 
-        def add_textbox(label_text, key):
-            ctk.CTkLabel(self.editor_frame, text=label_text, font=("Arial", 14, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
-            box = ctk.CTkTextbox(self.editor_frame, height=100, wrap="word", font=("Arial", 14))
-            box.insert("1.0", chap.get(key, ""))
-            box.pack(fill="x", padx=10)
-            self.fields[key] = box
-
-        add_entry("Chapter Title:", "title")
-        add_entry("Setting Override (Leave blank to keep current):", "setting")
-        add_entry("POV Override (Leave blank to keep current):", "pov")
-        add_entry("Time Jump (e.g., 'Two days later...'):", "time")
-        add_textbox("Chapter Goal (Required):", "goal")
-        add_textbox("Obstacles (Required):", "obstacles")
+        add_field("Chapter Title:", "title", show_ai=True)
+        add_field("Setting Override (Leave blank to keep current):", "setting", show_ai=True)
+        add_field("POV Override (Leave blank to keep current):", "pov", show_ai=False)
+        add_field("Time Jump (e.g., 'Two days later...'):", "time", show_ai=True)
+        add_field("Chapter Goal (Required):", "goal", is_multiline=True, show_ai=True)
+        add_field("Obstacles (Required):", "obstacles", is_multiline=True, show_ai=True)
 
         ctk.CTkButton(self.editor_frame, text="Save Chapter", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_chapter).pack(pady=30)
 
-    def _save_chapter(self):
+    def _generate_chapter_field(self, field_key, widget, button, is_inspire):
+        """Asynchronously calls the API to generate or expand data for a single Chapter field."""
+        shorthand = None
+        if is_inspire:
+            if isinstance(widget, ctk.StringVar): shorthand = widget.get().strip()
+            else: shorthand = widget.get("1.0", "end").strip()
+                
+            if not shorthand:
+                messagebox.showwarning("Missing Input", "Type some shorthand ideas in the box first to inspire the AI!")
+                return
+                
+        orig_text = button.cget("text")
+        button.configure(state="disabled", text="...")
+        
+        # Save memory temporarily so the AI context is perfectly up to date
+        self._save_chapter(memory_only=True)
+        
+        def worker():
+            from api import TomeWeaverAPI
+            # Prefix the key so the AI prompt understands the context (e.g., "chapter goal")
+            prompt_field = f"chapter {field_key}"
+            success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, prompt_field, shorthand)
+            
+            def update_ui():
+                button.configure(state="normal", text=orig_text)
+                if success:
+                    if isinstance(widget, ctk.StringVar):
+                        widget.set(result)
+                    else:
+                        widget.delete("1.0", "end")
+                        widget.insert("1.0", result)
+                else:
+                    messagebox.showerror("Generation Error", result)
+                    
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _save_chapter(self, memory_only=False):
         """Extracts data from UI fields and writes it to the active memory array."""
         idx = self.selected_idx.get()
         outline = self.engine.setup_data.get("plot_outline", [])
@@ -166,9 +225,10 @@ class ChapterTab(ctk.CTkFrame):
             else:
                 outline[idx][key] = widget.get("1.0", "end").strip()
 
-        self._write_to_disk()
-        messagebox.showinfo("Saved", "Chapter outline updated successfully.")
-        self._refresh_list() 
+        if not memory_only:
+            self._write_to_disk()
+            messagebox.showinfo("Saved", "Chapter outline updated successfully.")
+            self._refresh_list() 
 
     def _write_to_disk(self):
         """Commits the active memory dict to setup.json."""
