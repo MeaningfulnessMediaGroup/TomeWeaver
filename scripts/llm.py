@@ -11,8 +11,9 @@ import requests
 import re
 import time
 import random
+
 from colorama import Fore, Style
-from config import ENGINE_CONFIG
+from config import ENGINE_CONFIG, PROMPTS
 from logger import log_llm_interaction
 
 # ---------------------------------------------------------
@@ -87,7 +88,6 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             if "inventory_and_state" not in data or not isinstance(data["inventory_and_state"], str):
                 data["inventory_and_state"] = prev_turn.get("inventory_and_state", "") if prev_turn else ""
             elif prev_turn and prev_turn.get("inventory_and_state"):
-                import re
                 prev_str = prev_turn["inventory_and_state"].replace("[Status]", "").strip()
                 curr_str = data["inventory_and_state"].replace("[Status]", "").strip()
                 
@@ -172,8 +172,6 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             c_str = c_str.replace('" + "', '').replace('\\" + \\"', '').replace('\" + \"', '')
             
             # 2. Strip leading non-quote garbage (commas, dots, hyphens, colons, and spaces)
-            # Example: ",'Inspect...'" -> "'Inspect...'"
-            import re
             c_str = re.sub(r"^[,;:\.\-\s]+", "", c_str)
             
             # 3. Strip surrounding wrapper quotes ONLY if they match on both sides
@@ -192,19 +190,10 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         
         # Shuffle for variety in gameplay (unless in explicit test mode)
         if not is_test_mode:
-            # Create a deterministic seed based on the turn number and story length.
-            # This ensures that if the user runs 'polish' or 'fix' on Turn 5, 
-            # the shuffled order of the choices will remain exactly the same as before.
-            # We add len(data["story_text"]) so different turns don't feel identical.
             turn_seed = data.get("turn", 0) + len(data.get("story_text", ""))
-            
-            # Save the current global random state so we don't break other systems
             state = random.getstate()
-            
             random.seed(turn_seed)
             random.shuffle(data["choices"])
-            
-            # Restore the global random state
             random.setstate(state)
     else:
         data["choices"] = []
@@ -213,7 +202,6 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
     data["player_choice"] = None 
     
     return data, None
-
 
 # ---------------------------------------------------------
 # THE "FORTRESS" JSON SANITIZER
@@ -560,9 +548,17 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
             log_llm_interaction(adv_dir, messages, raw, error=f"JSON Parse Error: {str(e)}", attempt=attempt+1)
             return None, str(e), raw
             
+    except requests.exceptions.RequestException as e:
+        # Catches ACTUAL network drops, timeouts, and API server crashes
+        log_llm_interaction(adv_dir, messages, "NETWORK_ERROR", error=str(e), attempt=attempt+1)
+        return None, f"Network Error: {str(e)}", ""
+        
     except Exception as e:
-        log_llm_interaction(adv_dir, messages, "CONNECTION_FAILURE", error=str(e), attempt=attempt+1)
-        return None, str(e), ""
+        # Catches internal Python code crashes and prints the traceback to the console for easy debugging
+        import traceback
+        traceback.print_exc()
+        log_llm_interaction(adv_dir, messages, "INTERNAL_ENGINE_CRASH", error=str(e), attempt=attempt+1)
+        return None, f"Internal Engine Crash: {str(e)}", ""
 
 
 # ---------------------------------------------------------
@@ -576,9 +572,13 @@ def generate_recap(setup_data, history):
     """
     history_text = "".join([f"{t.get('story_text', '')}\nPlayer Action: {t.get('player_choice', '')}\n\n" for t in history[:-1]])[-15000:]
     adv_title = setup_data.get('title', 'The Adventure')
+    
+    sys_prompt = PROMPTS.get("SYS_RECAP", "").replace("{adv_title}", adv_title)
+    user_prompt = PROMPTS.get("USER_RECAP", "").replace("{history_text}", history_text)
+    
     messages =[
-        {"role": "system", "content": f"Summarize the events of '{adv_title}'. Focus on the main plot, key events, and current situation."},
-        {"role": "user", "content": "Adventure log:\n\n" + history_text + "\n\nWrite the recap."}
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_prompt}
     ]
     
     headers = {"Content-Type": "application/json"}
@@ -618,24 +618,11 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
         # We now simply print to the UI Console tab
         print(f"{Style.DIM}Bridging Turn {turn_num}: {msg}{Style.RESET_ALL}")
 
-    system_prompt = (
-        "You are a strict narrative parser. You follow instructions exactly and output only what is requested."
-    )
-    
-    user_prompt = (
-        f"CHARACTER: {pov}\n"
-        f"ACTION TAKEN: {action}\n\n"
-        f"NEXT SCENE:\n{c_text}\n\n"
-        "TASK:\n"
-        "1. Read the NEXT SCENE. Does it explicitly state that the CHARACTER performed the ACTION TAKEN?\n"
-        "2. If YES, reply ONLY with the exact text: [OK]\n"
-        "3. If NO (the scene skips directly to the result), rewrite the ACTION TAKEN into a single, third-person sentence.\n"
-        "4. CRITICAL: Your sentence MUST match the tense (past or present) used in the NEXT SCENE.\n"
-        "5. Output ONLY the sentence. Do not copy text from the scene. Do not explain.\n\n"
-        "EXAMPLES IF NO:\n"
-        "Action: climb the tree (If scene is past tense) -> Kaelen climbed the tree.\n"
-        "Action: climb the tree (If scene is present tense) -> Kaelen climbs the tree."
-    )
+    system_prompt = PROMPTS.get("SYS_BRIDGE", "")
+    user_prompt = PROMPTS.get("USER_BRIDGE", "")
+    user_prompt = user_prompt.replace("{pov}", pov)
+    user_prompt = user_prompt.replace("{action}", action)
+    user_prompt = user_prompt.replace("{c_text}", c_text)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -770,20 +757,8 @@ def generate_missing_choices(story_text, turn_num):
     
     print(f"{Style.DIM}Generating missing choices for Turn {turn_num}...{Style.RESET_ALL}")
 
-    system_prompt = (
-        "You are an interactive fiction engine. Your only job is to generate a JSON array "
-        "of 3 to 6 brief actions the player can take next."
-    )
-    
-    user_prompt = (
-        f"CURRENT SCENE:\n{story_text}\n\n"
-        "TASK:\n"
-        "1. Based on the CURRENT SCENE, provide EXACTLY 3 to 6 logical choices for the player's next action.\n"
-        "2. Each choice MUST be a short string (Max 15 words) describing ONLY the action, not the result.\n"
-        "3. Output ONLY a raw JSON array of strings. No keys, no markdown.\n\n"
-        "EXAMPLE OUTPUT:\n"
-        '[\n  "Draw my sword and attack.",\n  "Run toward the heavy wooden door.",\n  "Search the room for clues."\n]'
-    )
+    system_prompt = PROMPTS.get("SYS_CHOICES", "")
+    user_prompt = PROMPTS.get("USER_CHOICES", "").replace("{story_text}", story_text)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -828,3 +803,65 @@ def generate_missing_choices(story_text, turn_num):
     # Absolute bottom-of-the-barrel fallback so the UI never crashes
     print(f"{Fore.RED}[System] LLM failed to generate choices. Using fallbacks.{Style.RESET_ALL}")
     return ["Proceed forward.", "Examine my surroundings.", "Take a moment to decide."]
+    
+    
+def generate_single_choice(story_text, current_choices):
+    """
+    Surgical Choice Generator (Single).
+    Asks the AI to read the current scene and the existing choices, 
+    and provide exactly ONE new unique choice to replace a discarded one.
+    """
+    import sys
+    import requests
+    import re
+    import time
+    from colorama import Fore, Style
+    from config import ENGINE_CONFIG, PROMPTS
+    
+    print(f"{Style.DIM}Generating single replacement choice...{Style.RESET_ALL}")
+
+    sys_prompt = PROMPTS.get("SYS_SINGLE_CHOICE", "You are an interactive fiction engine. Output ONLY a JSON array containing one string.")
+    
+    choices_str = "\n".join([f"- {c}" for c in current_choices])
+    user_prompt = PROMPTS.get("USER_SINGLE_CHOICE", "SCENE:\n{story_text}\n\nAVOID THESE CHOICES:\n{current_choices}\n\nOutput ONLY a raw JSON array containing ONE new choice string.")
+    user_prompt = user_prompt.replace("{story_text}", story_text)
+    user_prompt = user_prompt.replace("{current_choices}", choices_str)
+
+    messages = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    headers = {"Content-Type": "application/json"}
+    if ENGINE_CONFIG.get("api_key", "").strip():
+        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+    
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        payload = {
+            "model": ENGINE_CONFIG.get("model", "loaded-model"),
+            "messages": messages,
+            "temperature": 0.7 + (attempt * 0.1), # Warm temp for creativity
+            "max_tokens": 50 
+        }
+
+        try:
+            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+            raw = response.json()['choices'][0]['message']['content'].strip()
+            
+            # Aggressively extract the single string from the array
+            array_match = re.search(r'\[([\s\S]*?)\]', raw)
+            if array_match:
+                quotes = re.findall(r'"([^"]+)"|\'([^\']+)\'', array_match.group(1))
+                for q in quotes:
+                    choice = q[0] if q[0] else q[1]
+                    if choice and len(choice) > 1:
+                        return choice.strip()
+                        
+            time.sleep(1)
+        except Exception:
+            time.sleep(1)
+            continue
+            
+    print(f"{Fore.RED}[System] LLM failed to generate a single choice.{Style.RESET_ALL}")
+    return None

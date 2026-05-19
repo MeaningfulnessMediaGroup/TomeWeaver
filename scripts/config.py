@@ -2,7 +2,7 @@
 TomeWeaver: Configuration and Environment Module
 ------------------------------------------------
 This module handles global path resolution, environment initialization, 
-and cross-platform console utilities for the TomeWeaver engine.
+prompt parsing, and cross-platform console utilities for the engine.
 """
 
 import re
@@ -20,6 +20,76 @@ from colorama import Fore, Style
 # Resolve the absolute path to the project root directory
 ROOT_DIR = Path(__file__).resolve().parent.parent
 API_CONFIGS_DIR = ROOT_DIR / "configs" / "API_configs"
+PROMPTS_FILE = ROOT_DIR / "configs" / "system_prompts.txt"
+
+
+# ---------------------------------------------------------
+# SYSTEM PROMPTS PARSER
+# ---------------------------------------------------------
+
+def load_system_prompts():
+    """
+    Parses the custom system_prompts.txt configuration file.
+    It completely ignores anything wrapped in ''' or \"\"\" to allow
+    for multi-line Python-style developer comments without breaking the prompts.
+    """
+    if not PROMPTS_FILE.exists():
+        raise FileNotFoundError(f"Critical Error: Missing '{PROMPTS_FILE.name}' in configs folder. Cannot load engine prompts.")
+        
+    prompts = {}
+    with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        
+    current_key = None
+    current_text = []
+    in_comment_block = False
+    comment_marker = None
+    
+    # Regex to catch the exact header pattern [PROMPT:KEY_NAME]
+    header_pattern = re.compile(r'^\[PROMPT:([A-Z0-9_]+)\]\s*$')
+
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check for start/end of comment blocks
+        if stripped in ["'''", '"""']:
+            if not in_comment_block:
+                in_comment_block = True
+                comment_marker = stripped
+            elif in_comment_block and stripped == comment_marker:
+                in_comment_block = False
+                comment_marker = None
+            continue
+            
+        # If we are inside a block comment, ignore the line completely
+        if in_comment_block:
+            continue
+            
+        # Check if the line is a new Prompt Header
+        match = header_pattern.match(stripped)
+        if match:
+            # Save the previous prompt (if any) before starting a new one
+            if current_key is not None:
+                prompts[current_key] = "".join(current_text).strip()
+                
+            current_key = match.group(1)
+            current_text = []
+            continue
+            
+        # Otherwise, append the line to the current prompt (preserving internal newlines)
+        if current_key is not None:
+            # We don't strip() here to preserve intentional line breaks and formatting
+            current_text.append(line)
+            
+    # Save the very last prompt in the file
+    if current_key is not None:
+        prompts[current_key] = "".join(current_text).strip()
+        
+    return prompts
+        
+        
+# Initialize the global dictionary so it's ready on boot
+PROMPTS = load_system_prompts()
 
 # ---------------------------------------------------------
 # API PROFILE UTILITIES
@@ -241,7 +311,6 @@ def create_boilerplate_files(adv_dir, mode):
         else:
             # Critical failure: The engine cannot run without instructions for the LLM
             raise FileNotFoundError(f"Critical Error: Missing template file '{default_prompt.name}' in the root directory. Cannot initialize new story.")
-            
             
 
 ENGINE_CONFIG = load_engine_config()

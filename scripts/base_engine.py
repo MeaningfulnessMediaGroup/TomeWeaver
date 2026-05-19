@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from colorama import Fore, Style
 
-from config import load_json_safely, ENGINE_CONFIG
+from config import load_json_safely, ENGINE_CONFIG, PROMPTS
 from llm import get_llm_response, generate_recap
 
 # ---------------------------------------------------------
@@ -415,12 +415,7 @@ class BaseEngine:
         
         self.backup_turn = self.history.pop(idx)
         
-        prompt = (
-            "EDIT MODE: Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. "
-            "Do NOT include meta-notes, director instructions, or outcomes. Keep them brief.\n"
-            "CRITICAL: Keep the 'story_text' EXACTLY the same.\n"
-            f"Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
-        )
+        prompt = PROMPTS.get("USER_REDO_CHOICES", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
         self.is_fix_mode = True
         
@@ -483,22 +478,10 @@ class BaseEngine:
             prev_story = f"PREVIOUS SCENE: {prev_turn.get('story_text', '')}\nACTION TAKEN: {prev_turn.get('player_choice', '')}"
 
         # 4. Construct High-Context Prompt
-        prompt = (
-            "EDIT MODE (EXPAND): You are a literary expansion agent. Your task is to take a short 'story_text' "
-            "and expand it into 3-5 rich, cinematic paragraphs.\n\n"
-            "--- WORLD CONTEXT ---\n"
-            f"{json.dumps(world_info, indent=2)}\n\n"
-            "--- NARRATIVE CONTEXT ---\n"
-            f"{prev_story}\n\n"
-            "--- TASK ---\n"
-            "Expand the 'story_text' in the Original JSON below. Use the World and Narrative context above to ensure "
-            "consistency in tone and continuity.\n"
-            "1. USE sensory details (textures, lighting, smells) and internal character emotions.\n"
-            "2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within the current scene.\n"
-            "3. CRITICAL: DO NOT introduce new items or characters not mentioned in the context.\n"
-            "4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.\n\n"
-            f"Original JSON to Expand:\n{json.dumps(self.backup_turn, indent=2)}"
-        )
+        prompt = PROMPTS.get("USER_EXPAND", "")
+        prompt = prompt.replace("{world_info}", json.dumps(world_info, indent=2))
+        prompt = prompt.replace("{prev_story}", prev_story)
+        prompt = prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         
         self.active_fix = prompt
         self.is_fix_mode = True
@@ -506,6 +489,7 @@ class BaseEngine:
         draft = self._generate_turn()
         if draft: self._apply_draft_inheritance(draft)
         return draft
+        
         
     def request_polish(self, turn_idx=None):
         """Endpoint: Generates a polished DRAFT. Supports historical turns."""
@@ -516,11 +500,25 @@ class BaseEngine:
         self.backup_turn_idx = idx
         print(f"{Style.DIM}Polishing Turn {idx} prose...{Style.RESET_ALL}")
         
-        prompt = (
-            "EDIT MODE (POLISH): Proofread and elevate the 'story_text' to professional novel quality. "
-            "Fix grammar and vocabulary. DO NOT change the plot or touch dialogue.\n"
-            f"Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
-        )
+        prompt = PROMPTS.get("USER_POLISH", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
+        self.active_fix = prompt
+        self.is_fix_mode = True
+        
+        draft = self._generate_turn()
+        if draft: self._apply_draft_inheritance(draft)
+        return draft
+
+
+    def request_condense(self, turn_idx=None):
+        """Endpoint: Generates a shortened DRAFT. Supports historical turns."""
+        if len(self.history) == 0: return None
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        
+        self.backup_turn = self.history.pop(idx)
+        self.backup_turn_idx = idx
+        print(f"{Style.DIM}Condensing Turn {idx} prose...{Style.RESET_ALL}")
+        
+        prompt = PROMPTS.get("USER_CONDENSE", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
         self.is_fix_mode = True
         
@@ -538,12 +536,15 @@ class BaseEngine:
         self.backup_turn = self.history.pop(idx)
         self.backup_turn_idx = idx
         
-        self.active_fix = f"EDIT MODE: Apply this fix: '{instruction}'. Original JSON:\n{json.dumps(self.backup_turn, indent=2)}"
+        fix_prompt = PROMPTS.get("USER_FIX", "")
+        fix_prompt = fix_prompt.replace("{instruction}", instruction)
+        self.active_fix = fix_prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.is_fix_mode = True
         
         draft = self._generate_turn()
         if draft: self._apply_draft_inheritance(draft)
         return draft
+
 
     def _apply_draft_inheritance(self, draft_turn):
         """STRICT INHERITANCE: Protects structural JSON metadata from AI hallucinations."""
@@ -556,6 +557,7 @@ class BaseEngine:
             if "player_choice" in self.backup_turn: draft_turn["player_choice"] = self.backup_turn["player_choice"]
             if "narrative_bridge" in self.backup_turn: draft_turn["narrative_bridge"] = self.backup_turn["narrative_bridge"]
                 
+                
     def request_reroll_draft(self):
         """Endpoint: Generates a new draft based on the currently active fix mode, WITHOUT popping history."""
         if not self.backup_turn: return None
@@ -563,6 +565,7 @@ class BaseEngine:
         draft = self._generate_turn()
         if draft: self._apply_draft_inheritance(draft)
         return draft
+
 
     def commit_draft(self, draft_turn):
         """Endpoint: Accepts the drafted turn and permanently saves it to history."""
@@ -582,6 +585,7 @@ class BaseEngine:
         if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         return draft_turn
 
+
     def cancel_draft(self):
         """Endpoint: Discards the draft and restores the original turn state."""
         if self.backup_turn:
@@ -594,6 +598,7 @@ class BaseEngine:
         self.backup_turn = None
         if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         return self.history[-1] if self.history else None
+
 
     def request_bridge_generation(self, turn_idx):
         """Endpoint: Manually asks the AI to generate a narrative bridge for a specific turn."""
@@ -608,6 +613,7 @@ class BaseEngine:
         print(f"{Style.DIM}Generating manual bridge for Turn {turn_idx}...{Style.RESET_ALL}")
         from llm import generate_narrative_bridge
         return generate_narrative_bridge(prev_turn, action, curr_turn)
+        
         
     # ---------------------------------------------------------
     # CORE API: UTILITIES
@@ -695,7 +701,7 @@ class BaseEngine:
         
         # --- CONTEXT OVERRIDE FOR FIX/POLISH ---
         if self.active_fix and self.is_fix_mode:
-            editor_sys = self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."
+            editor_sys = self.system_prompt_text + "\n\n" + PROMPTS.get("SYS_EDITOR", "")
             base_messages = [
                 {"role": "system", "content": editor_sys},
                 {"role": "user", "content": self.active_fix}
@@ -713,9 +719,9 @@ class BaseEngine:
             # Help the AI by telling it exactly what JSON syntax it broke
             active_messages = base_messages.copy()
             if attempt > 0 and err:
-                feedback = f"Your previous JSON was invalid. Error: {err}."
+                feedback = PROMPTS.get("FEEDBACK_INVALID_JSON", "").replace("{error}", str(err))
                 if "Expecting" in str(err) or "control character" in str(err).lower():
-                    feedback += " CRITICAL: Use \\\" for dialogue and \\n for new lines. Do NOT press Enter inside a JSON string."
+                    feedback += PROMPTS.get("FEEDBACK_CONTROL_CHAR", "")
                 active_messages.append({"role": "user", "content": f"{feedback} Please correct it."})
 
             turn_data, err, raw = get_llm_response(
@@ -770,17 +776,10 @@ class BaseEngine:
 
     def _auto_polish_pass(self, draft, prev_turn_obj, max_retries):
         """Silently upgrades the prose of a freshly generated turn."""
-        polish_prompt = (
-            "EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' "
-            "of the provided JSON to the quality of a published novel.\n"
-            "1. You MUST fix missing determiners, prepositions, and correct awkward phrasing.\n"
-            "2. You MUST enhance sentence flow, vocabulary, and descriptive imagery.\n"
-            "3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.\n"
-            "4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.\n"
-            f"Original JSON:\n{json.dumps(draft, indent=2)}"
-        )
+        polish_prompt = PROMPTS.get("USER_AUTO_POLISH", "").replace("{original_json}", json.dumps(draft, indent=2))
+        polish_sys = self.system_prompt_text + "\n\n" + PROMPTS.get("SYS_EDITOR", "")
         polish_msgs = [
-            {"role": "system", "content": self.system_prompt_text + "\n\nCRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above."},
+            {"role": "system", "content": polish_sys},
             {"role": "user", "content": polish_prompt}
         ]
         

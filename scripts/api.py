@@ -395,12 +395,11 @@ class TomeWeaverAPI:
         AI World Generator. Contacts the LLM to dynamically generate the world data,
         extracts the title, safely creates the folder, and populates the schema files.
         """
-        from config import ENGINE_CONFIG
+        from config import ENGINE_CONFIG, PROMPTS
         from llm import sanitize_json
         import requests, re, time
         
-        # Hardened prompt to prevent the AI from nesting the requested keys inside a "world" object
-        sys_prompt = "You are a master world-builder and interactive fiction designer. Output ONLY a flat JSON object matching the exact keys below. Do not nest them under a parent object."
+        sys_prompt = PROMPTS.get("SYS_WORLD_GEN", "")
         
         # 1. Build the strict JSON schema request dynamically based on user inputs
         schema = "{\n"
@@ -427,9 +426,13 @@ class TomeWeaverAPI:
             
         schema = schema.rstrip(",\n") + "\n}"
         
-        user_msg = f"MODE: {mode.upper()}\nUSER CONCEPT: '{prompt_text}'\n"
-        if title: user_msg += f"TITLE: {title}\n"
-        user_msg += f"\nTASK: Generate the game configuration using this EXACT JSON schema. Write highly detailed, creative content for the values:\n{schema}"
+        # Safe String Replacement to avoid JSON brace conflicts
+        title_str = f"TITLE: {title}\n" if title else ""
+        user_msg = PROMPTS.get("USER_WORLD_GEN", "")
+        user_msg = user_msg.replace("{mode}", mode.upper())
+        user_msg = user_msg.replace("{prompt_text}", prompt_text)
+        user_msg = user_msg.replace("{title}", title_str)
+        user_msg = user_msg.replace("{schema}", schema)
         
         headers = {"Content-Type": "application/json"}
         if ENGINE_CONFIG.get("api_key", "").strip():

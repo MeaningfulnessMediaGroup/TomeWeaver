@@ -447,6 +447,10 @@ class StoryTab(ctk.CTkFrame):
                             btn_exp.pack(side="left", padx=5)
                             Tooltip(btn_exp, "Add sensory depth to this scene.")
 
+                            btn_cond = ctk.CTkButton(dir_frame, text="✨ Condense", width=60, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_condense(target_idx))
+                            btn_cond.pack(side="left", padx=5)
+                            Tooltip(btn_cond, "Condense the prose to be shorter and punchier.")
+
                             btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(target_idx))
                             btn_pol.pack(side="left", padx=5)
                             Tooltip(btn_pol, "Fix grammar/style.")
@@ -573,13 +577,15 @@ class StoryTab(ctk.CTkFrame):
         header_frame.pack(fill="x", pady=(0, 5))
         ctk.CTkLabel(header_frame, text="Story Prose:", font=("Arial", 16, "bold")).pack(side="left")
         
-        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=80, fg_color="#9C27B0", hover_color="#7B1FA2", 
-                              command=lambda: [dialog.destroy(), self._trigger_polish(turn_idx)])
+        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=80, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: [dialog.destroy(), self._trigger_polish(turn_idx)])
         btn_p.pack(side="right", padx=5)
         Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow in this specific card.")
+
+        btn_c = ctk.CTkButton(header_frame, text="✨ Condense", width=80, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: [dialog.destroy(), self._trigger_condense(turn_idx)])
+        btn_c.pack(side="right", padx=5)
+        Tooltip(btn_c, "AI Edit: Make this prose shorter and punchier.")
         
-        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=80, fg_color="#00ACC1", hover_color="#00838F", 
-                              command=lambda: [dialog.destroy(), self._trigger_expansion(turn_idx)])
+        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=80, fg_color="#00ACC1", hover_color="#00838F", command=lambda: [dialog.destroy(), self._trigger_expansion(turn_idx)])
         btn_e.pack(side="right", padx=5)
         Tooltip(btn_e, "AI Expansion: Add sensory depth to this specific card.")
 
@@ -609,6 +615,44 @@ class StoryTab(ctk.CTkFrame):
                 entry.pack(side="left", fill="x", expand=True)
                 
                 if not self.engine.is_campaign:
+                    # --- INDIVIDUAL REROLL BUTTON ---
+                    btn_reroll = ctk.CTkButton(row, text="⟳", width=25, fg_color="#F57C00", hover_color="#E65100")
+                    btn_reroll.pack(side="left", padx=2)
+                    Tooltip(btn_reroll, "Generate a new action to replace this one.")
+                    
+                    def do_reroll(target_var=var, target_btn=btn_reroll):
+                        target_btn.configure(state="disabled", text="...")
+                        
+                        # Extract UI strings on the main thread safely before spawning the worker
+                        current_story = story_box.get("1.0", "end").strip()
+                        
+                        # Gather choices to avoid, stripping out empty strings and the UI placeholder
+                        existing_choices = [
+                            v.get().strip() for v in self.choice_rows 
+                            if v.get().strip() and v.get().strip() != "New action..."
+                        ]
+                        
+                        def worker():
+                            from llm import generate_single_choice
+                            new_choice = generate_single_choice(current_story, existing_choices)
+                            
+                            def update_ui():
+                                if new_choice:
+                                    target_var.set(new_choice)
+                                else:
+                                    from tkinter import messagebox
+                                    messagebox.showerror("Error", "Failed to generate a new choice. Check developer console.")
+                                target_btn.configure(state="normal", text="⟳")
+                            
+                            # Push UI update back to main thread
+                            self.after(0, update_ui)
+                            
+                        import threading
+                        threading.Thread(target=worker, daemon=True).start()
+                        
+                    btn_reroll.configure(command=do_reroll)
+                    
+                    # --- INDIVIDUAL DELETE BUTTON ---
                     btn_del = ctk.CTkButton(row, text="X", width=25, fg_color="#B71C1C", hover_color="#7F0000", 
                                             command=lambda idx=i: [turn["choices"].pop(idx), render_choice_list()])
                     btn_del.pack(side="left", padx=2)
@@ -890,6 +934,8 @@ class StoryTab(ctk.CTkFrame):
             # Special handling for retry loops
             if action_type == "expansion":
                 self._trigger_expansion()
+            elif action_type == "condense":
+                self._trigger_condense()
             else:
                 self._lock_ui(f"Rerolling {action_type} draft...")
                 def worker():
@@ -965,15 +1011,22 @@ class StoryTab(ctk.CTkFrame):
             draft = self.engine.request_expansion(turn_idx)
             self.after(0, lambda: self._show_draft_diff(draft, "expansion"))
         threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_condense(self, turn_idx=None):
+        self._lock_ui("Condensing turn prose...")
+        def worker():
+            draft = self.engine.request_condense(turn_idx)
+            self.after(0, lambda: self._show_draft_diff(draft, "condense"))
+        threading.Thread(target=worker, daemon=True).start()
         
-    def _trigger_fix(self):
+    def _trigger_fix(self, turn_idx=None):
         dialog = ctk.CTkInputDialog(text="Enter edit instruction (e.g., 'Make it raining'):", title="Director Fix")
         instruction = dialog.get_input()
         if not instruction: return
         
         self._lock_ui(f"Applying fix: {instruction[:15]}...")
         def worker():
-            draft = self.engine.request_fix(instruction)
+            draft = self.engine.request_fix(instruction, turn_idx)
             self.after(0, lambda: self._show_draft_diff(draft, "fix", instruction))
         threading.Thread(target=worker, daemon=True).start()
         

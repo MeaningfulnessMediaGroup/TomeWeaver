@@ -8,9 +8,10 @@ when objectives are met.
 
 import json
 import sys
+
 from colorama import Fore, Style
 from base_engine import BaseEngine
-from config import ENGINE_CONFIG, load_json_safely
+from config import ENGINE_CONFIG, load_json_safely, PROMPTS
 
 # ---------------------------------------------------------
 # CAMPAIGN ENGINE CLASS
@@ -74,27 +75,32 @@ class CampaignEngine(BaseEngine):
         This function acts as the "Director", dynamically assembling the world state, 
         current chapter goals, recent history, and strict formatting rules.
         """
-        # Retrieve the context window limit (how many past turns the AI remembers)
+        # Retrieve the context window limit (how many past turns the AI is allowed to remember)
         context_window = ENGINE_CONFIG.get("context_window", 6)
         
-        # Identify which chapter the player is currently in based on the target turn
+        # Identify the active chapter by searching backward through the chapters array.
+        # We look for the most recent chapter that has actually started.
         active_chapter = next((c for c in reversed(self.chapters) if c["start_turn"] is not None and c["start_turn"] <= target_turn), self.chapters[0])
         
-        # Clone the setup data so we can safely modify it for the prompt
+        # Clone the setup data so we can destructively modify it for the prompt without altering active memory
         active_setup = self.setup_data.copy()
         
-        # Identify the turns that actually contain player actions
+        # Filter history to only include turns where the player actually took an action
         completed_history = [t for t in self.history if t.get("player_choice") is not None]
           
-        # --- MEMORY OPTIMIZATION ---
-        # Once the player has made their first choice (Turn 1 completed),
-        # we stop sending the raw introduction/starting situations to save LLM tokens.
+        # ==========================================
+        # 0. MEMORY & TOKEN OPTIMIZATION
+        # ==========================================
+        # Once the player has made their first choice (Turn 1 completed), we stop sending 
+        # the raw introduction and setting blocks. The AI's context window will naturally 
+        # retain the setting, and dropping these static strings saves hundreds of tokens per turn.
         if len(completed_history) > 0:
             active_setup.pop("setting", None)
             active_setup.pop("introduction", None)
             active_setup.pop("starting_situation", None)
             
-        # Strip backend/mechanical keys from the world lore sent to the AI
+        # Strip backend/mechanical keys from the world lore. The AI only needs narrative 
+        # information, so we hide the engine's internal configuration flags from it.
         active_setup.pop("plot_outline", None)         
         active_setup.pop("mode", None) 
         active_setup.pop("track_inventory", None)
@@ -103,11 +109,12 @@ class CampaignEngine(BaseEngine):
         active_setup.pop("prologue_style", None)
         active_setup.pop("epilogue_style", None)
         active_setup.pop("inventory_dictionary", None)
-        # Note: We keep "title", "tone", and "main_character" forever to maintain consistency
+        # Note: We keep "title", "tone", and "main_character" forever to maintain narrative consistency.
         
         # ==========================================
-        # 1. CONSTRUCT THE SYSTEM PROMPT
+        # 1. CONSTRUCT THE SYSTEM PROMPT (The "God Rules")
         # ==========================================
+        # This forms the absolute baseline instructions for the LLM.
         system_content = self.system_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         
@@ -118,77 +125,86 @@ class CampaignEngine(BaseEngine):
         outline = self.setup_data.get("plot_outline", [])
         is_final_chapter = (active_chapter['chapter_number'] == len(outline))
         
+        # Dynamically append rule fragments based on engine configurations
         if is_final_chapter:
-            system_content += "\nNOTE: This is the FINAL CHAPTER of the campaign. When the GOAL is met, you MUST apply Rule #8 (THE FINALE) to conclude the story."
+            system_content += "\n\n" + PROMPTS.get("FRAG_FINAL_CHAPTER", "")
 
-        system_content += "\n\nCRITICAL STATE RULE:\nThe JSON keys 'location', 'inventory_and_state', and 'chapter_goal_achieved' MUST reflect the world state at the VERY END of your story text.\n"
+        system_content += "\n\n" + PROMPTS.get("FRAG_STATE_RULE", "")
 
         if self.track_inventory:
-            system_content += "\nINVENTORY & STATE TRACKING:\nYou must track the protagonist's items, physical health, and active statuses. CRITICAL: Your JSON output MUST include the 'inventory_and_state' key!\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_INVENTORY", "")
 
         if self.can_die:
-            system_content += "\nMORTALITY & GAME OVER:\nThe player is not invincible. If they make a fatal mistake, you MUST explicitly describe their gruesome and final death in the story_text. ONLY IF the character is explicitly dead, set 'is_game_over': true.\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_CAN_DIE", "")
         else:
-            system_content += "\nFAIL FORWARD (NO DEATH):\nThe protagonist CANNOT be killed. If the player makes a terrible mistake, they must survive, but you must inflict severe narrative consequences.\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_NO_DIE", "")
 
         # ==========================================
-        # 2. EVALUATE CURRENT STATE & REQUIRED KEYS
+        # 2. EVALUATE STATE & REQUIRED KEYS
         # ==========================================
+        # Determine exactly which JSON keys the AI must output this turn to prevent engine crashes.
         is_epilogue = completed_history and completed_history[-1].get("player_choice") == "Conclude the Story"
         
-        # Build the dynamic list of required JSON keys based on active settings
         req_keys = ["'goal_progress' (string)"]
         if self.track_inventory: req_keys.append("'inventory_and_state' (string)")
         if self.can_die or is_epilogue: req_keys.append("'is_game_over' (boolean)")
-        req_str = f" CRITICAL: Your JSON MUST include the following keys: {', '.join(req_keys)}." if req_keys else ""
+        
+        req_str = ""
+        if req_keys:
+            req_str = "\n" + PROMPTS.get("FRAG_REQ_KEYS", "").replace("{keys}", ", ".join(req_keys))
 
-        # Inject Golden Path logic if Test Mode is active
+        # Inject Golden Path logic if Developer Test Mode is active
         test_rule = ""
         if getattr(self, 'is_test_mode', False) and not is_epilogue:
-            test_rule = "\n*** TEST MODE ACTIVE ***: The FIRST choice in your 'choices' array (Choice #1) MUST ALWAYS be the single most optimal, direct action that propels the player toward achieving the GOAL."
+            test_rule = "\n\n" + PROMPTS.get("FRAG_TEST_MODE", "")
 
         # ==========================================
-        # 3. DEFINE THE INSTRUCTION BLOCK
+        # 3. DEFINE THE INSTRUCTION BLOCK (The Immediate Task)
         # ==========================================
+        # Here we determine what exactly we want the AI to do right now (Start, Play, Edit, or End).
+        
         if is_epilogue:
             # --- EPILOGUE HANDLING ---
-            system_content += "\n\nEPILOGUE MODE:\nThe campaign is over. The protagonist has survived and won! You MUST set 'is_game_over': true in your JSON.\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_EPILOGUE_MODE", "")
             
             if getattr(self, 'epilogue_content', ''):
-                # Epilogue Expansion Mode: Embellish author's notes
-                base_instruction = f"Generate the next turn in JSON format.\nCRITICAL OVERRIDE: The campaign's final goal has been achieved! Expand the following brief epilogue into 5-8 paragraphs of satisfying prose: '{self.epilogue_content}'\nYou MUST finish the 'story_text' paragraph with: *** THE END. ***\nCRITICAL: Set 'chapter_goal_achieved' to true and 'is_game_over' to true.{req_str} Provide meta-options in choices like 'Restart Game', 'Export Story', and 'Quit'."
+                # Epilogue Expansion Mode: Embellish author's notes into prose
+                base_instruction = PROMPTS.get("FRAG_EPILOGUE_EXPAND", "")
+                base_instruction = base_instruction.replace("{epilogue_content}", self.epilogue_content)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
             else:
-                # Epilogue Pure Generation Mode: Let AI imagine the ending
-                base_instruction = f"Generate the next turn in JSON format.\nCRITICAL OVERRIDE: The campaign's final goal has been achieved! Write a satisfying epilogue. You MUST finish the 'story_text' paragraph with: *** THE END. ***\nCRITICAL: Set 'chapter_goal_achieved' to true and 'is_game_over' to true.{req_str} Provide meta-options in choices like 'Restart Game', 'Export Story', and 'Quit'."
+                # Epilogue Pure Generation Mode: Let AI imagine the ending entirely
+                base_instruction = PROMPTS.get("FRAG_EPILOGUE_GENERATE", "").replace("{req_str}", req_str)
         else:
             # --- NORMAL TURN HANDLING ---
             win_choice = "Conclude the Story" if is_final_chapter else "Complete the Chapter"
             last_action = completed_history[-1]['player_choice'] if completed_history else ""
             
             if last_action.startswith("EXPAND:"):
+                # The user used the Director's Expand tool
                 expand_txt = last_action[7:].strip()
-                base_instruction = (
-                    f"CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of cinematic, rich prose:\n"
-                    f"'{expand_txt}'\n\n"
-                    f"Provide 3 to 6 choices.{test_rule}{req_str}\n\n"
-                    f"*** CRITICAL GOAL CHECK ***:\n"
-                    f"1. In 'goal_progress', list every requirement of the GOAL ('{goal_text}') and mark it as [DONE] or [PENDING].\n"
-                    f"2. If and ONLY IF every part of the goal is marked [DONE], set 'chapter_goal_achieved' to true. Otherwise, it MUST be false.\n"
-                    f"3. If achieved, choices MUST only be ['{win_choice}'].\n"
-                )
+                base_instruction = PROMPTS.get("FRAG_CAMPAIGN_EXPAND", "")
+                base_instruction = base_instruction.replace("{expand_txt}", expand_txt)
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
+                base_instruction = base_instruction.replace("{goal_text}", goal_text)
+                base_instruction = base_instruction.replace("{win_choice}", win_choice)
             else:
-                base_instruction = (
-                    f"Generate the next turn in JSON format. Write 3 to 5 paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}\n\n"
-                    f"*** CRITICAL GOAL CHECK ***:\n"
-                    f"1. In 'goal_progress', list every requirement of the GOAL ('{goal_text}') and mark it as [DONE] or [PENDING].\n"
-                    f"2. If and ONLY IF every part of the goal is marked [DONE], set 'chapter_goal_achieved' to true. Otherwise, it MUST be false.\n"
-                    f"3. If achieved, choices MUST only be ['{win_choice}'].\n"
-                )
+                # Standard gameplay response
+                base_instruction = PROMPTS.get("FRAG_CAMPAIGN_TURN", "")
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
+                base_instruction = base_instruction.replace("{goal_text}", goal_text)
+                base_instruction = base_instruction.replace("{win_choice}", win_choice)
 
             # --- COLD OPEN OVERRIDE (Chapter Transitions) ---
+            # If the timeline target matches a new chapter's start, force the AI to write an establishing scene.
             p_style = self.setup_data.get("narrative", {}).get("prologue", "expand").lower()
             if active_chapter.get("start_turn") == target_turn and (target_turn > 1 or p_style == "none"):
-                base_instruction = f"CRITICAL OVERRIDE: Begin Chapter {active_chapter['chapter_number']}: {active_chapter['title']}. Write a smooth introductory scene establishing the new setting and goal. Provide 3 to 6 choices. CRITICAL: You MUST set 'chapter_goal_achieved' to false for this introductory turn!{req_str}"
+                base_instruction = PROMPTS.get("FRAG_CAMPAIGN_COLD_OPEN", "")
+                base_instruction = base_instruction.replace("{chapter_number}", str(active_chapter['chapter_number']))
+                base_instruction = base_instruction.replace("{chapter_title}", active_chapter['title'])
+                base_instruction = base_instruction.replace("{req_str}", req_str)
 
         # ==========================================
         # 4. ASSEMBLE HISTORY & MESSAGES
@@ -200,27 +216,24 @@ class CampaignEngine(BaseEngine):
             # --- PROLOGUE HANDLING (Turn 0) ---
             first_chap_title = active_chapter.get('title', 'Chapter 1')
             if getattr(self, 'prologue_content', ''):
-                # Prologue Expansion Mode
-                start_instruction = (
-                    f"PROLOGUE MODE: Expand the following brief prologue into 5-8 paragraphs of cinematic, rich prose: '{self.prologue_content}'\n"
-                    f"CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {first_chap_title}']. Set 'chapter_goal_achieved' to false."
-                )
+                start_instruction = PROMPTS.get("FRAG_PROLOGUE_EXPAND", "")
+                start_instruction = start_instruction.replace("{prologue_content}", self.prologue_content)
+                start_instruction = start_instruction.replace("{chapter_title}", first_chap_title)
             else:
-                # Prologue Pure Generation Mode
-                start_instruction = (
-                    f"PROLOGUE MODE: Generate a sweeping, atmospheric introduction (5-8 paragraphs) for this campaign. "
-                    f"CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {first_chap_title}']. Set 'chapter_goal_achieved' to false."
-                )
+                start_instruction = PROMPTS.get("FRAG_PROLOGUE_GENERATE", "").replace("{chapter_title}", first_chap_title)
             
             system_content += f"\n\nINITIAL SETTING: {active_chapter.get('setting', '')}\n"
             messages = [{"role": "system", "content": system_content}]
+            
+            # Use self.active_fix if the user triggered an Editor override (Polish/Fix)
             messages.append({"role": "user", "content": self.active_fix if self.active_fix else start_instruction})
 
         else:
-            # --- NORMAL GAMEPLAY OR SKIP-PROLOGUE ---
+            # --- NORMAL GAMEPLAY (Context Window Splicing) ---
             messages = [{"role": "system", "content": system_content}]
             if completed_history:
-                # Assemble the rolling context window
+                # Build the sliding window. We inject strict structural markers [Loc:] and | Inv: 
+                # so the AI learns to associate the narrative with the changing state data.
                 history_text = "RECENT HISTORY:\n"
                 for turn in completed_history[-context_window:]:
                     loc = turn.get('location', 'Unknown')
@@ -228,23 +241,22 @@ class CampaignEngine(BaseEngine):
                     goal_prog = turn.get('goal_progress', '')
                     prog_text = f" | Progress Checklist: {goal_prog}" if goal_prog else ""
                     history_text += f"Turn {turn['turn']} [Loc: {loc}{inv_text}{prog_text}]:\nStory: {turn['story_text']}\nPlayer Action: {turn['player_choice']}\n\n"
+                
                 messages.append({"role": "user", "content": history_text + (self.active_fix if self.active_fix else base_instruction)})
             else:
-                # Failsafe if history gets wiped
+                # Failsafe if history gets completely wiped but it's not Turn 0
                 messages.append({"role": "user", "content": self.active_fix if self.active_fix else base_instruction})
 
         # ==========================================
-        # 5. INJECT DIRECTOR'S FINAL REMINDER
+        # 5. EXPLOIT RECENCY BIAS (The Director's Note)
         # ==========================================
-        final_reminder = (
-            "\n\n[DIRECTOR'S NOTE]: \n"
-            "- Write 3-5 cinematic paragraphs in 'story_text'.\n"
-            "- Provide 3-6 choices in the 'choices' array (Max 15 words each).\n"
-            "- JSON SAFETY: Use \\n for paragraph breaks. Use \\\" for dialogue quotes. NEVER use raw carriage returns inside the JSON object.\n"
-            "- CRITICAL: Output the JSON object and NOTHING ELSE."
-        )
-        messages[-1]["content"] += final_reminder
+        # LLMs suffer heavily from "recency bias"—they pay the most attention to the very last sentences 
+        # they read. By appending the strict JSON formatting rules to the absolute bottom of the user message,
+        # we drastically reduce syntax hallucinations and missing choices.
+        messages[-1]["content"] += "\n\n" + PROMPTS.get("FRAG_DIRECTOR_NOTE", "")
+        
         return messages
+        
         
     # ---------------------------------------------------------
     # STATE PROCESSING HOOKS

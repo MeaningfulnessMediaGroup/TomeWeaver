@@ -7,11 +7,13 @@ enforcing a strict plot outline.
 """
 
 import json
+
 from colorama import Fore, Style
 from base_engine import BaseEngine
-from config import ENGINE_CONFIG
+from config import ENGINE_CONFIG, PROMPTS
 
 class SandboxEngine(BaseEngine):
+
     def __init__(self, adv_dir, setup_data):
         super().__init__(adv_dir, setup_data)
         self.is_campaign = False
@@ -22,17 +24,31 @@ class SandboxEngine(BaseEngine):
     # ---------------------------------------------------------
     
     def build_messages(self, target_turn):
+        """
+        Constructs the Prompt payload (Messages array) to be sent to the LLM.
+        Operates similarly to the Campaign engine, but tailored for open-ended 
+        Sandbox play by supporting manual Director overrides and removing goal constraints.
+        """
+        # Retrieve context window limit
         context_window = ENGINE_CONFIG.get("context_window", 6)
+        
+        # Identify the active chapter
         active_chapter = next((c for c in reversed(self.chapters) if c.get("start_turn") is not None and c["start_turn"] <= target_turn), self.chapters[0])
         
+        # Clone setup data for destructive formatting
         active_setup = self.setup_data.copy()
         completed_history = [t for t in self.history if t.get("player_choice") is not None]
           
+        # ==========================================
+        # 0. MEMORY & TOKEN OPTIMIZATION
+        # ==========================================
+        # Strip static intro text after Turn 1 to prevent context bloat
         if len(completed_history) > 0:
             active_setup.pop("setting", None)
             active_setup.pop("introduction", None)
             active_setup.pop("starting_situation", None)
             
+        # Strip backend engine flags
         active_setup.pop("plot_outline", None)         
         active_setup.pop("mode", None) 
         active_setup.pop("track_inventory", None)
@@ -40,74 +56,92 @@ class SandboxEngine(BaseEngine):
         active_setup.pop("allow_cheats", None)
         active_setup.pop("inventory_dictionary", None)
         
+        # ==========================================
+        # 1. CONSTRUCT THE SYSTEM PROMPT
+        # ==========================================
         system_content = self.system_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
+        
+        # In Sandbox mode, users can manually trigger chapter overrides (like teleporting the player)
         if active_chapter.get('setting'): system_content += f"Setting Override: {active_chapter['setting']}\n"
         if active_chapter.get('pov'): system_content += f"POV Override: {active_chapter['pov']}\n"
 
+        # Append dynamic rule fragments
         if self.track_inventory:
-            system_content += "\n\nINVENTORY & STATE TRACKING:\nYou must track the protagonist's items, physical health, and active statuses. CRITICAL: Your JSON output MUST include the 'inventory_and_state' key!\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_INVENTORY", "")
 
         if self.can_die:
-            system_content += "\n\nMORTALITY & GAME OVER:\nThe player is not invincible. If they make a fatal mistake, you MUST explicitly describe their gruesome death. ONLY IF dead, set 'is_game_over': true.\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_CAN_DIE", "")
         else:
-            system_content += "\n\nFAIL FORWARD (NO DEATH):\nThe protagonist CANNOT be killed. If they make a terrible mistake, they must survive, but with severe narrative consequences.\n"
+            system_content += "\n\n" + PROMPTS.get("FRAG_NO_DIE", "")
         
+        # ==========================================
+        # 2. EVALUATE REQUIRED KEYS
+        # ==========================================
         req_keys = []
         if self.track_inventory: req_keys.append("'inventory_and_state' (string)")
         if self.can_die: req_keys.append("'is_game_over' (boolean)")
-        req_str = f" CRITICAL: Your JSON MUST include the following keys: {', '.join(req_keys)}." if req_keys else ""
+        
+        req_str = ""
+        if req_keys:
+            req_str = "\n" + PROMPTS.get("FRAG_REQ_KEYS", "").replace("{keys}", ", ".join(req_keys))
         
         test_rule = ""
         if getattr(self, 'is_test_mode', False):
-            test_rule = "\n*** TEST MODE ACTIVE ***: The FIRST choice in your 'choices' array (Choice #1) MUST ALWAYS be the single most optimal, direct action that propels the plot forward the fastest."
+            test_rule = "\n\n" + PROMPTS.get("FRAG_TEST_MODE", "")
         
+        # ==========================================
+        # 3. DEFINE THE INSTRUCTION BLOCK
+        # ==========================================
         p_style = self.setup_data.get("narrative", {}).get("prologue", "expand").lower()
         is_prologue = (len(self.history) == 0) and (p_style != "none")
 
         if is_prologue:
+            # --- PROLOGUE HANDLING ---
             first_chap_title = active_chapter.get('title', 'Chapter 1')
             system_content += f"\n\nINITIAL SETTING: {self.setup_data.get('setting', '')}\nSITUATION: {self.setup_data.get('starting_situation', '')}\n"
             messages = [{"role": "system", "content": system_content}]
             
             if getattr(self, 'prologue_content', ""):
-                start_instruction = (
-                    f"PROLOGUE OVERRIDE: Expand the following author notes into 5-8 paragraphs of rich, descriptive prose:\n'{self.prologue_content}'\n"
-                    f"Establishing the scene. CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {first_chap_title}']."
-                )
+                start_instruction = PROMPTS.get("FRAG_SANDBOX_PROLOGUE_EXPAND", "")
+                start_instruction = start_instruction.replace("{prologue_content}", self.prologue_content)
+                start_instruction = start_instruction.replace("{chapter_title}", first_chap_title)
             else:
-                start_instruction = (
-                    f"PROLOGUE OVERRIDE: Generate an atmospheric opening narrative (5-8 paragraphs) based on the INITIAL SETTING and SITUATION. "
-                    f"CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {first_chap_title}']."
-                )
+                start_instruction = PROMPTS.get("FRAG_SANDBOX_PROLOGUE_GENERATE", "").replace("{chapter_title}", first_chap_title)
+                
             messages.append({"role": "user", "content": self.active_fix if self.active_fix else start_instruction})
 
         else:
+            # --- NORMAL TURN HANDLING ---
             last_action = completed_history[-1]['player_choice'] if completed_history else ""
             
             if last_action.startswith("EXPAND:"):
+                # Expansion Tool (Director Override)
                 expand_txt = last_action[7:].strip()
-                base_instruction = (
-                    f"CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of rich, descriptive prose:\n"
-                    f"'{expand_txt}'\n"
-                    f"*** MANDATORY RULES ***:\n"
-                    f"1. Write 3 to 5 detailed paragraphs.\n"
-                    f"2. Provide 3 to 6 choices.\n"
-                    f"3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}"
-                )
+                base_instruction = PROMPTS.get("FRAG_SANDBOX_EXPAND", "")
+                base_instruction = base_instruction.replace("{expand_txt}", expand_txt)
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
             else:
-                base_instruction = (
-                    f"Based on the latest action, generate the next turn in JSON format.\n"
-                    f"*** MANDATORY RULES ***:\n"
-                    f"1. Write 3 to 5 detailed paragraphs.\n"
-                    f"2. Provide 3 to 6 choices.\n"
-                    f"3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}"
-                )
+                # Standard Response
+                base_instruction = PROMPTS.get("FRAG_SANDBOX_TURN", "")
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
             
+            # --- MANUAL CHAPTER OVERRIDE ---
+            # If the user triggered the "New Chapter" wizard in the UI, force the AI to do a cold open
             if active_chapter.get("start_turn") == target_turn and target_turn > 1:
-                base_instruction = f"CRITICAL OVERRIDE: Begin Chapter {active_chapter['chapter_number']}: {active_chapter['title']}. Write a smooth introductory scene establishing the setting. Do not conclude anything. Provide 3 to 6 choices.{test_rule}{req_str}"
-                if active_chapter.get('time'): base_instruction += f" Time jump: {active_chapter['time']}."
+                time_jump = f" Time jump: {active_chapter['time']}." if active_chapter.get('time') else ""
+                base_instruction = PROMPTS.get("FRAG_SANDBOX_COLD_OPEN", "")
+                base_instruction = base_instruction.replace("{chapter_number}", str(active_chapter['chapter_number']))
+                base_instruction = base_instruction.replace("{chapter_title}", active_chapter['title'])
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
+                base_instruction = base_instruction.replace("{time_jump}", time_jump)
 
+            # ==========================================
+            # 4. ASSEMBLE HISTORY & MESSAGES
+            # ==========================================
             messages = [{"role": "system", "content": system_content}]
             
             if completed_history:
@@ -117,6 +151,8 @@ class SandboxEngine(BaseEngine):
                     inv_text = f" | Inv: {turn.get('inventory_and_state', '')}" if self.track_inventory else ""
                     history_text += f"Turn {turn['turn']}[Loc: {loc}{inv_text}]:\nStory: {turn['story_text']}\n"
                     
+                    # Highlight manual UI overrides so the AI understands they are absolute commands,
+                    # not just something the character 'said' or 'did'.
                     action = turn['player_choice']
                     if action.lower().startswith(("setting:", "pov:", "time:", "scene:", "director:", "jump:", "wrap up")):
                         history_text += f"DIRECTOR INSTRUCTION: {action}\n\n"
@@ -127,17 +163,14 @@ class SandboxEngine(BaseEngine):
             else:
                 messages.append({"role": "user", "content": self.active_fix if self.active_fix else base_instruction})
 
-        final_reminder = (
-            "\n\n[DIRECTOR'S NOTE]: \n"
-            "- Layer Sensory and Internal details in 'story_text' (3-5 paragraphs).\n"
-            "- Provide 3-6 varied choices (Max 15 words each).\n"
-            "- Focus choices on player INTENT (e.g., 'Search for...', 'Attempt to...').\n"
-            "- JSON SAFETY: Use \\n for paragraph breaks. Use \\\" for dialogue quotes. NEVER use raw carriage returns inside the JSON object.\n"
-            "- CRITICAL: Output the JSON object and NOTHING ELSE."
-        )
-        messages[-1]["content"] += final_reminder
-        return messages
+        # ==========================================
+        # 5. EXPLOIT RECENCY BIAS (The Director's Note)
+        # ==========================================
+        # Enforce strict JSON formatting directly above where the AI will begin writing.
+        messages[-1]["content"] += "\n\n" + PROMPTS.get("FRAG_SANDBOX_DIRECTOR_NOTE", "")
         
+        return messages
+
     # ---------------------------------------------------------
     # HEADLESS API ENDPOINT: MANUAL CHAPTER WIZARD
     # ---------------------------------------------------------
