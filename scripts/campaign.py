@@ -85,8 +85,13 @@ class CampaignEngine(BaseEngine):
         # Clone the setup data so we can destructively modify it for the prompt without altering active memory
         active_setup = self.setup_data.copy()
         
-        # Filter history to only include turns where the player actually took an action
-        completed_history = [t for t in self.history if t.get("player_choice") is not None]
+        # Filter history to only include turns where the player took an action.
+        # CRITICAL: Exclude the turn currently being edited so the LLM doesn't feed on its own unpolished text.
+        edit_idx = getattr(self, 'backup_turn_idx', -1)
+        completed_history = [
+            t for i, t in enumerate(self.history) 
+            if t.get("player_choice") is not None and i != edit_idx
+        ]
           
         # ==========================================
         # 0. MEMORY & TOKEN OPTIMIZATION
@@ -240,7 +245,12 @@ class CampaignEngine(BaseEngine):
                     inv_text = f" | Inv: {turn.get('inventory_and_state', '')}" if self.track_inventory else ""
                     goal_prog = turn.get('goal_progress', '')
                     prog_text = f" | Progress Checklist: {goal_prog}" if goal_prog else ""
-                    history_text += f"Turn {turn['turn']} [Loc: {loc}{inv_text}{prog_text}]:\nStory: {turn['story_text']}\nPlayer Action: {turn['player_choice']}\n\n"
+                    
+                    # Inject the Narrative Bridge before the story prose if it exists
+                    bridge = turn.get('narrative_bridge', '')
+                    bridge_text = f"Transition: {bridge}\n" if bridge and bridge not in ["[OK]", "[FAILED]"] else ""
+                    
+                    history_text += f"Turn {turn['turn']} [Loc: {loc}{inv_text}{prog_text}]:\n{bridge_text}Story: {turn['story_text']}\nPlayer Action: {turn['player_choice']}\n\n"
                 
                 messages.append({"role": "user", "content": history_text + (self.active_fix if self.active_fix else base_instruction)})
             else:

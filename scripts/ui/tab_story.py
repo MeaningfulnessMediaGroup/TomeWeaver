@@ -241,17 +241,6 @@ class StoryTab(ctk.CTkFrame):
         # 3. Unlock the UI explicitly (Resets all states)
         self._unlock_ui("Ready.")
         
-        # 4. THE RESUME HOOK
-        # Must execute AFTER the cards are rendered and unlocked, so it can re-lock the UI 
-        # correctly and keep it locked while the LLM generates the missing turn.
-        last_turn = self.engine.history[-1]
-        if last_turn.get("player_choice") is not None:
-            self._lock_ui("Resuming interrupted generation...")
-            def worker():
-                action_to_resume = last_turn["player_choice"]
-                self.engine.submit_action(action_to_resume)
-                self.after(0, self.refresh_timeline)
-            threading.Thread(target=worker, daemon=True).start()
         
     def _calculate_inventory_state(self, up_to_idx):
         """Rebuilds the current inventory state by parsing history up to the target index."""
@@ -1069,12 +1058,35 @@ class StoryTab(ctk.CTkFrame):
         
     def _async_init(self):
         """Runs the Turn 1 / Prologue startup logic in the background."""
-        try: self.engine.initialize_game()
-        except Exception as e: self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))
-        finally: self.after(0, self.refresh_timeline)
+        try: 
+            self.engine.initialize_game()
+        except Exception as e: 
+            self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))
+            
+        def on_init_complete():
+            self.refresh_timeline()
+            
+            # THE RESUME HOOK
+            # Catches interrupted sessions immediately on launch without firing during normal gameplay
+            if self.engine.history:
+                last_turn = self.engine.history[-1]
+                if last_turn.get("player_choice") is not None:
+                    self._lock_ui("Resuming interrupted generation...")
+                    def worker():
+                        action_to_resume = last_turn["player_choice"]
+                        self.engine.submit_action(action_to_resume)
+                        self.after(0, self.refresh_timeline)
+                    import threading
+                    threading.Thread(target=worker, daemon=True).start()
+
+        self.after(0, on_init_complete)
 
     def _lock_ui(self, status_msg):
         """Disables all input controls while the AI is generating."""
+        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
+            from colorama import Style
+            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
+            
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="disabled")
         self.text_input.configure(state="disabled")
@@ -1094,6 +1106,10 @@ class StoryTab(ctk.CTkFrame):
 
     def _unlock_ui(self, status_msg):
         """Restores interactivity after an AI generation completes."""
+        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
+            from colorama import Style
+            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
+            
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="normal")
         self.text_input.configure(state="normal")

@@ -37,7 +37,11 @@ class SandboxEngine(BaseEngine):
         
         # Clone setup data for destructive formatting
         active_setup = self.setup_data.copy()
-        completed_history = [t for t in self.history if t.get("player_choice") is not None]
+        edit_idx = getattr(self, 'backup_turn_idx', -1)
+        completed_history = [
+            t for i, t in enumerate(self.history) 
+            if t.get("player_choice") is not None and i != edit_idx
+        ]
           
         # ==========================================
         # 0. MEMORY & TOKEN OPTIMIZATION
@@ -149,7 +153,11 @@ class SandboxEngine(BaseEngine):
                 for turn in completed_history[-context_window:]:
                     loc = turn.get('location', 'Unknown')
                     inv_text = f" | Inv: {turn.get('inventory_and_state', '')}" if self.track_inventory else ""
-                    history_text += f"Turn {turn['turn']}[Loc: {loc}{inv_text}]:\nStory: {turn['story_text']}\n"
+                    
+                    bridge = turn.get('narrative_bridge', '')
+                    bridge_text = f"Transition: {bridge}\n" if bridge and bridge not in ["[OK]", "[FAILED]"] else ""
+                    
+                    history_text += f"Turn {turn['turn']}[Loc: {loc}{inv_text}]:\n{bridge_text}Story: {turn['story_text']}\n"
                     
                     # Highlight manual UI overrides so the AI understands they are absolute commands,
                     # not just something the character 'said' or 'did'.

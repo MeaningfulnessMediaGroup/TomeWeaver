@@ -191,6 +191,11 @@ class BaseEngine:
     def get_next_turn_number(self):
         """Returns the next sequential turn number based on the history ledger."""
         if not self.history: return 0
+        
+        # If we are editing a historical turn, return that specific turn's number
+        if hasattr(self, 'backup_turn_idx'):
+            return self.history[self.backup_turn_idx].get("turn", self.backup_turn_idx + 1)
+            
         try: return int(self.history[-1].get("turn", 0)) + 1
         except (ValueError, TypeError): return len(self.history)
 
@@ -331,8 +336,6 @@ class BaseEngine:
         if not self.history: return None
         
         # --- META-CHOICE INTERCEPTOR ---
-        # If the GUI blindly passes back one of the Engine's Game Over / Victory buttons,
-        # we intercept it here to prevent the AI from generating a story about the UI.
         pc_exact = str(player_choice).strip()
         if pc_exact == "Restart Game": return self.restart_campaign()
         if pc_exact.startswith("Undo (Cheat Death"): return self.undo()
@@ -344,6 +347,7 @@ class BaseEngine:
             player_choice = p_choice
             
         log_event(self.adv_dir, f"Player Action [Turn {len(self.history)}]: {player_choice}")
+        print(f"\n{Fore.CYAN}▶ Action Submitted: '{player_choice}'{Style.RESET_ALL}")
 
         # Update Chapter Markers if jumping
         if player_choice.startswith("Start Chapter:"):
@@ -357,22 +361,22 @@ class BaseEngine:
         self.history[-1]["player_choice"] = player_choice
         self.save_state()
 
-        # Auto Narrative Bridge background hook: Render gap before generating next turn
+        # Auto Narrative Bridge background hook
         if ENGINE_CONFIG.get("auto_narrative_bridge", False) and len(self.history) >= 1:
             self._generate_bridge_for_latest_action()
 
         print(f"{Style.DIM}Generating turn...{Style.RESET_ALL}")
         
-        # Check if the player choice triggered a bypass (like "Conclude the Story")
         bypass = self._check_startup_bypasses()
         if bypass:
             self._process_valid_turn(bypass)
+            print(f"{Fore.GREEN}✔ Turn {bypass['turn']} generated successfully (Bypass).{Style.RESET_ALL}")
             return bypass
 
-        # Standard generation route
         turn_data = self._generate_turn()
         if turn_data:
             self._process_valid_turn(turn_data)
+            print(f"{Fore.GREEN}✔ Turn {turn_data['turn']} generated successfully.{Style.RESET_ALL}")
         return turn_data
 
 
@@ -389,31 +393,49 @@ class BaseEngine:
         if len(self.history) == 0: return None
         
         log_event(self.adv_dir, "Command: REDO (User destructively rerolled turn)")
+        print(f"\n{Fore.CYAN}▶ Action: Destructive Redo{Style.RESET_ALL}")
         print(f"{Style.DIM}Generating alternative version...{Style.RESET_ALL}")
         
-        # 1. Completely discard the current turn
-        self.history.pop()
+        # 1. Pop the old turn, but save its Narrative Bridge
+        old_turn = self.history.pop()
         self.save_state()
         
-        # 2. Generate a brand new turn from scratch (NO draft inheritance)
+        existing_bridge = old_turn.get("narrative_bridge", "")
+        
+        # INJECT TEMPORARILY: Seamlessly attach the bridge to the previous turn's text
+        # The architecture doesn't even need to know it's a bridge; the AI just reads it as story context.
+        if existing_bridge and existing_bridge not in ["[OK]", "[FAILED]"] and self.history:
+            original_story = self.history[-1].get("story_text", "")
+            self.history[-1]["story_text"] = f"{original_story} {existing_bridge}"
+        
+        # 2. Generate the new turn (runs the full standard creative pipeline at 0.8 Temp)
         turn_data = self._generate_turn()
         
-        # 3. Commit it automatically
+        # RESTORE: Clean up the temporary injection so it doesn't pollute the save file
+        if existing_bridge and existing_bridge not in ["[OK]", "[FAILED]"] and self.history:
+            self.history[-1]["story_text"] = original_story
+            
+        # 3. Restore the bridge to the new JSON object
         if turn_data: 
+            if existing_bridge:
+                turn_data["narrative_bridge"] = existing_bridge
             self._process_valid_turn(turn_data)
+            print(f"{Fore.GREEN}✔ Alternative Turn {turn_data['turn']} generated successfully.{Style.RESET_ALL}")
         
         return turn_data
 
     def redo_choices(self, turn_idx=None):
-        """Endpoint: Keeps the story prose but generates a new set of choices. Supports historical turns."""
+        """Endpoint: Keeps the story prose but generates a new set of choices."""
         from logger import log_event
         if len(self.history) == 0: return None
         
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         log_event(self.adv_dir, f"Command: REDO CHOICES (Turn {idx})")
-        print(f"{Style.DIM}Generating new choices for Turn {idx}...{Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}▶ Action: Reroll Choices (Turn {idx}){Style.RESET_ALL}")
+        print(f"{Style.DIM}Generating new choices...{Style.RESET_ALL}")
         
-        self.backup_turn = self.history.pop(idx)
+        self.backup_turn = self.history[idx].copy()
+        self.backup_turn_idx = idx
         
         prompt = PROMPTS.get("USER_REDO_CHOICES", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
@@ -422,48 +444,43 @@ class BaseEngine:
         turn_data = self._generate_turn()
         
         if turn_data:
-            # REVERSE INHERITANCE: Forcefully overwrite the AI's text with the original backup text.
-            # This mathematically guarantees the prose, location, and POV cannot be altered by hallucinations.
             turn_data["story_text"] = self.backup_turn.get("story_text", "")
             turn_data["location"] = self.backup_turn.get("location", "Unknown")
             turn_data["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
             if self.track_inventory:
                 turn_data["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
                 
-            # Restore historical player choices and bridges if we are editing the past
-            if "player_choice" in self.backup_turn: turn_data["player_choice"] = self.backup_turn["player_choice"]
+            turn_data["player_choice"] = self.backup_turn.get("player_choice")
             if "narrative_bridge" in self.backup_turn: turn_data["narrative_bridge"] = self.backup_turn["narrative_bridge"]
                 
             self.active_fix = None
             self.is_fix_mode = False
             self.backup_turn = None
+            delattr(self, 'backup_turn_idx')
             
-            # Reinsert safely
-            if idx == len(self.history):
-                self._process_valid_turn(turn_data)
-            else:
-                self.history.insert(idx, turn_data)
-                self.save_state()
+            # Overwrite in place
+            self.history[idx] = turn_data
+            self.save_state()
+                
+            print(f"{Fore.GREEN}✔ New choices for Turn {idx} ready.{Style.RESET_ALL}")
             return turn_data
             
-        # If the LLM completely fails, safely restore the original turn
-        self.history.insert(idx, self.backup_turn)
-        self.save_state()
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
+        delattr(self, 'backup_turn_idx')
         return None
         
-    def request_expansion(self):
+    def request_expansion(self, turn_idx=None):
         """Endpoint: Generates a context-aware descriptive expansion DRAFT of the current turn."""
         if len(self.history) == 0: return None
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        print(f"\n{Fore.CYAN}▶ Action: Expand Prose (Turn {idx}){Style.RESET_ALL}")
         print(f"{Style.DIM}Expanding turn prose...{Style.RESET_ALL}")
         
-        # 1. Stage the turn to be expanded
-        self.backup_turn = self.history.pop(idx)
+        self.backup_turn = self.history[idx].copy()
         self.backup_turn_idx = idx 
         
-        # 2. Gather World Context
         world_info = {
             "title": self.setup_data.get("title"),
             "tone": self.setup_data.get("tone"),
@@ -471,13 +488,11 @@ class BaseEngine:
             "protagonist": self.setup_data.get("main_character")
         }
         
-        # 3. Gather Narrative Context (The turn immediately preceding this one)
         prev_story = "This is the first turn of the adventure."
         if idx > 0:
             prev_turn = self.history[idx - 1]
             prev_story = f"PREVIOUS SCENE: {prev_turn.get('story_text', '')}\nACTION TAKEN: {prev_turn.get('player_choice', '')}"
 
-        # 4. Construct High-Context Prompt
         prompt = PROMPTS.get("USER_EXPAND", "")
         prompt = prompt.replace("{world_info}", json.dumps(world_info, indent=2))
         prompt = prompt.replace("{prev_story}", prev_story)
@@ -487,53 +502,59 @@ class BaseEngine:
         self.is_fix_mode = True
         
         draft = self._generate_turn()
-        if draft: self._apply_draft_inheritance(draft)
+        if draft: 
+            self._apply_draft_inheritance(draft)
+            print(f"{Fore.GREEN}✔ Turn {idx} expansion draft ready.{Style.RESET_ALL}")
         return draft
-        
-        
-    def request_polish(self, turn_idx=None):
-        """Endpoint: Generates a polished DRAFT. Supports historical turns."""
-        if len(self.history) == 0: return None
-        idx = turn_idx if turn_idx is not None else len(self.history) - 1
-        
-        self.backup_turn = self.history.pop(idx)
-        self.backup_turn_idx = idx
-        print(f"{Style.DIM}Polishing Turn {idx} prose...{Style.RESET_ALL}")
-        
-        prompt = PROMPTS.get("USER_POLISH", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
-        self.active_fix = prompt
-        self.is_fix_mode = True
-        
-        draft = self._generate_turn()
-        if draft: self._apply_draft_inheritance(draft)
-        return draft
-
 
     def request_condense(self, turn_idx=None):
         """Endpoint: Generates a shortened DRAFT. Supports historical turns."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         
-        self.backup_turn = self.history.pop(idx)
+        self.backup_turn = self.history[idx].copy()
         self.backup_turn_idx = idx
-        print(f"{Style.DIM}Condensing Turn {idx} prose...{Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}▶ Action: Condense Prose (Turn {idx}){Style.RESET_ALL}")
+        print(f"{Style.DIM}Condensing turn prose...{Style.RESET_ALL}")
         
         prompt = PROMPTS.get("USER_CONDENSE", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
         self.is_fix_mode = True
         
         draft = self._generate_turn()
-        if draft: self._apply_draft_inheritance(draft)
+        if draft: 
+            self._apply_draft_inheritance(draft)
+            print(f"{Fore.GREEN}✔ Turn {idx} condense draft ready.{Style.RESET_ALL}")
         return draft
 
+    def request_polish(self, turn_idx=None):
+        """Endpoint: Generates a polished DRAFT. Supports historical turns."""
+        if len(self.history) == 0: return None
+        idx = turn_idx if turn_idx is not None else len(self.history) - 1
+        
+        self.backup_turn = self.history[idx].copy()
+        self.backup_turn_idx = idx
+        print(f"\n{Fore.CYAN}▶ Action: Polish Prose (Turn {idx}){Style.RESET_ALL}")
+        print(f"{Style.DIM}Polishing turn prose...{Style.RESET_ALL}")
+        
+        prompt = PROMPTS.get("USER_POLISH", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
+        self.active_fix = prompt
+        self.is_fix_mode = True
+        
+        draft = self._generate_turn()
+        if draft: 
+            self._apply_draft_inheritance(draft)
+            print(f"{Fore.GREEN}✔ Turn {idx} polish draft ready.{Style.RESET_ALL}")
+        return draft
 
     def request_fix(self, instruction, turn_idx=None):
         """Endpoint: Generates a targeted-edit DRAFT based on user instruction."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         
-        print(f"{Style.DIM}Generating fix for Turn {idx}...{Style.RESET_ALL}")
-        self.backup_turn = self.history.pop(idx)
+        print(f"\n{Fore.CYAN}▶ Action: Director Fix (Turn {idx}){Style.RESET_ALL}")
+        print(f"{Style.DIM}Applying fix: '{instruction[:30]}...'{Style.RESET_ALL}")
+        self.backup_turn = self.history[idx].copy()
         self.backup_turn_idx = idx
         
         fix_prompt = PROMPTS.get("USER_FIX", "")
@@ -542,9 +563,10 @@ class BaseEngine:
         self.is_fix_mode = True
         
         draft = self._generate_turn()
-        if draft: self._apply_draft_inheritance(draft)
+        if draft: 
+            self._apply_draft_inheritance(draft)
+            print(f"{Fore.GREEN}✔ Turn {idx} fix draft ready.{Style.RESET_ALL}")
         return draft
-
 
     def _apply_draft_inheritance(self, draft_turn):
         """STRICT INHERITANCE: Protects structural JSON metadata from AI hallucinations."""
@@ -553,11 +575,7 @@ class BaseEngine:
             draft_turn["location"] = self.backup_turn.get("location", "Unknown")
             draft_turn["pov_character"] = self.backup_turn.get("pov_character", "Unknown")
             if self.track_inventory: draft_turn["inventory_and_state"] = self.backup_turn.get("inventory_and_state", "")
-            # Preserve history for targeted edits
-            if "player_choice" in self.backup_turn: draft_turn["player_choice"] = self.backup_turn["player_choice"]
-            if "narrative_bridge" in self.backup_turn: draft_turn["narrative_bridge"] = self.backup_turn["narrative_bridge"]
-                
-                
+            
     def request_reroll_draft(self):
         """Endpoint: Generates a new draft based on the currently active fix mode, WITHOUT popping history."""
         if not self.backup_turn: return None
@@ -566,39 +584,36 @@ class BaseEngine:
         if draft: self._apply_draft_inheritance(draft)
         return draft
 
-
     def commit_draft(self, draft_turn):
         """Endpoint: Accepts the drafted turn and permanently saves it to history."""
-        idx = getattr(self, 'backup_turn_idx', len(self.history))
+        idx = getattr(self, 'backup_turn_idx', len(self.history)-1)
+        
+        # Run mechanical logic (goals/chapter tracking) on the draft
+        self.post_generation_hook(draft_turn)
+        
+        # Inherit the historical player choice
+        draft_turn["player_choice"] = self.history[idx].get("player_choice")
+        if "narrative_bridge" in self.history[idx]: draft_turn["narrative_bridge"] = self.history[idx]["narrative_bridge"]
+        
+        # Overwrite in place
+        self.history[idx] = draft_turn
+        self.save_state()
+        
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
-        
-        # If it's the active turn, run the mechanical hooks (goals/game over)
-        if idx == len(self.history):
-            self._process_valid_turn(draft_turn)
-        else:
-            # If editing history, just surgically insert it to prevent breaking plot logic
-            self.history.insert(idx, draft_turn)
-            self.save_state()
-            
-        if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
+        delattr(self, 'backup_turn_idx')
+        print(f"{Fore.GREEN}✔ Draft accepted and committed to history.{Style.RESET_ALL}")
         return draft_turn
-
 
     def cancel_draft(self):
         """Endpoint: Discards the draft and restores the original turn state."""
-        if self.backup_turn:
-            idx = getattr(self, 'backup_turn_idx', len(self.history))
-            self.history.insert(idx, self.backup_turn)
-            self.save_state()
-            
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
         if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
+        print(f"{Fore.YELLOW}✖ Draft discarded. Original turn retained.{Style.RESET_ALL}")
         return self.history[-1] if self.history else None
-
 
     def request_bridge_generation(self, turn_idx):
         """Endpoint: Manually asks the AI to generate a narrative bridge for a specific turn."""
