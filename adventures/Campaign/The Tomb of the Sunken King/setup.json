@@ -48,14 +48,39 @@
             "color": "#B71C1C"
         },
         "Items": {
-            "val": "Rusty Dagger, Backpack (empty), Rope (30ft), Torch (unlit)",
+            "val": "Backpack (empty), Rope (30ft)",
             "icon": "\ud83c\udf92",
             "color": "#1F6AA5"
         },
         "State": {
-            "val": "None",
+            "val": "Feeling adventurous",
             "icon": "\ud83e\udde0",
             "color": "#7B1FA2"
-        }
+        },
+		"Stamina": {
+			"val": "Steady",
+			"icon": "⚡",
+			"color": "#F9A825"
+		},
+		"Weapon": {
+			"val": "Rusty Dagger",
+			"icon": "🗡️",
+			"color": "#455A64"
+		},
+		"Light": {
+			"val": "Torch (unlit)",
+			"icon": "🔥",
+			"color": "#EF6C00"
+		},
+		"Gold": {
+			"val": "0 coins",
+			"icon": "🪙",
+			"color": "#D4A017"
+		},
+		"Hunger": {
+			"val": "Sated",
+			"icon": "🍖",
+			"color": "#8D6E63"
+		}
     }
 }

@@ -1,0 +1,70 @@
+{
+    "mode": "campaign",
+    "track_inventory": true,
+    "can_die": true,
+    "title": "Whispers of Bone",
+    "tone": "Gloomy, foreboding, oppressive, shadowed, unnerving, eerie, tense, breathless, whispered secrets, lurking danger, ancient dust, bone-chilling cold, faint echoes of long-lost screams.",
+    "main_character": "Kaelen, an elusive master thief whose hands danced with the dexterity of a maestro and the precision of a surgeon, had carved out a legendary reputation in the shadowy underbelly of the city. His fingers were instruments as precise as any sword, his mind as sharp as any blade - honed through years of navigating treacherous rooftops, picking intricate locks with meticulous patience, and evading guards with supernatural grace.\n\nDraped in the darkness like a second skin, Kaelen moved unseen, unheard. His clothes were not merely black; they were shadows made cloth, designed to absorb light and blur form. When he walked, it was as if the very air parted around him, leaving no trace of his passage. Even the dust on the ground seemed to defy gravity in his wake.\n\nYet for all his skill and reputation, Kaelen knew that true mastery came from understanding one's limitations - a master thief was not a god, but a mortal with tools, wits, and an uncanny ability to blend into the background. Brute strength held no place in his repertoire; instead, he relied on stealth, finesse, and the subtle art of misdirection. His prized possessions were not weapons or armor, but lockpicks crafted from starlight, a cloak woven from shadow, and an innate sense of danger that whispered warnings to him through the hairs standing on the back of his neck.",
+    "lore_and_rules": "The tomb itself is bound in a curse as ancient and malevolent as the city that houses it, woven from the very fabric of darkness and despair. It is said that those who enter its halls are subjected to their deepest fears and most haunting regrets, forced to relive them in agonizing detail while navigating its labyrinthine corridors. The air within shimmers with an eerie luminescence, casting everything in a sickly green pallor that leeches the color from life itself.\n\nMagic items worn or carried by intruders glow with an ethereal light when danger approaches - a flickering pulse that grows brighter as the threat draws near. This unnatural radiance serves as both warning and beacon, guiding those with keen eyes through the tomb's treacherous paths while simultaneously drawing the attention of its ever-vigilant guardians.\n\nKaelen, our master thief, is but a mortal man bound by the limitations of his flesh, blood, and bone. He carries no shield to deflect blows or sword to carve a path through adversity; instead, his tools are those of subtlety and deception. His strength lies in shadow and silence, not muscle or steel. To attempt brute force within Wraiths' Tomb would be tantamount to casting oneself upon the altar of doom - an act of futile desperation that promises only a swift and grisly end.",
+    "plot_outline": [
+        {
+            "title": "The City Gates",
+            "setting": "The slums outside the walls of Oakhaven. Midnight.",
+            "pov": "Kaelen",
+            "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
+            "obstacles": "The guards are highly alert. Kaelen has no money for a bribe."
+        },
+        {
+            "title": "The Noble's Estate",
+            "setting": "The courtyard of Lord Vane's massive estate.",
+            "pov": "Kaelen",
+            "time": "Later that night",
+            "goal": "Break into the manor and locate the safe holding the Ruby Skull.",
+            "obstacles": "Locked doors, patrolling guard dogs, trap runes on the windows."
+        },
+        {
+            "title": "The Escape",
+            "setting": "The rooftops of Oakhaven.",
+            "pov": "Kaelen",
+            "goal": "Escape the city with the Ruby Skull before the guards catch you.",
+            "obstacles": "Slippery shingles, guards shooting crossbows, a rival thief trying to steal the skull."
+        }
+    ],
+    "narrative": {
+        "prologue": "as_is",
+        "epilogue": "as_is"
+    },
+    "allow_cheats": false,
+    "author": "Anonymous",
+    "version": "1.0",
+    "creation_date": "2026-05-19",
+    "inventory_dictionary": {
+        "Health": {
+            "val": "Good",
+            "icon": "\u2764\ufe0f",
+            "color": "#B71C1C"
+        },
+        "Items": {
+            "val": "Lockpicks, Shadow Cloak, Starlight Mirror",
+            "icon": "\ud83c\udf92",
+            "color": "#1F6AA5"
+        },
+        "Food": {
+            "val": "5 dried meat, 2 apples, 1 bottle of water",
+            "icon": "\ud83c\udf4e",
+            "color": "#4CAF50"
+        }
+    },
+    "goal": "Retrieve the legendary Crown of Whispers from its resting place in Wraiths' Tomb before the curse consumes it entirely and unleashes an army of restless spirits upon the world.",
+    "setting": "The ancient city of Evernight stands as a testament to times long past, its crumbling stone walls and narrow alleyways steeped in layers of history - some written, most whispered through generations like a dark secret. At its heart lies Wraiths' Tomb, an ominous structure that predates even the oldest tales told around Evernight's firepits.\n\nRising from the ground like a jagged fang, the tomb's architecture defies natural proportions, its towering spires and twisted arches seemingly molded by forces beyond mortal ken. The once-black stone is now stained with centuries of rain and grime, leaving behind patterns that resemble the tattered remnants of long-forgotten wings stretched across its surface.\n\nWithin the confines of Evernight, Wraiths' Tomb is a source of fear and fascination in equal measure. Few dare to approach its entrance, where a pair of massive stone doors, carved with intricate scenes depicting death and decay, stand perpetually open as an ominous invitation. The air around it pulses with an almost tangible sense of dread, heavy and thick like the breath of the damned. It is said that those who enter return either changed beyond recognition or fail to return at all, swallowed whole by the tomb's insatiable appetite for souls.",
+    "starting_situation": "",
+    "Abilities": {
+        "Stealth": "Allows Kaelen to move unseen and unheard, leaving no trace of his passage.",
+        "Finesse": "Enables Kaelen to perform intricate tasks with precision and grace, such as picking locks or disarming traps.",
+        "Subterfuge": "Allows Kaelen to deceive others through misdirection, sleight of hand, and strategic deception."
+    },
+    "Curses": {
+        "Eternal Chill": "A constant feeling of bone-chilling cold that permeates Kaelen's body, a reminder of the tomb's oppressive atmosphere.",
+        "Echoing Whispers": "Hears faint echoes of long-lost screams and whispered secrets, distracting him from his surroundings."
+    }
+}

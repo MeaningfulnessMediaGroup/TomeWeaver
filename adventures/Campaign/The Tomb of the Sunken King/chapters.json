@@ -8,5 +8,27 @@
         "obstacles": "A territorial shadow-panther prowls the ruins. Pit traps are hidden under the leaves. The door mechanism is heavily rusted.",
         "setting": "The humid, vine-choked ruins outside the Tomb. Twilight.",
         "pov": "Kaelen"
+    },
+    {
+        "chapter_number": 2,
+        "title": "The Hall of Whispers",
+        "start_turn": null,
+        "end_turn": null,
+        "setting": "Inside the Tomb. A dark, echoing stone corridor. The floor is covered in crunchy bone debris.",
+        "pov": "Kaelen",
+        "time": "Immediately after entering the Tomb",
+        "goal": "Sneak past the blind Spectral Guardian, retrieve the 'Sun Shield' from the central pedestal, and reach the stairs leading down.",
+        "obstacles": "The Spectral Guardian is blind but has incredible hearing. Stepping on the bone debris makes loud noises. The room is pitch black."
+    },
+    {
+        "chapter_number": 3,
+        "title": "The Flooded Throne",
+        "start_turn": null,
+        "end_turn": null,
+        "setting": "The flooded throne room of the Sunken King. Water is waist-deep.",
+        "pov": "Kaelen",
+        "time": null,
+        "goal": "Use the Sun Shield to deflect the King's magic, steal the 'Golden Crown' from his skeletal head, and escape back up the stairs.",
+        "obstacles": "The Sunken King awakens and casts necrotic spells. The freezing water slows movement. The exit stairs begin to collapse during the escape."
     }
 ]
