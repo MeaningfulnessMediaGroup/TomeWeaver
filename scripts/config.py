@@ -255,7 +255,28 @@ def load_json_safely(file_path, file_description):
     except Exception as e:
         raise RuntimeError(f"Failed to read {file_description} ({file_path}): {str(e)}")
 
-
+def save_json_atomically(data, file_path):
+    """
+    Writes JSON data to a temporary file first, then atomically renames it 
+    over the target file. Guarantees 100% protection against file corruption 
+    caused by mid-write crashes, power outages, or Python exceptions.
+    """
+    import os
+    path_obj = Path(file_path)
+    temp_path = path_obj.with_suffix('.tmp')
+    
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno()) # Force the OS to write buffers to the physical disk
+            
+        os.replace(temp_path, path_obj) # Atomic overwrite (safe on Windows/Mac/Linux)
+    except Exception as e:
+        if temp_path.exists():
+            temp_path.unlink() # Clean up the temp file if the write failed
+        raise e
+        
 # ---------------------------------------------------------
 # ENGINE CONFIGURATION
 # ---------------------------------------------------------
@@ -275,6 +296,7 @@ def load_engine_config():
     init_api_profiles()
     
     # Standard defaults for the TomeWeaver engine
+    # Standard defaults for the TomeWeaver engine
     default_config = {
         "active_api_profile": "LM_Studio",
         "api_url": "http://localhost:1234/v1/chat/completions",
@@ -290,6 +312,7 @@ def load_engine_config():
         "log_raw_json_on_failure": False,
         "auto_polish": False,
         "auto_narrative_bridge": False,
+        "memory_chunk_size": 15, # Turns per chunk for the RAG summarizer
         "ui_scaling": 1.0,
         "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",

@@ -66,6 +66,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.t_story = self.tabs.add("Story Mode")
         self.t_console = self.tabs.add("Developer Console")
         self.t_codex = self.tabs.add("World Builder")
+        self.t_memory = self.tabs.add("Memory & Lore") 
         
         if self.engine.is_campaign:
             self.t_chapters = self.tabs.add("Chapter Outline")
@@ -88,7 +89,12 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.codex_tab = CodexTab(self.t_codex, self.engine)
         self.codex_tab.pack(fill="both", expand=True)
         
-        # Stage 4: Chapter Outline (Only visible in Campaign Mode)
+        # Stage 4: Memory & Lore Viewer
+        from ui.tab_memory import MemoryTab
+        self.memory_tab = MemoryTab(self.t_memory, self.engine)
+        self.memory_tab.pack(fill="both", expand=True)
+        
+        # Stage 5: Chapter Outline (Only visible in Campaign Mode)
         if self.engine.is_campaign:
             self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
             self.chapters_tab.pack(fill="both", expand=True)

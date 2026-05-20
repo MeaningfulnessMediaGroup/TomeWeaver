@@ -958,10 +958,11 @@ class TomeWeaverAPI:
                     engine.setup_data.setdefault("narrative", {})["epilogue"] = "as_is"
                     engine.epilogue_content = epi_str.strip()
                 
+            from config import save_json_atomically
+            
             # 4. Save setup_data
             setup_file = engine.adv_dir / "setup.json"
-            with open(setup_file, "w", encoding="utf-8") as f:
-                json.dump(engine.setup_data, f, indent=4)
+            save_json_atomically(engine.setup_data, setup_file)
                 
             # 5. Overwrite chapters.json if Campaign Mode
             if mode == "campaign" and "plot_outline" in data:
@@ -976,8 +977,7 @@ class TomeWeaverAPI:
                     "goal": first_chap.get("goal"),
                     "obstacles": first_chap.get("obstacles")
                 }]
-                with open(chapters_file, "w", encoding="utf-8") as f:
-                    json.dump(engine.chapters, f, indent=4)
+                save_json_atomically(engine.chapters, chapters_file)
                     
             return True, ""
             
@@ -1199,3 +1199,177 @@ class TomeWeaverAPI:
                 continue
                 
         return False, "Failed to edit bridge. Please check API connection."
+        
+        
+    @staticmethod
+    def generate_plot_summary(turns_text):
+        """
+        RAG Phase 1: Compresses a chunk of raw turns into a dense paragraph.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit, translate_api_error
+        import requests, time
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_PLOT", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_PLOT", "").replace("{chunk_text}", turns_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(3):
+            # Dynamic token scaling for input size
+            input_tokens = int(len(turns_text.split()) * 1.5)
+            # Give it enough headroom to process massive chunks
+            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 2000), max(500, input_tokens + 500))
+            
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.4, "max_tokens": dynamic_limit
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                raw = raw.strip('"\'')
+                if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                
+                return True, raw
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+                continue
+                
+        return False, f"Summary Generation Failed:\n{err}"
+
+    @staticmethod
+    def extract_entity_updates(turns_text, known_chars_str, known_locs_str, known_arts_str):
+        """
+        RAG Phase 2: Extracts new state changes for characters, locations, and artifacts.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_ENTITY", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_ENTITY", "")
+        user_prompt = user_prompt.replace("{chunk_text}", turns_text)
+        user_prompt = user_prompt.replace("{known_chars}", known_chars_str)
+        user_prompt = user_prompt.replace("{known_locs}", known_locs_str)
+        user_prompt = user_prompt.replace("{known_arts}", known_arts_str)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(3):
+            input_tokens = int(len(turns_text.split()) * 1.5)
+            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 2000), max(500, input_tokens + 500))
+            
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.3, "max_tokens": dynamic_limit
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                
+                # Validation: Ensure it returned the three expected root keys
+                if isinstance(data, dict):
+                    if "Characters" not in data: data["Characters"] = {}
+                    if "Locations" not in data: data["Locations"] = {}
+                    if "Artifacts" not in data: data["Artifacts"] = {}
+                    return True, data
+                    
+                err = "AI did not return a valid JSON Dictionary."
+                time.sleep(1)
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+                continue
+                
+        return False, f"Entity Extraction Failed:\n{err}"        
+        
+        
+    @staticmethod
+    def seed_initial_memory(setup_data):
+        """
+        RAG Phase 0: Scans the raw setup.json and extracts the baseline characters, 
+        locations, and artifacts to pre-fill the memory.json file before Turn 1.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json
+        
+        # Create a deep copy so we can destructively modify it without harming the active game
+        world_doc = json.loads(json.dumps(setup_data))
+        
+        # Strip all mechanical engine flags. The AI only needs narrative lore.
+        keys_to_remove = ["mode", "track_inventory", "can_die", "tone", "allow_cheats", "narrative", "inventory_dictionary"]
+        for k in keys_to_remove:
+            world_doc.pop(k, None)
+            
+        # Strip empty fields to save tokens
+        empty_keys = [k for k, v in world_doc.items() if not v]
+        for k in empty_keys:
+            world_doc.pop(k, None)
+            
+        if not world_doc: return False, {}
+            
+        # Format the remaining dictionary cleanly for the AI to read
+        doc_string = json.dumps(world_doc, indent=2)
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_SEED", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_SEED", "").replace("{world_doc}", doc_string)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.2, "max_tokens": 2000
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                
+                if isinstance(data, dict):
+                    if "Characters" not in data: data["Characters"] = {}
+                    if "Locations" not in data: data["Locations"] = {}
+                    if "Artifacts" not in data: data["Artifacts"] = {}
+                    return True, data
+                    
+                err = "AI did not return a valid JSON Dictionary."
+                time.sleep(1)
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+                continue
+                
+        return False, f"Seeding Failed: {err}"

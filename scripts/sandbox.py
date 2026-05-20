@@ -87,6 +87,51 @@ class SandboxEngine(BaseEngine):
             active_prompt_text = active_prompt_text.replace("{inv_template}", "")
 
         system_content = active_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
+        
+        # --- INJECT LONG-TERM MEMORY (RAG) ---
+        memory_str = ""
+        plot_ledger = self.memory.get("plot_ledger", [])
+        if plot_ledger:
+            memory_str += "THE STORY SO FAR:\n"
+            for p in plot_ledger: memory_str += f"- {p.get('summary', '')}\n"
+                
+        char_ledger = self.memory.get("character_ledger", {})
+        if char_ledger:
+            memory_str += "\nACTIVE CHARACTERS & LORE BIBLE:\n"
+            for k, data in char_ledger.items():
+                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
+                else:
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                    events = " ".join(data.get("ledger", []))
+                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+            
+        loc_ledger = self.memory.get("location_ledger", {})
+        if loc_ledger:
+            memory_str += "\nACTIVE LOCATIONS & LORE BIBLE:\n"
+            for k, data in loc_ledger.items(): 
+                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
+                else:
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                    events = " ".join(data.get("ledger", []))
+                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+                    
+        art_ledger = self.memory.get("artifact_ledger", {})
+        if art_ledger:
+            memory_str += "\nACTIVE ARTIFACTS / KEY ITEMS:\n"
+            for k, data in art_ledger.items(): 
+                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
+                else:
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                    events = " ".join(data.get("ledger", []))
+                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+                
+        if memory_str:
+            system_content += "\n\nLONG-TERM MEMORY:\n" + memory_str
+
+        system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         if active_chapter.get('setting'): system_content += f"Setting Override: {active_chapter['setting']}\n"
         if active_chapter.get('pov'): system_content += f"POV Override: {active_chapter['pov']}\n"

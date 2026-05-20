@@ -310,7 +310,7 @@ class ChapterTab(ctk.CTkFrame):
             self._refresh_list() 
 
     def _write_to_disk(self):
-        """Commits the active memory dict to setup.json."""
+        """Commits the active memory dict to setup.json using atomic writes."""
+        from config import save_json_atomically
         setup_file = self.engine.adv_dir / "setup.json"
-        with open(setup_file, "w", encoding="utf-8") as f:
-            json.dump(self.engine.setup_data, f, indent=4)
+        save_json_atomically(self.engine.setup_data, setup_file)

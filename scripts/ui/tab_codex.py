@@ -831,11 +831,10 @@ class CodexTab(ctk.CTkFrame):
         ctk.CTkButton(self.editor_frame, text="Save Lore", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_lore).pack(pady=15)
 
     def _write_to_disk(self):
-        """Commits the modified setup_data back to the physical setup.json file."""
-        import json
+        """Commits the modified setup_data back to the physical setup.json file safely."""
+        from config import save_json_atomically
         setup_file = self.engine.adv_dir / "setup.json"
-        with open(setup_file, "w", encoding="utf-8") as f:
-            json.dump(self.engine.setup_data, f, indent=4)
+        save_json_atomically(self.engine.setup_data, setup_file)
             
     # ---------------------------------------------------------
     # PART 3: PROLOGUE / EPILOGUE TABS

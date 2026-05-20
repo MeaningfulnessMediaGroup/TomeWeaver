@@ -58,6 +58,35 @@ class BaseEngine:
         # 2. Load Chapters (CRITICAL: Must happen before any save_state triggers)
         self.chapters = self.load_chapters()
         
+        # 3. Load Long-Term Memory (RAG)
+        self.memory_file = self.adv_dir / "memory.json"
+        if self.memory_file.exists():
+            self.memory = load_json_safely(self.memory_file, "memory.json")
+            
+            # --- AUTO MIGRATION: V1 to V1.1 Split Ledgers ---
+            if "entity_ledger" in self.memory:
+                self.memory["character_ledger"] = self.memory.pop("entity_ledger")
+                self.memory["location_ledger"] = {}
+                self.save_state()
+                
+            # Ensure alias dictionary exists
+            if "aliases" not in self.memory:
+                self.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}}
+                self.save_state()
+                
+            # Auto-migrate v1.2 Artifact Ledger
+            if "artifact_ledger" not in self.memory:
+                self.memory["artifact_ledger"] = {}
+                self.memory["aliases"]["artifact_ledger"] = {}
+                self.save_state()
+        else:
+            self.memory = {
+                "plot_ledger": [], 
+                "character_ledger": {}, 
+                "location_ledger": {},
+                "artifact_ledger": {},
+                "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}}
+            }
         # --- AUTO-MIGRATION & REPAIR ---
         needs_save = False
         
@@ -79,8 +108,8 @@ class BaseEngine:
             needs_save = True
                     
         if needs_save:
-            with open(self.adv_dir / "setup.json", "w", encoding="utf-8") as f:
-                json.dump(self.setup_data, f, indent=4)
+            from config import save_json_atomically
+            save_json_atomically(self.setup_data, self.adv_dir / "setup.json")
         
         # 3. Protect ledger integrity from manual file edits
         if self.history:
@@ -180,13 +209,13 @@ class BaseEngine:
 
     def save_state(self):
         """
-        Commits the current history and chapters state to the disk, 
-        ensuring that player progress is safely and persistently stored.
+        Commits the current history, chapters, and memory state to the disk using atomic writes, 
+        ensuring that player progress is safely and persistently stored without corruption risk.
         """
-        with open(self.history_file, "w", encoding="utf-8") as f:
-            json.dump(self.history, f, indent=4)
-        with open(self.adv_dir / "chapters.json", "w", encoding="utf-8") as f:
-            json.dump(self.chapters, f, indent=4)
+        from config import save_json_atomically
+        save_json_atomically(self.history, self.history_file)
+        save_json_atomically(self.chapters, self.adv_dir / "chapters.json")
+        save_json_atomically(self.memory, self.memory_file)
 
     def get_next_turn_number(self):
         """Returns the next sequential turn number based on the history ledger."""
@@ -877,6 +906,71 @@ class BaseEngine:
         turn_data["player_choice"] = None 
         self.history.append(turn_data)
         self.save_state()
+        
+        # 5. RAG Trigger (Long-Term Memory)
+        self._trigger_memory_compilation()
+
+    def _trigger_memory_compilation(self):
+        """Silently spawns a background worker to summarize the plot and update entities."""
+        chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
+        if not self.history: return
+        
+        current_turn = self.history[-1]["turn"]
+        active_chap = next((c for c in reversed(self.chapters) if c.get("start_turn") is not None and c.get("start_turn") <= current_turn), self.chapters[0])
+        
+        c_start = active_chap.get("start_turn")
+        if not c_start: return
+        
+        # Calculate active turns strictly WITHIN the current chapter
+        turns_active = current_turn - c_start + 1
+        
+        # Only trigger live if we hit an exact multiple of the chunk size within THIS chapter
+        if turns_active == 0 or turns_active % chunk_size != 0: return
+            
+        print(f"{Style.DIM}Triggering Long-Term Memory compilation (Turns {current_turn-chunk_size+1}-{current_turn})...{Style.RESET_ALL}")
+        
+        # Extract the chunk safely (indices are turn - 1)
+        chunk = self.history[current_turn - chunk_size : current_turn]
+        
+        turns_text = ""
+        for t in chunk:
+            turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
+            
+        chap_title = active_chap.get("title", "Chapter")
+        chap_num = active_chap.get("chapter_number", 1)
+        
+        def worker():
+            from api import TomeWeaverAPI
+            
+            # 1. Plot Summary
+            succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text)
+            if succ_plot:
+                self.memory.setdefault("plot_ledger", []).append({
+                    "chapter_title": chap_title,
+                    "chapter_number": chap_num,
+                    "start_turn": chunk[0]["turn"],
+                    "end_turn": chunk[-1]["turn"],
+                    "summary": plot_res
+                })
+                
+            # 2. Entity Status Extract
+            known = ""
+            for k, v in self.memory.get("entity_ledger", {}).items():
+                known += f"- {k}: {', '.join(v)}\n"
+            
+            succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(turns_text, known)
+            if succ_ent and isinstance(ent_res, dict):
+                for k, v in ent_res.items():
+                    if k not in self.memory["entity_ledger"]:
+                        self.memory["entity_ledger"][k] = []
+                    self.memory["entity_ledger"][k].append(str(v))
+                    
+            if succ_plot or succ_ent:
+                self.save_state()
+                print(f"{Fore.GREEN}✔ Memory compilation complete.{Style.RESET_ALL}")
+                
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
 
     def _generate_bridge_for_latest_action(self):
         """Background hook to weave novelized prose seamlessly during gameplay."""
@@ -923,3 +1017,190 @@ class BaseEngine:
 
         if not silent and processed_count > 0:
             print(f"{Fore.GREEN}Auto Narrative Bridge: {processed_count} gaps patched.{Style.RESET_ALL}")
+            
+            
+    def compile_missing_memories(self, compile_mode="missing", run_reconciliation=True, progress_callback=None, completion_callback=None):
+        """
+        Background worker that retroactively generates memory chunks.
+        compile_mode: "base" (only setup.json), "missing" (only un-summarized chunks), "force" (re-read all chunks for entities).
+        """
+        def worker():
+            from config import ENGINE_CONFIG
+            from api import TomeWeaverAPI
+            import math
+            
+            force_entities_only = (compile_mode == "force")
+            
+            # --- PHASE 0: AUTO-SEEDER (Base Lore) ---
+            # Run if memory is completely empty, OR if the user explicitly requested it
+            is_empty = not self.memory.get("character_ledger") and not self.memory.get("location_ledger") and not self.memory.get("artifact_ledger")
+            
+            if is_empty or compile_mode == "base":
+                if progress_callback: progress_callback("Seeding", "Base Lore")
+                
+                # We dynamically inject Prologue text and Start Turn seeds into the setup data for parsing
+                seed_data = self.setup_data.copy()
+                if self.prologue_content: seed_data["prologue_text"] = self.prologue_content
+                
+                start_file = self.adv_dir / "start_turn.json"
+                if start_file.exists():
+                    from config import load_json_safely
+                    start_data = load_json_safely(start_file, "start_turn.json")
+                    if isinstance(start_data, dict): seed_data["start_turn"] = start_data.get("story_text", "")
+                    
+                succ_seed, seed_res = TomeWeaverAPI.seed_initial_memory(seed_data)
+                
+                if succ_seed and isinstance(seed_res, dict):
+                    def merge_seeds(extracted_dict, ledger_key):
+                        if not isinstance(extracted_dict, dict): return
+                        for k, v in extracted_dict.items():
+                            if k not in self.memory[ledger_key]: 
+                                self.memory[ledger_key][k] = {"characteristics": {}, "ledger": []}
+                            if isinstance(v, dict):
+                                traits = v.get("traits", {})
+                                if isinstance(traits, dict) and traits:
+                                    self.memory[ledger_key][k]["characteristics"].update(traits)
+                                    
+                    merge_seeds(seed_res.get("Characters", {}), "character_ledger")
+                    merge_seeds(seed_res.get("Locations", {}), "location_ledger")
+                    merge_seeds(seed_res.get("Artifacts", {}), "artifact_ledger")
+                    self.save_state()
+                    
+            if compile_mode == "base":
+                if completion_callback: completion_callback(True, "Base Lore extraction complete! (No history was scanned).")
+                return
+            
+            chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
+            target_chunks = []
+            
+            # --- PHASE 1: MATHEMATICAL CHUNKING (Chapter-Aware) ---
+            for c in self.chapters:
+                c_start = c.get("start_turn")
+                if not c_start: continue
+                
+                c_end = c.get("end_turn")
+                is_finished = c_end is not None
+                if not is_finished: c_end = len(self.history)
+                    
+                total_turns = c_end - c_start + 1
+                if total_turns <= 0: continue
+                
+                c_num = c.get("chapter_number", 1)
+                c_title = c.get("title", "Chapter")
+                
+                if is_finished:
+                    # User Math: Split completed chapters into perfectly equal parts
+                    num_chunks = math.ceil(total_turns / chunk_size)
+                    base_len = total_turns // num_chunks
+                    rem = total_turns % num_chunks
+                    
+                    curr = c_start
+                    for i in range(num_chunks):
+                        length = base_len + 1 if i < rem else base_len
+                        target_chunks.append({"start": curr, "end": curr + length - 1, "chap_num": c_num, "chap_title": c_title})
+                        curr += length
+                        
+                    # Cleanup: Delete mismatched legacy summaries for this chapter so they don't duplicate
+                    if not force_entities_only:
+                        valid_bounds = [(tc["start"], tc["end"]) for tc in target_chunks if tc["chap_num"] == c_num]
+                        self.memory["plot_ledger"] = [
+                            p for p in self.memory.get("plot_ledger", [])
+                            if not (p.get("chapter_number") == c_num and (p.get("start_turn"), p.get("end_turn")) not in valid_bounds)
+                        ]
+                else:
+                    # Ongoing Chapter: Standard strides so we don't accidentally summarize the active, unfinished chunk
+                    curr = c_start
+                    while (c_end - curr + 1) >= chunk_size:
+                        target_chunks.append({"start": curr, "end": curr + chunk_size - 1, "chap_num": c_num, "chap_title": c_title})
+                        curr += chunk_size
+                        
+            # Determine which chunks actually need processing
+            existing_plots = [(p.get("start_turn"), p.get("end_turn")) for p in self.memory.get("plot_ledger", [])]
+            
+            if force_entities_only:
+                chunks_to_process = target_chunks
+            else:
+                chunks_to_process = [tc for tc in target_chunks if (tc["start"], tc["end"]) not in existing_plots]
+                
+            if not chunks_to_process:
+                if completion_callback: completion_callback(True, "All memories are already up to date!")
+                return
+                
+            for i, tc in enumerate(chunks_to_process):
+                if progress_callback: progress_callback(i + 1, len(chunks_to_process))
+                
+                # Fetch turns (indices in history are turn-1)
+                chunk = self.history[tc["start"] - 1 : tc["end"]]
+                
+                turns_text = ""
+                for t in chunk:
+                    turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
+                    
+                chap_title = tc["chap_title"]
+                chap_num = tc["chap_num"]
+                
+                # 1. Plot Summary (Skip if we are only backfilling entities)
+                succ_plot = False
+                if not force_entities_only:
+                    succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text)
+                    if succ_plot:
+                        self.memory.setdefault("plot_ledger", []).append({
+                            "chapter_title": chap_title,
+                            "chapter_number": chap_num,
+                            "start_turn": chunk[0]["turn"],
+                            "end_turn": chunk[-1]["turn"],
+                            "summary": plot_res
+                        })
+                    
+                # 2. Entity Status Extract (Auto-Detects New Entities & Traits)
+                def format_known(ledger):
+                    res = ""
+                    for k, data in self.memory.get(ledger, {}).items():
+                        if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
+                        else:
+                            t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                            e = " ".join(data.get("ledger", []))
+                            res += f"- {k} (Traits: {t}): {e}\n"
+                    return res
+                    
+                succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(
+                    turns_text, 
+                    format_known("character_ledger"), 
+                    format_known("location_ledger"),
+                    format_known("artifact_ledger")
+                )
+                if succ_ent and isinstance(ent_res, dict):
+                    def merge_entities(extracted_dict, ledger_key):
+                        if not isinstance(extracted_dict, dict): return
+                        for k, v in extracted_dict.items():
+                            
+                            # THE ALIAS INTERCEPTOR: If 'k' is a known duplicate, redirect all data to the Master Entity
+                            actual_k = self.memory.get("aliases", {}).get(ledger_key, {}).get(k, k)
+                            
+                            # Auto-migrate old list format to complex dict format seamlessly
+                            if actual_k not in self.memory[ledger_key]: 
+                                self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": [], "author_notes": ""}
+                            elif isinstance(self.memory[ledger_key][actual_k], list):
+                                self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": self.memory[ledger_key][actual_k], "author_notes": ""}
+                                
+                            if isinstance(v, dict):
+                                event = v.get("event")
+                                traits = v.get("traits", {})
+                                if event and str(event).lower() != "null": 
+                                    self.memory[ledger_key][actual_k]["ledger"].append(str(event))
+                                if isinstance(traits, dict) and traits:
+                                    self.memory[ledger_key][actual_k]["characteristics"].update(traits)
+                            elif isinstance(v, str):
+                                self.memory[ledger_key][actual_k]["ledger"].append(v) # Fallback if AI hallucinates string
+                                
+                    merge_entities(ent_res.get("Characters", {}), "character_ledger")
+                    merge_entities(ent_res.get("Locations", {}), "location_ledger")
+                    merge_entities(ent_res.get("Artifacts", {}), "artifact_ledger")
+                        
+                if succ_plot or succ_ent:
+                    self.save_state()
+                    
+            if completion_callback: completion_callback(True, f"Historical memory compilation complete. Processed {len(chunks_to_process)} chunks.")
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()

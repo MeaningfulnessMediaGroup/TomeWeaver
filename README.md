@@ -71,7 +71,7 @@ We strongly recommend running TomeWeaver locally using **[LM Studio](https://lms
 
 ### Cloud Providers
 If you do not have a dedicated GPU, TomeWeaver supports cloud providers seamlessly:
-*   **OpenAI:** Native support for GPT-4o.
+*   **OpenAI:** Native support for GPT-4o, GPT-5 and GPT-5.5.
 *   **OpenRouter:** Access Claude 3.5 Sonnet, Llama 3.1, and dozens of other top-tier models for pennies.
 *   **Gemini & Grok:** Fully compatible via their respective OpenAI-compatible endpoints.
 

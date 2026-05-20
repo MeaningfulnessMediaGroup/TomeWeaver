@@ -1248,6 +1248,7 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkLabel(scroll, text="--- LLM Parameters ---", text_color="gray").pack(pady=(20, 5))
         add_field("Base Temperature:", "temperature_base", is_number=True, tooltip_text="Base creativity (0.0 to 2.0). Lower is more logical, higher is more chaotic.")
         add_field("Context Window (Turns):", "context_window", is_number=True, tooltip_text="How many previous turns the AI remembers. Higher context costs more tokens.")
+        add_field("Memory Chunk Size (Turns):", "memory_chunk_size", is_number=True, tooltip_text="How many turns to wait before the background RAG engine fires. E.g. 15 turns = ~3,000 words.")
         
         ctk.CTkLabel(scroll, text="--- Engine Rules ---", text_color="gray").pack(pady=(20, 5))
         add_field("Max Retries (Healer):", "max_retries", is_number=True, tooltip_text="How many times the engine attempts to self-heal broken JSON before giving up.")
