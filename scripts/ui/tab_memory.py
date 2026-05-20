@@ -55,7 +55,7 @@ class MemoryTab(ctk.CTkFrame):
     def _compile_history(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Retroactive Compiler")
-        dialog.geometry("480x420")
+        dialog.geometry("500x480") # Made slightly taller for the 4th option
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -76,6 +76,10 @@ class MemoryTab(ctk.CTkFrame):
         rb_force = ctk.CTkRadioButton(dialog, text="Deep Entity Scan (Re-read all chunks)", variable=v_mode, value="force")
         rb_force.pack(anchor="w", padx=40, pady=10)
         Tooltip(rb_force, "If you just added a new Character/Location, use this to scan the entire history for past events involving them.")
+        
+        rb_verify = ctk.CTkRadioButton(dialog, text="Integrity Check & Reconcile (Fast Verification)", variable=v_mode, value="verify")
+        rb_verify.pack(anchor="w", padx=40, pady=10)
+        Tooltip(rb_verify, "Reads the already summarized Plot Ledger and Lore Bible to check for logical contradictions. Runs Auto-Reconcile if checked.")
 
         # Divider
         ctk.CTkFrame(dialog, height=2, fg_color="#333333").pack(fill="x", padx=40, pady=15)
@@ -104,7 +108,12 @@ class MemoryTab(ctk.CTkFrame):
                 def update_ui():
                     self.winfo_toplevel().configure(cursor="") # Restore cursor
                     self.btn_compile.configure(state="normal", text="⟳ Compile Missing History")
-                    messagebox.showinfo("Complete", msg)
+                    
+                    if mode_selection == "verify":
+                        self._show_verification_report(msg)
+                    else:
+                        messagebox.showinfo("Complete", msg)
+                        
                     self._refresh_nav()
                     self._render_view()
                 self.after(0, update_ui)
@@ -121,6 +130,30 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
         ctk.CTkButton(btn_frame, text="Start Compiler", width=120, fg_color="#F57C00", hover_color="#E65100", command=apply_compile).pack(side="right", padx=10)
 
+    def _show_verification_report(self, report_text):
+        """Spawns a scrollable text window to display the Continuity Editor's report."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Continuity & Integrity Report")
+        dialog.geometry("600x450")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+        
+        is_clear = "Nothing to report" in report_text
+        hdr_color = "#4CAF50" if is_clear else "#F57C00"
+        hdr_text = "Verification Complete: No Issues Found" if is_clear else "Verification Complete: Potential Issues Found"
+
+        ctk.CTkLabel(dialog, text=hdr_text, font=("Arial", 16, "bold"), text_color=hdr_color).pack(pady=(20, 10))
+
+        box = ctk.CTkTextbox(dialog, wrap="word", font=("Arial", 14))
+        box.insert("1.0", report_text)
+        box.configure(state="disabled")
+        box.pack(fill="both", expand=True, padx=20, pady=10)
+
+        ctk.CTkButton(dialog, text="Close Report", command=dialog.destroy).pack(pady=20)
+        
     def _show_clear_dialog(self):
         """Spawns a granular memory-wipe dialog."""
         dialog = ctk.CTkToplevel(self)
@@ -156,8 +189,9 @@ class MemoryTab(ctk.CTkFrame):
                 self.engine.memory["character_ledger"] = {}
                 self.engine.memory["location_ledger"] = {}
                 self.engine.memory["artifact_ledger"] = {}
+                self.engine.memory["faction_ledger"] = {}
                 # Completely wipe all active aliases if we are doing a nuclear wipe
-                self.engine.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}}
+                self.engine.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
                 
             self.engine.save_state()
             self.active_selection.set("PLOT_LEDGER")
@@ -209,7 +243,19 @@ class MemoryTab(ctk.CTkFrame):
             ctk.CTkRadioButton(r, text=f"💎 {name}", variable=self.active_selection, value=f"ART_{name}", command=self._render_view).pack(side="left")
             ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "artifact_ledger")).pack(side="right")
             
-        ctk.CTkButton(self.nav_frame, text="+ Add Artifact", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("artifact_ledger")).pack(fill="x", pady=(5, 0))
+        ctk.CTkButton(self.nav_frame, text="+ Add Artifact", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("artifact_ledger")).pack(fill="x", pady=(5, 15))
+        
+        # 5. Factions List
+        if self.engine.setup_data.get("track_factions", False):
+            ctk.CTkLabel(self.nav_frame, text="Factions & Orgs", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", pady=(5, 2))
+            facs = self.engine.memory.get("faction_ledger", {})
+            for name in sorted(facs.keys()):
+                r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+                r.pack(fill="x", pady=2)
+                ctk.CTkRadioButton(r, text=f"🛡️ {name}", variable=self.active_selection, value=f"FAC_{name}", command=self._render_view).pack(side="left")
+                ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "faction_ledger")).pack(side="right")
+                
+            ctk.CTkButton(self.nav_frame, text="+ Add Faction", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("faction_ledger")).pack(fill="x", pady=(5, 0))
 
         self._render_view()
 
@@ -224,7 +270,9 @@ class MemoryTab(ctk.CTkFrame):
     def _add_entity(self, ledger_type):
         if ledger_type == "character_ledger": type_str = "Character"
         elif ledger_type == "location_ledger": type_str = "Location"
+        elif ledger_type == "faction_ledger": type_str = "Faction / Org"
         else: type_str = "Artifact"
+        
         dialog = ctk.CTkInputDialog(text=f"Enter the exact name of a {type_str} to track:", title=f"Add {type_str}")
         name = dialog.get_input()
         if name and name.strip():
@@ -232,7 +280,7 @@ class MemoryTab(ctk.CTkFrame):
             if clean_name not in self.engine.memory[ledger_type]:
                 self.engine.memory[ledger_type][clean_name] = {"characteristics": {}, "ledger": []}
                 self.engine.save_state()
-                prefix = "CHAR_" if ledger_type == "character_ledger" else "LOC_"
+                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
                 self.active_selection.set(f"{prefix}{clean_name}")
                 self._refresh_nav()
 
@@ -248,6 +296,8 @@ class MemoryTab(ctk.CTkFrame):
             self._render_entity_editor(selection.replace("LOC_", "", 1), "location_ledger")
         elif selection.startswith("ART_"):
             self._render_entity_editor(selection.replace("ART_", "", 1), "artifact_ledger")
+        elif selection.startswith("FAC_"):
+            self._render_entity_editor(selection.replace("FAC_", "", 1), "faction_ledger")
 
 
     # ---------------------------------------------------------
@@ -261,6 +311,8 @@ class MemoryTab(ctk.CTkFrame):
         if not plot_list:
             ctk.CTkLabel(self.editor_frame, text="The story hasn't reached the auto-summarize threshold yet.", font=("Arial", 14, "italic")).pack(pady=50)
             return
+
+        self.plot_ui_references = [] # Store widget references safely outside the Engine data
 
         for idx, chunk in enumerate(plot_list):
             card = ctk.CTkFrame(self.editor_frame, fg_color="#2B2B2B", corner_radius=8)
@@ -290,14 +342,12 @@ class MemoryTab(ctk.CTkFrame):
             box.insert("1.0", chunk.get("summary", ""))
             box.pack(fill="x", padx=15, pady=(0, 15))
             
-            # Save a reference to the box back into the UI object so we can read it later
-            chunk["_ui_box"] = box
+            # Save the UI reference in a localized list instead of injecting it into the Engine's data
+            self.plot_ui_references.append((chunk, box))
 
         def save_plot_ledger():
-            for chunk in plot_list:
-                if "_ui_box" in chunk:
-                    chunk["summary"] = chunk["_ui_box"].get("1.0", "end").strip()
-                    del chunk["_ui_box"] # Clean up memory reference before saving to JSON
+            for chunk, box in getattr(self, 'plot_ui_references', []):
+                chunk["summary"] = box.get("1.0", "end").strip()
             self.engine.save_state()
             messagebox.showinfo("Saved", "Plot summaries updated.")
             self._render_view()
@@ -308,6 +358,7 @@ class MemoryTab(ctk.CTkFrame):
     def _render_entity_editor(self, entity_name, ledger_type):
         if ledger_type == "character_ledger": type_str = "Character"; icon = "👤"
         elif ledger_type == "location_ledger": type_str = "Location"; icon = "🗺️"
+        elif ledger_type == "faction_ledger": type_str = "Faction / Org"; icon = "🛡️"
         else: type_str = "Artifact / Item"; icon = "💎"
         
         # --- HEADER (Editable Name & Merge Tool) ---
@@ -316,14 +367,15 @@ class MemoryTab(ctk.CTkFrame):
         
         ctk.CTkLabel(hdr, text=f"The Lore Bible: {icon}", font=("Arial", 18, "bold")).pack(side="left")
         
-        # Editable Name Field
-        self.var_entity_name = ctk.StringVar(value=entity_name)
-        ctk.CTkEntry(hdr, textvariable=self.var_entity_name, font=("Arial", 18, "bold"), width=300, fg_color="transparent", border_width=1).pack(side="left", padx=10)
+        # LOCAL VARIABLES (Prevents cross-contamination during redraws)
+        var_entity_name = ctk.StringVar(value=entity_name)
+        ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=300, fg_color="transparent", border_width=1).pack(side="left", padx=10)
         
         def prompt_merge():
             safe_entity_name = entity_name
             if safe_entity_name not in self.engine.memory[ledger_type]: return
-            all_entities = [k for k in self.engine.memory[ledger_type].keys() if k != safe_entity_name]
+            
+            all_entities = sorted([k for k in self.engine.memory[ledger_type].keys() if k != safe_entity_name])
             if not all_entities: return
                 
             dialog = ctk.CTkToplevel(self)
@@ -342,22 +394,33 @@ class MemoryTab(ctk.CTkFrame):
             
             def apply_merge():
                 master_name = target_var.get()
+                if isinstance(self.engine.memory[ledger_type][master_name], list):
+                    self.engine.memory[ledger_type][master_name] = {"characteristics": {}, "ledger": self.engine.memory[ledger_type][master_name], "author_notes": ""}
+                if isinstance(self.engine.memory[ledger_type][safe_entity_name], list):
+                    self.engine.memory[ledger_type][safe_entity_name] = {"characteristics": {}, "ledger": self.engine.memory[ledger_type][safe_entity_name], "author_notes": ""}
+                
                 master = self.engine.memory[ledger_type][master_name]
                 slave = self.engine.memory[ledger_type][safe_entity_name]
                 
-                if isinstance(master, list): master = {"characteristics": {}, "ledger": master}
-                if isinstance(slave, list): slave = {"characteristics": {}, "ledger": slave}
-                
-                master["characteristics"].update(slave.get("characteristics", {}))
+                # Use the Engine's Zero Data Loss merger
+                self.engine._smart_merge_traits(master["characteristics"], slave.get("characteristics", {}))
                 master["ledger"].extend(slave.get("ledger", []))
                 
-                self.engine.memory.setdefault("aliases", {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}})[ledger_type][safe_entity_name] = master_name
+                # Combine Author Notes if both have them
+                m_notes = master.get("author_notes", "").strip()
+                s_notes = slave.get("author_notes", "").strip()
+                if s_notes and s_notes not in m_notes:
+                    master["author_notes"] = f"{m_notes}\n\n{s_notes}".strip()
+                
+                aliases_root = self.engine.memory.setdefault("aliases", {})
+                ledger_aliases = aliases_root.setdefault(ledger_type, {})
+                ledger_aliases[safe_entity_name] = master_name
                 
                 del self.engine.memory[ledger_type][safe_entity_name]
                 self.engine.save_state()
-                
                 dialog.destroy()
-                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else "ART_")
+                
+                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
                 self.active_selection.set(f"{prefix}{master_name}")
                 self._refresh_nav()
                 
@@ -375,23 +438,20 @@ class MemoryTab(ctk.CTkFrame):
         all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(ledger_type, {})
         current_aliases = [k for k, v in all_aliases.items() if v == entity_name]
         
-        self.var_aliases = ctk.StringVar(value=", ".join(current_aliases))
-        ctk.CTkEntry(alias_frame, textvariable=self.var_aliases, font=("Arial", 12), fg_color="transparent", width=400).pack(side="left", padx=10)
+        var_aliases = ctk.StringVar(value=", ".join(current_aliases))
+        ctk.CTkEntry(alias_frame, textvariable=var_aliases, font=("Arial", 12), fg_color="transparent", width=400).pack(side="left", padx=10)
         Tooltip(alias_frame, "If the AI uses these names, they will be automatically redirected to this Master Entity.")
 
         # --- DATA EXTRACTION ---
-        # Fetch the LIVE dictionary from memory
         if entity_name not in self.engine.memory[ledger_type]:
             self.engine.memory[ledger_type][entity_name] = {"characteristics": {}, "ledger": [], "author_notes": ""}
             
         active_data = self.engine.memory[ledger_type][entity_name]
-        
-        # Auto-migrate legacy list formats
         if isinstance(active_data, list):
             active_data = {"characteristics": {}, "ledger": active_data, "author_notes": ""}
             self.engine.memory[ledger_type][entity_name] = active_data
             
-        # --- AUTHOR'S NOTES (Immortal Custom Data) ---
+        # # --- AUTHOR'S NOTES ---
         notes_frame = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         notes_frame.pack(fill="x", padx=10, pady=(5, 10))
         
@@ -399,9 +459,9 @@ class MemoryTab(ctk.CTkFrame):
         lbl_notes.pack(anchor="w")
         Tooltip(lbl_notes, "The AI cannot overwrite or delete this box. Use it to force the AI to remember critical facts.")
         
-        self.var_notes = ctk.CTkTextbox(notes_frame, height=80, wrap="word", font=("Arial", 14))
-        self.var_notes.insert("1.0", active_data.get("author_notes", ""))
-        self.var_notes.pack(fill="x", pady=(5, 0))
+        var_notes = ctk.CTkTextbox(notes_frame, height=80, wrap="word", font=("Arial", 14))
+        var_notes.insert("1.0", active_data.get("author_notes", ""))
+        var_notes.pack(fill="x", pady=(5, 0))
 
         # --- SECTION 1: CHARACTERISTICS DICTIONARY ---
         ctk.CTkLabel(self.editor_frame, text="Static Characteristics (Traits, Appearance, Quirks)", font=("Arial", 14, "bold"), text_color="#00ACC1").pack(anchor="w", padx=10, pady=(10, 5))
@@ -409,34 +469,34 @@ class MemoryTab(ctk.CTkFrame):
         dict_container = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         dict_container.pack(fill="x", padx=10)
         
-        self.trait_vars = []
+        trait_vars = []
         traits = active_data.get("characteristics", {})
         
-        def delete_trait(target_k_var):
-            new_dict = {vk.get().strip(): vv.get() for vk, vv in self.trait_vars if vk != target_k_var and vk.get().strip()}
-            self.engine.memory[ledger_type][entity_name]["characteristics"] = new_dict
-            self.engine.save_state()
-            self._render_view()
+        def delete_trait(row_widget, tuple_ref):
+            row_widget.destroy() # Visual deletion only
+            if tuple_ref in trait_vars: trait_vars.remove(tuple_ref)
             
-        for k, v in traits.items():
+        for k, v in sorted(traits.items(), key=lambda item: str(item[0]).lower()):
             row = ctk.CTkFrame(dict_container, fg_color="transparent")
             row.pack(fill="x", pady=2)
             var_k = ctk.StringVar(value=str(k))
             var_v = ctk.StringVar(value=str(v))
             ctk.CTkEntry(row, textvariable=var_k, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
             ctk.CTkEntry(row, textvariable=var_v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda vk=var_k: delete_trait(vk)).pack(side="left", padx=(5, 0))
-            self.trait_vars.append((var_k, var_v))
+            tuple_ref = (var_k, var_v)
+            trait_vars.append(tuple_ref)
+            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, tr=tuple_ref: delete_trait(rw, tr)).pack(side="left", padx=(5, 0))
             
         def add_trait():
-            new_dict = {vk.get().strip(): vv.get() for vk, vv in self.trait_vars if vk.get().strip()}
-            safe_new = "New_Trait"
-            c = 1
-            while safe_new in new_dict: safe_new = f"New_Trait_{c}"; c += 1
-            new_dict[safe_new] = "Value"
-            self.engine.memory[ledger_type][entity_name]["characteristics"] = new_dict
-            self.engine.save_state()
-            self._render_view()
+            row = ctk.CTkFrame(dict_container, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            var_k = ctk.StringVar(value="New_Trait")
+            var_v = ctk.StringVar(value="Value")
+            ctk.CTkEntry(row, textvariable=var_k, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
+            ctk.CTkEntry(row, textvariable=var_v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
+            tuple_ref = (var_k, var_v)
+            trait_vars.append(tuple_ref)
+            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, tr=tuple_ref: delete_trait(rw, tr)).pack(side="left", padx=(5, 0))
             
         ctk.CTkButton(self.editor_frame, text="+ Add Trait", fg_color="#4A4A4A", command=add_trait).pack(pady=(5, 20))
 
@@ -446,13 +506,12 @@ class MemoryTab(ctk.CTkFrame):
         list_container = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         list_container.pack(fill="x", padx=10)
 
-        self.bullet_vars = []
+        bullet_vars = []
         bullets = active_data.get("ledger", [])
 
-        def delete_bullet(target_var):
-            self.engine.memory[ledger_type][entity_name]["ledger"] = [v.get() for v in self.bullet_vars if v != target_var]
-            self.engine.save_state()
-            self._render_view()
+        def delete_bullet(row_widget, var_ref):
+            row_widget.destroy() # Visual deletion only
+            if var_ref in bullet_vars: bullet_vars.remove(var_ref)
 
         for b_text in bullets:
             row = ctk.CTkFrame(list_container, fg_color="transparent")
@@ -460,58 +519,61 @@ class MemoryTab(ctk.CTkFrame):
             var = ctk.StringVar(value=str(b_text))
             ctk.CTkLabel(row, text="•", font=("Arial", 16, "bold")).pack(side="left", padx=5)
             ctk.CTkEntry(row, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda v=var: delete_bullet(v)).pack(side="left", padx=(5, 0))
-            self.bullet_vars.append(var)
+            bullet_vars.append(var)
+            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, vr=var: delete_bullet(rw, vr)).pack(side="left", padx=(5, 0))
 
         def add_bullet():
-            self.engine.memory[ledger_type][entity_name]["ledger"] = [v.get() for v in self.bullet_vars]
-            self.engine.memory[ledger_type][entity_name]["ledger"].append("New event...")
-            self.engine.save_state()
-            self._render_view()
+            row = ctk.CTkFrame(list_container, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            var = ctk.StringVar(value="New event...")
+            ctk.CTkLabel(row, text="•", font=("Arial", 16, "bold")).pack(side="left", padx=5)
+            ctk.CTkEntry(row, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
+            bullet_vars.append(var)
+            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, vr=var: delete_bullet(rw, vr)).pack(side="left", padx=(5, 0))
 
         ctk.CTkButton(self.editor_frame, text="+ Add Event", fg_color="#4A4A4A", command=add_bullet).pack(pady=(5, 15))
 
         # --- SAVE ENTITY BUTTON ---
         def save_entity():
-            # 1. Update Traits, Ledger, and Notes
-            new_traits = {vk.get().strip(): vv.get().strip() for vk, vv in self.trait_vars if vk.get().strip()}
-            new_ledger = [v.get().strip() for v in self.bullet_vars if v.get().strip()]
-            self.engine.memory[ledger_type][entity_name]["characteristics"] = new_traits
-            self.engine.memory[ledger_type][entity_name]["ledger"] = new_ledger
-            self.engine.memory[ledger_type][entity_name]["author_notes"] = self.var_notes.get("1.0", "end").strip()
+            if entity_name not in self.engine.memory[ledger_type]:
+                messagebox.showerror("Error", "Entity no longer exists in memory.")
+                return
+                
+            # 1. Update Object
+            target_obj = self.engine.memory[ledger_type][entity_name]
             
-            # 2. Update Aliases
-            all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(ledger_type, {})
-            # Remove old aliases mapped to this entity
-            keys_to_delete = [k for k, v in all_aliases.items() if v == entity_name]
-            for k in keys_to_delete: del all_aliases[k]
+            target_obj["characteristics"] = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
+            target_obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
+            target_obj["author_notes"] = var_notes.get("1.0", "end").strip()
             
-            # Add new aliases
-            new_aliases_raw = self.var_aliases.get()
-            if new_aliases_raw:
-                for a in new_aliases_raw.split(","):
-                    clean_a = a.strip()
-                    if clean_a: all_aliases[clean_a] = entity_name
-
-            # 3. Handle Rename
-            new_name = self.var_entity_name.get().strip()
+            # 2. Handle Rename Safely
+            new_name = var_entity_name.get().strip()
             target_name = entity_name
+            
             if new_name and new_name != entity_name:
                 if new_name in self.engine.memory[ledger_type]:
                     messagebox.showerror("Error", f"An entity named '{new_name}' already exists. Use the Merge tool instead.")
                     return
-                # Swap keys
                 self.engine.memory[ledger_type][new_name] = self.engine.memory[ledger_type].pop(entity_name)
-                
-                # Re-map aliases to new name
-                for k, v in all_aliases.items():
-                    if v == entity_name: all_aliases[k] = new_name
-                    
                 target_name = new_name
-                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else "ART_")
-                self.active_selection.set(f"{prefix}{target_name}")
+            
+            # 3. Handle Aliases
+            all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(ledger_type, {})
+            keys_to_delete = [k for k, v in all_aliases.items() if v == entity_name]
+            for k in keys_to_delete: del all_aliases[k]
+            
+            new_aliases_raw = var_aliases.get()
+            if new_aliases_raw:
+                for a in new_aliases_raw.split(","):
+                    clean_a = a.strip()
+                    if clean_a: all_aliases[clean_a] = target_name
 
+            # 4. Commit and Refresh
             self.engine.save_state()
+            
+            prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
+            self.active_selection.set(f"{prefix}{target_name}")
+            
             messagebox.showinfo("Saved", f"'{target_name}' updated successfully.")
             self._refresh_nav()
 

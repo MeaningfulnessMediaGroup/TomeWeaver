@@ -113,22 +113,39 @@ def apply_global_text_bindings(root_app):
     
     
 def center_window_on_parent(dialog, parent):
-    """Mathematically centers a popup dialog over its parent window."""
-    dialog.update_idletasks() # Force UI to calculate required width/height
+    """Mathematically centers a popup dialog over its parent window, safely accounting for CustomTkinter UI scaling."""
+    dialog.update_idletasks()
+    parent.update_idletasks()
     
-    p_w = parent.winfo_width()
-    p_h = parent.winfo_height()
-    p_x = parent.winfo_rootx()
-    p_y = parent.winfo_rooty()
+    # 1. Retrieve the active UI scaling factor DIRECTLY from our engine config (Bulletproof)
+    from config import ENGINE_CONFIG
+    try:
+        scale = float(ENGINE_CONFIG.get("ui_scaling", 1.0))
+    except Exception:
+        scale = 1.0
+   
+    # 2. Convert parent physical screen pixels to logical pixels
+    p_w = parent.winfo_width() / scale 
+    p_h = parent.winfo_height() / scale
+    p_x = parent.winfo_rootx() / scale 
+    p_y = parent.winfo_rooty() / scale
     
-    d_w = dialog.winfo_reqwidth()
-    d_h = dialog.winfo_reqheight()
+    # 3. EXPLICIT SIZE EXTRACTION: Read the exact size requested by the developer
+    # Bypasses Tkinter's delayed renderer which causes the 'squished' bug
+    try:
+        d_w = dialog._current_width
+        d_h = dialog._current_height
+    except Exception:
+        d_w = 400
+        d_h = 300
     
-    x = p_x + (p_w // 2) - (d_w // 2)
-    y = p_y + (p_h // 2) - (d_h // 2)
+    # 4. Calculate center coordinates strictly in logical pixels
+    x = p_x + (p_w / 2) - (d_w / 2) 
+    y = p_y + (p_h / 2) - (d_h / 2) 
     
-    # Failsafe: Prevent the dialog's title bar from spawning off-screen
+    # Failsafe bounds
     if x < 0: x = 0
-    if y < 0: y = 30
+    if y < 30: y = 30
     
-    dialog.geometry(f"+{x}+{y}")
+    # 5. Lock in the EXACT size and the CORRECTED position
+    dialog.geometry(f"{int(d_w)}x{int(d_h)}+{int(x)}+{int(y)}")

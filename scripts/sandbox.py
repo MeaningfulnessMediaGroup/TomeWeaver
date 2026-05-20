@@ -127,6 +127,17 @@ class SandboxEngine(BaseEngine):
                     events = " ".join(data.get("ledger", []))
                     notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
                     memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+                    
+        fac_ledger = self.memory.get("faction_ledger", {})
+        if self.setup_data.get("track_factions", False) and fac_ledger:
+            memory_str += "\nACTIVE FACTIONS & ORGANIZATIONS:\n"
+            for k, data in fac_ledger.items(): 
+                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
+                else:
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                    events = " ".join(data.get("ledger", []))
+                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
                 
         if memory_str:
             system_content += "\n\nLONG-TERM MEMORY:\n" + memory_str

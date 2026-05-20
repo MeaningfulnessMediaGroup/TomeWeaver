@@ -79,13 +79,20 @@ class BaseEngine:
                 self.memory["artifact_ledger"] = {}
                 self.memory["aliases"]["artifact_ledger"] = {}
                 self.save_state()
+                
+            # Auto-migrate v1.3 Faction Ledger
+            if "faction_ledger" not in self.memory:
+                self.memory["faction_ledger"] = {}
+                self.memory["aliases"]["faction_ledger"] = {}
+                self.save_state()
         else:
             self.memory = {
                 "plot_ledger": [], 
                 "character_ledger": {}, 
                 "location_ledger": {},
                 "artifact_ledger": {},
-                "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}}
+                "faction_ledger": {},
+                "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
             }
         # --- AUTO-MIGRATION & REPAIR ---
         needs_save = False
@@ -910,9 +917,66 @@ class BaseEngine:
         # 5. RAG Trigger (Long-Term Memory)
         self._trigger_memory_compilation()
 
+    def _smart_merge_traits(self, existing_traits, new_traits):
+        """
+        Intelligently merges new AI-generated traits into an existing dictionary.
+        Actively forces list-style data into Plural keys (Friend -> Friends, Ally -> Allies)
+        and seamlessly upgrades existing singular keys when collisions occur.
+        """
+        if not isinstance(new_traits, dict) or not isinstance(existing_traits, dict): return
+        
+        list_keywords = ["relation", "friend", "quirk", "faction", "title", "affiliation", "role", "skill", "abilit", "allie", "ally", "enemie", "enemy"]
+
+        for new_k, new_v in new_traits.items():
+            target_k = str(new_k).strip()
+            nk_l = target_k.lower()
+            
+            # 1. Detect collisions with existing keys
+            matched_ek = None
+            for ek in list(existing_traits.keys()): # Cast to list so we can mutate the dict safely
+                ek_l = str(ek).lower().strip()
+                if (nk_l == ek_l) or \
+                   (nk_l == ek_l + "s") or (ek_l == nk_l + "s") or \
+                   (nk_l.endswith("ies") and nk_l[:-3] + "y" == ek_l) or \
+                   (ek_l.endswith("ies") and ek_l[:-3] + "y" == nk_l):
+                    matched_ek = ek
+                    break
+            
+            # 2. Force the Plural Key
+            if matched_ek:
+                ek_l = matched_ek.lower()
+                # If the new key is plural but the old one is singular, UPGRADE the old one
+                if (nk_l.endswith('s') and not ek_l.endswith('s')) or \
+                   (nk_l.endswith('ies') and ek_l.endswith('y')):
+                    existing_traits[target_k] = existing_traits.pop(matched_ek)
+                else:
+                    # The existing one is already plural, or neither are. Keep the existing one.
+                    target_k = matched_ek
+            else:
+                # No collision. If it's a known list-category, auto-pluralize it immediately.
+                if any(w in nk_l for w in list_keywords):
+                    if nk_l.endswith("y"): target_k = target_k[:-1] + "ies"
+                    elif not nk_l.endswith("s"): target_k = target_k + "s"
+
+            # 3. Merge the value safely (Zero Data Loss)
+            clean_v = str(new_v).strip()
+            if target_k in existing_traits:
+                exist_v = str(existing_traits[target_k]).strip()
+                
+                # Only merge if it's genuinely new information
+                if clean_v.lower() not in exist_v.lower() and exist_v.lower() not in clean_v.lower():
+                    if any(w in target_k.lower() for w in list_keywords):
+                        existing_traits[target_k] = exist_v + ", " + clean_v
+                    else:
+                        # Combine distinct info instead of overwriting (e.g., "Tall | Wears a hat")
+                        existing_traits[target_k] = exist_v + ", " + clean_v
+            else:
+                existing_traits[target_k] = clean_v
+
     def _trigger_memory_compilation(self):
         """Silently spawns a background worker to summarize the plot and update entities."""
         chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
+        
         if not self.history: return
         
         current_turn = self.history[-1]["turn"]
@@ -954,16 +1018,44 @@ class BaseEngine:
                 })
                 
             # 2. Entity Status Extract
-            known = ""
-            for k, v in self.memory.get("entity_ledger", {}).items():
-                known += f"- {k}: {', '.join(v)}\n"
+            def format_known(ledger):
+                res = ""
+                for k, data in self.memory.get(ledger, {}).items():
+                    if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
+                    else:
+                        t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                        e = " ".join(data.get("ledger", []))
+                        res += f"- {k} (Traits: {t}): {e}\n"
+                return res
             
-            succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(turns_text, known)
+            track_facs = self.setup_data.get("track_factions", False)
+            succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(
+                turns_text, 
+                format_known("character_ledger"), 
+                format_known("location_ledger"),
+                format_known("artifact_ledger"),
+                format_known("faction_ledger") if track_facs else "",
+                track_factions=track_facs
+            )
             if succ_ent and isinstance(ent_res, dict):
-                for k, v in ent_res.items():
-                    if k not in self.memory["entity_ledger"]:
-                        self.memory["entity_ledger"][k] = []
-                    self.memory["entity_ledger"][k].append(str(v))
+                def merge_entities(extracted_dict, ledger_key):
+                    if not isinstance(extracted_dict, dict): return
+                    for k, v in extracted_dict.items():
+                        actual_k = self.memory.get("aliases", {}).get(ledger_key, {}).get(k, k)
+                        if actual_k not in self.memory[ledger_key]: 
+                            self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": [], "author_notes": ""}
+                        if isinstance(v, dict):
+                            event = v.get("event")
+                            traits = v.get("traits", {})
+                            if event and str(event).lower() != "null": 
+                                self.memory[ledger_key][actual_k]["ledger"].append(str(event))
+                            if isinstance(traits, dict) and traits:
+                                self._smart_merge_traits(self.memory[ledger_key][actual_k]["characteristics"], traits)
+                                
+                merge_entities(ent_res.get("Characters", {}), "character_ledger")
+                merge_entities(ent_res.get("Locations", {}), "location_ledger")
+                merge_entities(ent_res.get("Artifacts", {}), "artifact_ledger")
+                if track_facs: merge_entities(ent_res.get("Factions", {}), "faction_ledger")
                     
             if succ_plot or succ_ent:
                 self.save_state()
@@ -1048,7 +1140,8 @@ class BaseEngine:
                     start_data = load_json_safely(start_file, "start_turn.json")
                     if isinstance(start_data, dict): seed_data["start_turn"] = start_data.get("story_text", "")
                     
-                succ_seed, seed_res = TomeWeaverAPI.seed_initial_memory(seed_data)
+                track_facs = self.setup_data.get("track_factions", False)
+                succ_seed, seed_res = TomeWeaverAPI.seed_initial_memory(seed_data, track_factions=track_facs)
                 
                 if succ_seed and isinstance(seed_res, dict):
                     def merge_seeds(extracted_dict, ledger_key):
@@ -1059,16 +1152,50 @@ class BaseEngine:
                             if isinstance(v, dict):
                                 traits = v.get("traits", {})
                                 if isinstance(traits, dict) and traits:
-                                    self.memory[ledger_key][k]["characteristics"].update(traits)
+                                    self._smart_merge_traits(self.memory[ledger_key][k]["characteristics"], traits)
                                     
                     merge_seeds(seed_res.get("Characters", {}), "character_ledger")
                     merge_seeds(seed_res.get("Locations", {}), "location_ledger")
                     merge_seeds(seed_res.get("Artifacts", {}), "artifact_ledger")
+                    if track_facs: merge_seeds(seed_res.get("Factions", {}), "faction_ledger")
                     self.save_state()
                     
             if compile_mode == "base":
                 if completion_callback: completion_callback(True, "Base Lore extraction complete! (No history was scanned).")
                 return
+                
+            # --- PHASE 1.5: CONTINUITY VERIFICATION ---
+            verification_report = ""
+            if compile_mode == "verify":
+                if progress_callback: progress_callback("Verifying", "Checking logic and continuity")
+                
+                # Gather Plot Summaries
+                plot_ctx = "\n".join([f"Ch {p.get('chapter_number')}: {p.get('summary', '')}" for p in self.memory.get("plot_ledger", [])])
+                if not plot_ctx: plot_ctx = "No plot summaries exist yet."
+                
+                # Gather Lore Bible
+                def format_known(ledger):
+                    res = ""
+                    for k, data in self.memory.get(ledger, {}).items():
+                        if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
+                        else:
+                            t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                            e = " ".join(data.get("ledger", []))
+                            res += f"- {k} (Traits: {t}): {e}\n"
+                    return res
+                    
+                track_facs = self.setup_data.get("track_factions", False)
+                lore_ctx = "CHARACTERS:\n" + format_known("character_ledger")
+                lore_ctx += "\nLOCATIONS:\n" + format_known("location_ledger")
+                lore_ctx += "\nARTIFACTS:\n" + format_known("artifact_ledger")
+                if track_facs: lore_ctx += "\nFACTIONS:\n" + format_known("faction_ledger")
+                
+                from api import TomeWeaverAPI
+                succ_ver, report = TomeWeaverAPI.verify_memory_integrity(plot_ctx, lore_ctx)
+                verification_report = report if succ_ver else "Verification failed to complete."
+                
+                # We do NOT return yet. We allow it to fall through to Phase 2 (Reconciliation) 
+                # so the user's checkbox for Auto-Reconcile is honored.
             
             chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
             target_chunks = []
@@ -1119,10 +1246,12 @@ class BaseEngine:
             
             if force_entities_only:
                 chunks_to_process = target_chunks
+            elif compile_mode == "verify":
+                chunks_to_process = [] # Verify skips historical raw-turn reading entirely
             else:
                 chunks_to_process = [tc for tc in target_chunks if (tc["start"], tc["end"]) not in existing_plots]
                 
-            if not chunks_to_process:
+            if not chunks_to_process and compile_mode != "verify":
                 if completion_callback: completion_callback(True, "All memories are already up to date!")
                 return
                 
@@ -1163,11 +1292,14 @@ class BaseEngine:
                             res += f"- {k} (Traits: {t}): {e}\n"
                     return res
                     
+                track_facs = self.setup_data.get("track_factions", False)
                 succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(
                     turns_text, 
                     format_known("character_ledger"), 
                     format_known("location_ledger"),
-                    format_known("artifact_ledger")
+                    format_known("artifact_ledger"),
+                    format_known("faction_ledger") if track_facs else "",
+                    track_factions=track_facs
                 )
                 if succ_ent and isinstance(ent_res, dict):
                     def merge_entities(extracted_dict, ledger_key):
@@ -1189,18 +1321,54 @@ class BaseEngine:
                                 if event and str(event).lower() != "null": 
                                     self.memory[ledger_key][actual_k]["ledger"].append(str(event))
                                 if isinstance(traits, dict) and traits:
-                                    self.memory[ledger_key][actual_k]["characteristics"].update(traits)
+                                    self._smart_merge_traits(self.memory[ledger_key][actual_k]["characteristics"], traits)
                             elif isinstance(v, str):
                                 self.memory[ledger_key][actual_k]["ledger"].append(v) # Fallback if AI hallucinates string
                                 
-                    merge_entities(ent_res.get("Characters", {}), "character_ledger")
                     merge_entities(ent_res.get("Locations", {}), "location_ledger")
                     merge_entities(ent_res.get("Artifacts", {}), "artifact_ledger")
+                    if track_facs: merge_entities(ent_res.get("Factions", {}), "faction_ledger")
                         
                 if succ_plot or succ_ent:
                     self.save_state()
                     
-            if completion_callback: completion_callback(True, f"Historical memory compilation complete. Processed {len(chunks_to_process)} chunks.")
+            # --- PHASE 2: RECONCILIATION (The AI Janitor) ---
+            if run_reconciliation:
+                if progress_callback: progress_callback("Reconciling", "Merging duplicates")
+                
+                # Check all 4 ledgers independently
+                for l_type in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]:
+                    if not self.memory.get(l_type): continue
+                    
+                    # Compress data into a lightweight string to save tokens
+                    ctx = ""
+                    for k, data in self.memory[l_type].items():
+                        traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                        ctx += f"- {k} | Traits: {traits}\n"
+                        
+                    succ_recon, recon_res = TomeWeaverAPI.reconcile_aliases(ctx)
+                    if succ_recon and isinstance(recon_res, dict):
+                        for alias, master in recon_res.items():
+                            # Safety check: Ensure both exist and aren't literally the same string
+                            if alias in self.memory[l_type] and master in self.memory[l_type] and alias != master:
+                                m_data = self.memory[l_type][master]
+                                s_data = self.memory[l_type][alias]
+                                
+                                # Perform the merge using our Zero Data Loss utility
+                                self._smart_merge_traits(m_data["characteristics"], s_data.get("characteristics", {}))
+                                m_data["ledger"].extend(s_data.get("ledger", []))
+                                
+                                # Log the alias and delete the duplicate
+                                self.memory.setdefault("aliases", {}).setdefault(l_type, {})[alias] = master
+                                del self.memory[l_type][alias]
+                                
+                self.save_state()
+                    
+            if completion_callback:
+                if compile_mode == "verify":
+                    completion_callback(True, verification_report)
+                else:
+                    completion_callback(True, f"Historical memory compilation complete. Processed {len(chunks_to_process)} chunks.")
             
         import threading
         threading.Thread(target=worker, daemon=True).start()

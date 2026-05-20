@@ -1249,16 +1249,21 @@ class TomeWeaverAPI:
         return False, f"Summary Generation Failed:\n{err}"
 
     @staticmethod
-    def extract_entity_updates(turns_text, known_chars_str, known_locs_str, known_arts_str):
+    def extract_entity_updates(turns_text, known_chars_str, known_locs_str, known_arts_str, known_facs_str="", track_factions=False):
         """
-        RAG Phase 2: Extracts new state changes for characters, locations, and artifacts.
+        RAG Phase 2: Extracts new state changes for entities.
         """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import sanitize_json, enforce_rate_limit, translate_api_error
         import requests, time, json
         
         sys_prompt = PROMPTS.get("SYS_MEMORY_ENTITY", "")
-        user_prompt = PROMPTS.get("USER_MEMORY_ENTITY", "")
+        if track_factions:
+            user_prompt = PROMPTS.get("USER_MEMORY_ENTITY_FACTIONS", "")
+            user_prompt = user_prompt.replace("{known_facs}", known_facs_str)
+        else:
+            user_prompt = PROMPTS.get("USER_MEMORY_ENTITY", "")
+            
         user_prompt = user_prompt.replace("{chunk_text}", turns_text)
         user_prompt = user_prompt.replace("{known_chars}", known_chars_str)
         user_prompt = user_prompt.replace("{known_locs}", known_locs_str)
@@ -1289,11 +1294,12 @@ class TomeWeaverAPI:
                 clean_json = sanitize_json(raw)
                 data = json.loads(clean_json, strict=False)
                 
-                # Validation: Ensure it returned the three expected root keys
+                # Validation: Ensure it returned the expected root keys
                 if isinstance(data, dict):
                     if "Characters" not in data: data["Characters"] = {}
                     if "Locations" not in data: data["Locations"] = {}
                     if "Artifacts" not in data: data["Artifacts"] = {}
+                    if track_factions and "Factions" not in data: data["Factions"] = {}
                     return True, data
                     
                 err = "AI did not return a valid JSON Dictionary."
@@ -1307,10 +1313,81 @@ class TomeWeaverAPI:
         
         
     @staticmethod
-    def seed_initial_memory(setup_data):
+    def reconcile_aliases(entities_context):
         """
-        RAG Phase 0: Scans the raw setup.json and extracts the baseline characters, 
-        locations, and artifacts to pre-fill the memory.json file before Turn 1.
+        RAG Phase 3: Scans a ledger for obvious duplicates and returns a map of {Alias: Master}.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_RECONCILE", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_RECONCILE", "").replace("{entities_context}", entities_context)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.1, "max_tokens": 500
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict): return True, data
+            except Exception:
+                time.sleep(1)
+        return False, {}
+
+     
+    @staticmethod
+    def verify_memory_integrity(plot_context, lore_context):
+        """
+        RAG Phase 4: Continuity Checker. Reads summaries and lore to find contradictions.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_VERIFY", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_VERIFY", "")
+        user_prompt = user_prompt.replace("{plot_context}", plot_context)
+        user_prompt = user_prompt.replace("{lore_context}", lore_context)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.2, "max_tokens": 800
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict):
+                        return True, data.get("report", "No report generated.")
+            except Exception as e:
+                time.sleep(1)
+        return False, "Failed to connect to AI for verification."
+        
+        
+    @staticmethod
+    def seed_initial_memory(setup_data, track_factions=False):
+        """
+        RAG Phase 0: Scans the raw setup.json and extracts the baseline entities
+        to pre-fill the memory.json file before Turn 1.
         """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import sanitize_json, enforce_rate_limit, translate_api_error
@@ -1335,7 +1412,10 @@ class TomeWeaverAPI:
         doc_string = json.dumps(world_doc, indent=2)
         
         sys_prompt = PROMPTS.get("SYS_MEMORY_SEED", "")
-        user_prompt = PROMPTS.get("USER_MEMORY_SEED", "").replace("{world_doc}", doc_string)
+        if track_factions:
+            user_prompt = PROMPTS.get("USER_MEMORY_SEED_FACTIONS", "").replace("{world_doc}", doc_string)
+        else:
+            user_prompt = PROMPTS.get("USER_MEMORY_SEED", "").replace("{world_doc}", doc_string)
 
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
         headers = {"Content-Type": "application/json"}
@@ -1363,6 +1443,7 @@ class TomeWeaverAPI:
                     if "Characters" not in data: data["Characters"] = {}
                     if "Locations" not in data: data["Locations"] = {}
                     if "Artifacts" not in data: data["Artifacts"] = {}
+                    if track_factions and "Factions" not in data: data["Factions"] = {}
                     return True, data
                     
                 err = "AI did not return a valid JSON Dictionary."

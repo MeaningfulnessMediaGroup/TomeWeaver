@@ -166,12 +166,14 @@ class CodexTab(ctk.CTkFrame):
         self.var_inv = ctk.BooleanVar(value=self.engine.setup_data.get("track_inventory", False))
         self.var_die = ctk.BooleanVar(value=self.engine.setup_data.get("can_die", False))
         self.var_cheats = ctk.BooleanVar(value=self.engine.setup_data.get("allow_cheats", False))
+        self.var_fac = ctk.BooleanVar(value=self.engine.setup_data.get("track_factions", False))
         
         switch_inv = ctk.CTkSwitch(settings_frame, text="Track Inventory & Health", variable=self.var_inv, command=self._toggle_inv_editor_visibility)
         switch_inv.pack(side="left", padx=(0, 20))
         
-        ctk.CTkSwitch(settings_frame, text="Allow Game Over (Death)", variable=self.var_die).pack(side="left", padx=(0, 20))
-        ctk.CTkSwitch(settings_frame, text="Allow Editing (Cheats)", variable=self.var_cheats).pack(side="left", padx=(0, 20))
+        ctk.CTkSwitch(settings_frame, text="Allow Game Over", variable=self.var_die).pack(side="left", padx=(0, 20))
+        ctk.CTkSwitch(settings_frame, text="Allow Cheats", variable=self.var_cheats).pack(side="left", padx=(0, 20))
+        ctk.CTkSwitch(settings_frame, text="Track Factions & Orgs", variable=self.var_fac).pack(side="left", padx=(0, 20))
 
         # --- INVENTORY SCHEMA EDITOR (Placed directly below Toggles) ---
         self.inv_master_container = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -404,6 +406,7 @@ class CodexTab(ctk.CTkFrame):
         self.engine.setup_data["track_inventory"] = self.var_inv.get()
         self.engine.setup_data["can_die"] = self.var_die.get()
         self.engine.setup_data["allow_cheats"] = self.var_cheats.get()
+        self.engine.setup_data["track_factions"] = self.var_fac.get()
         
         # Extract Inventory Schema
         new_schema = {}

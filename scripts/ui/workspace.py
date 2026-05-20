@@ -202,6 +202,9 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.geometry("700x600")
         dialog.attributes("-topmost", True)
         
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+        
         box = ctk.CTkTextbox(dialog, wrap="word", font=("Georgia", 15))
         box.insert("1.0", text)
         box.configure(state="disabled")
@@ -222,6 +225,9 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.geometry("350x250")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="Select Format:", font=("Arial", 14, "bold")).pack(pady=(20, 5))
         fmt_var = ctk.StringVar(value="3. HTML (Web Book)")
