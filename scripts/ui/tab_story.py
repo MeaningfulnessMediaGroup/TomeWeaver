@@ -88,7 +88,7 @@ class StoryTab(ctk.CTkFrame):
         self.prose_font = (f_family, int(f_size))
         self.header_font = ("Arial", 12)
         self.action_font = ("Arial", 14, "bold")
-        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
+        self.bridge_font = (f_family, int(f_size))
         
         # --- VIRTUALIZATION & RESIZE STATE ---
         self.MAX_CARDS = 3
@@ -175,38 +175,50 @@ class StoryTab(ctk.CTkFrame):
         adjusted_wrap = int(safe_width / scale)
         
         for refs in self.recycled_cards:
-            refs["prose"].configure(wraplength=adjusted_wrap)
             refs["hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
             refs["choice"].configure(wraplength=adjusted_wrap)
-            if "br_prose" in refs: refs["br_prose"].configure(wraplength=adjusted_wrap)
             if "br_hdr" in refs: refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
 
     def _wrap_heartbeat(self):
         """
         An infinitely repeating background loop. 
-        Recalculates text wrap margins if the window resizes, and GUARANTEES 
-        the inventory textbox height is always perfectly snapped to its content.
+        Recalculates text wrap margins if the window resizes, and dynamically
+        resizes the Textbox heights to perfectly fit the prose without scrollbars.
         """
         current_width = self.timeline._parent_canvas.winfo_width()
         if current_width > 100 and current_width != self._last_width:
             self._last_width = current_width
             self._apply_wrapping(current_width)
             
-        # CRITICAL FIX: Always verify Inventory box height on every tick!
-        # When a new turn is generated, Tkinter packs the widget before it knows its true width.
-        # This caused the text to temporarily wrap to 5+ lines, trapping the height at a huge value.
-        # Checking this continuously ensures it snaps back down instantly once fully drawn.
         for refs in self.recycled_cards:
+            # 1. Main Prose
+            if "prose" in refs and refs["prose"].winfo_exists():
+                tb = refs["prose"]._textbox
+                # CRITICAL: Use 'end-1c' so we don't count Tkinter's invisible trailing newline
+                lines = tb.count("1.0", "end-1c", "displaylines")
+                num_lines = lines[0] if lines else 1
+                
+                # Tighter line-height multiplier (1.35) to match native font kerning perfectly
+                calc_h = int(num_lines * (self.prose_font[1] * 1.35)) + 10
+                if refs["prose"].cget("height") != calc_h: refs["prose"].configure(height=calc_h)
+                
+            # 2. Bridge Prose
+            if "br_prose" in refs and refs["br_prose"].winfo_exists():
+                tb = refs["br_prose"]._textbox
+                lines = tb.count("1.0", "end-1c", "displaylines")
+                num_lines = lines[0] if lines else 1
+                
+                # Apply the exact same flawless padding logic as the main prose
+                calc_h = int(num_lines * (self.bridge_font[1] * 1.35)) + 10
+                if refs["br_prose"].cget("height") != calc_h: refs["br_prose"].configure(height=calc_h)
+
+            # 3. Inventory
             if "inv_box" in refs and refs["inv_box"].winfo_exists():
                 tb = refs["inv_box"]._textbox
                 lines = tb.count("1.0", "end", "displaylines")
                 num_lines = lines[0] if lines else 1
-                
-                # 32px per line + 10px padding is the perfect tight fit
                 calc_h = (num_lines * 32) + 10
-                
-                if refs["inv_box"].cget("height") != calc_h:
-                    refs["inv_box"].configure(height=calc_h)
+                if refs["inv_box"].cget("height") != calc_h: refs["inv_box"].configure(height=calc_h)
 
         self.after(200, self._wrap_heartbeat)
 
@@ -266,7 +278,11 @@ class StoryTab(ctk.CTkFrame):
             br_hdr_lbl = ctk.CTkLabel(br_hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             br_hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
             
-            br_prose_lbl = ctk.CTkLabel(br_card, text="", font=self.prose_font, justify="left", anchor="w")
+            # CRITICAL FIX: Use API-safe cloaking instead of deleting the internal _scrollbar attribute
+            br_prose_lbl = ctk.CTkTextbox(
+                br_card, font=self.bridge_font, wrap="word", height=30, fg_color="transparent", 
+                scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
+            )
             br_prose_lbl.pack(fill="x", padx=20, pady=(5, 25))
 
             # --- 2. THE STORY CARD ---
@@ -285,8 +301,11 @@ class StoryTab(ctk.CTkFrame):
             inv_frame = ctk.CTkFrame(card, fg_color="transparent")
             inv_frame.pack(fill="x", padx=15, pady=(0, 5))
             
-            # FIX: Anchor North-West so text always hugs the top, rather than floating in center
-            prose_lbl = ctk.CTkLabel(card, text="", font=self.prose_font, justify="left", anchor="nw")
+            # CRITICAL FIX: Use API-safe cloaking here as well
+            prose_lbl = ctk.CTkTextbox(
+                card, font=self.prose_font, wrap="word", height=100, fg_color="transparent", 
+                scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
+            )
             prose_lbl.pack(fill="x", padx=20, pady=5)
             
             # FIX: Anchor North-West for the choice label as well
@@ -311,12 +330,14 @@ class StoryTab(ctk.CTkFrame):
         from config import ENGINE_CONFIG
         f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
         f_size = ENGINE_CONFIG.get("prose_font_size", 15)
+        
+        # 1:1 Exact Match. The bridge should be indistinguishable from the main story prose.
         self.prose_font = (f_family, int(f_size))
-        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
+        self.bridge_font = (f_family, int(f_size))
         
         for refs in self.recycled_cards:
             refs["prose"].configure(font=self.prose_font)
-            refs["br_prose"].configure(font=self.bridge_font)
+            if "br_prose" in refs: refs["br_prose"].configure(font=self.bridge_font)
         
         # Preserve the new tight packing alignment when the UI redraws
         self.btn_submit.pack_forget()
@@ -339,7 +360,6 @@ class StoryTab(ctk.CTkFrame):
                 
             self.startup_frame.pack(fill="both", expand=True, pady=(100, 0))
             
-            # FIX: Force the canvas to recalculate its height and snap to the absolute top
             self.timeline.update_idletasks()
             if hasattr(self.timeline, "_parent_canvas"):
                 self.timeline._parent_canvas.yview_moveto(0.0)
@@ -365,6 +385,7 @@ class StoryTab(ctk.CTkFrame):
         
         # 3. Unlock the UI explicitly (Resets all states)
         self._unlock_ui("Ready.")
+
 
     def _trigger_startup(self):
         """Fires when the user clicks the giant Start Adventure button on an empty timeline."""
@@ -481,7 +502,12 @@ class StoryTab(ctk.CTkFrame):
                 if target_idx > 0 and is_valid_bridge:
                     refs["br_card"].pack(fill="x", padx=20, pady=(5, 0))
                     refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
-                    refs["br_prose"].configure(text=bridge)
+                    
+                    # Update Textbox safely
+                    refs["br_prose"].configure(state="normal")
+                    refs["br_prose"].delete("1.0", "end")
+                    refs["br_prose"].insert("1.0", bridge)
+                    refs["br_prose"].configure(state="disabled")
                     
                     # Bridges are post-production polish, so they are ALWAYS editable regardless of 'allow_cheats'
                     refs["br_btn_del"].pack(side="right", padx=(5, 0))
@@ -597,8 +623,10 @@ class StoryTab(ctk.CTkFrame):
                 if injected_lore:
                     prose_text = f"{injected_lore.strip()}\n\n***\n\n{prose_text}"
                     
-                # Ensure the text box doesn't have internal padding fighting our layout
-                refs["prose"].configure(text=prose_text)
+                refs["prose"].configure(state="normal")
+                refs["prose"].delete("1.0", "end")
+                refs["prose"].insert("1.0", prose_text)
+                refs["prose"].configure(state="disabled")
                 refs["prose"].pack(fill="x", padx=20, pady=(5, 0)) # Snap to top
                 
                 # 6. RENDER FOOTER & CHOICES
@@ -610,6 +638,29 @@ class StoryTab(ctk.CTkFrame):
                 if choice is not None:
                     refs["choice"].configure(text=f"❯ {choice}")
                     refs["choice"].pack(fill="x", padx=20, pady=(10, 15))
+                    
+                    # NEW FIX: If generation failed, this card is stuck holding your action.
+                    # We dynamically add 'Retry' and 'Cancel' buttons so you aren't trapped!
+                    is_over = str(turn.get("is_game_over", False)).lower() == "true"
+                    if target_idx == len(history) - 1 and not is_over:
+                        refs["btn_frame"].pack(fill="x", padx=15, pady=(0, 20))
+                        
+                        btn_retry = ctk.CTkButton(refs["btn_frame"], text="⟳ Retry Generation", fg_color="#F57C00", hover_color="#E65100", command=lambda a=choice: self._execute_action(a))
+                        btn_retry.pack(side="left", padx=5)
+                        Tooltip(btn_retry, "Attempt to send this exact action to the AI again.")
+                        
+                        def cancel_pending():
+                            self.engine.history[-1]["player_choice"] = None
+                            self.engine.save_state()
+                            self.refresh_timeline(retain_scroll=True)
+                            
+                        btn_cancel = ctk.CTkButton(refs["btn_frame"], text="X Cancel Action", fg_color="#D32F2F", hover_color="#9A0007", command=cancel_pending)
+                        btn_cancel.pack(side="left", padx=5)
+                        Tooltip(btn_cancel, "Erase this pending action so you can choose a different one.")
+                        
+                        # Add to refs dictionary so _lock_ui can find them
+                        refs["btn_retry"] = btn_retry
+                        refs["btn_cancel"] = btn_cancel
                 else:
                     # FIX: Explicitly clear the string to force Tkinter to drop the cached height
                     refs["choice"].configure(text="")
@@ -652,7 +703,7 @@ class StoryTab(ctk.CTkFrame):
                             Tooltip(btn_pol, "Fix grammar/style.")
                         
                         if show_fix:
-                            btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(target_idx))
+                            btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=lambda idx=target_idx, tb=refs["prose"]: self._trigger_fix(idx, tb))
                             btn_fix.pack(side="left", padx=5)
                             Tooltip(btn_fix, "Instruct AI to change a specific detail.")
                             
@@ -709,7 +760,8 @@ class StoryTab(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set() 
         
-        from ui.tooltip import Tooltip
+        from ui.tooltip import Tooltip, center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
 
         scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=20)
@@ -1083,6 +1135,9 @@ class StoryTab(ctk.CTkFrame):
         dialog.geometry("1000x700")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
 
         # --- EXTRACT AND COMPARE TEXT ---
         orig_text = self.engine.backup_turn.get("story_text", "").replace("\\n", "\n").strip()
@@ -1162,7 +1217,16 @@ class StoryTab(ctk.CTkFrame):
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
 
         def on_accept():
-            self.engine.commit_draft(draft_turn)
+            # Intercept special bridge edits
+            if "(Bridge)" in action_type:
+                idx = self.engine.backup_turn_idx
+                # The edited text is stored in the mock draft's story_text field
+                self.engine.history[idx]["narrative_bridge"] = draft_turn["story_text"]
+                self.engine.save_state()
+                self.engine.cancel_draft() # Cleans up the mock backup variables
+            else:
+                self.engine.commit_draft(draft_turn)
+                
             dialog.destroy()
             self.refresh_timeline(retain_scroll=True)
 
@@ -1263,23 +1327,75 @@ class StoryTab(ctk.CTkFrame):
             self.after(0, lambda: self._show_draft_diff(draft, "condense"))
         threading.Thread(target=worker, daemon=True).start()
         
-    def _trigger_fix(self, turn_idx=None):
-        dialog = ctk.CTkInputDialog(text="Enter edit instruction (e.g., 'Make it raining'):", title="Director Fix")
-        instruction = dialog.get_input()
-        if not instruction: return
+    def _trigger_fix(self, turn_idx=None, textbox=None):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Director Fix")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
         
-        self._lock_ui(f"Applying fix: {instruction[:15]}...")
-        def worker():
-            draft = self.engine.request_fix(instruction, turn_idx)
-            self.after(0, lambda: self._show_draft_diff(draft, "fix", instruction))
-        threading.Thread(target=worker, daemon=True).start()
+        ctk.CTkLabel(dialog, text="Enter edit instruction (e.g., 'Make it raining'):", font=("Arial", 14)).pack(padx=20, pady=(20, 10))
+        entry = ctk.CTkEntry(dialog, width=350, font=("Arial", 14))
+        entry.pack(padx=20, pady=10)
+        
+        # Check if the user highlighted text in the prose box
+        prefill = ""
+        if textbox:
+            try:
+                if textbox.tag_ranges("sel"):
+                    selected = textbox.get("sel.first", "sel.last").replace('\n', ' ').strip()
+                    if selected: prefill = f"fix: '{selected}' => "
+            except Exception: pass
+            
+        if prefill:
+            entry.insert(0, prefill)
+            
+        entry.focus()
+        if prefill:
+            entry.icursor("end") # Move cursor to the very end so they can type immediately
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+        
+        def on_submit(*args):
+            instruction = entry.get().strip()
+            if not instruction: return
+            dialog.destroy()
+            
+            self._lock_ui(f"Applying fix: {instruction[:15]}...")
+            def worker():
+                draft = self.engine.request_fix(instruction, turn_idx)
+                self.after(0, lambda: self._show_draft_diff(draft, "fix", instruction))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        entry.bind("<Return>", on_submit)
+        ctk.CTkButton(dialog, text="Apply Fix", font=("Arial", 14, "bold"), command=on_submit).pack(pady=20)
         
     def _execute_action(self, action_string):
         """Sends the user's action to the engine on a background thread to prevent UI freezing."""
+        pc_exact = str(action_string).strip()
+        
+        # Intercept Meta Actions so the Game Over buttons actually trigger the UI modals
+        if pc_exact in ["Export Story", "Export Tragic Ending"]:
+            # Route to the workspace's built-in export dialog
+            self.master.master._export_dialog() 
+            return
+        if pc_exact == "Quit":
+            self.master.master.close_workspace()
+            return
+            
         self._lock_ui(f"Submitting: '{action_string[:20]}...'")
         def worker():
-            self.engine.submit_action(action_string)
-            self.after(0, self.refresh_timeline)
+            result = self.engine.submit_action(action_string)
+            def update_ui():
+                # If it failed to generate (and wasn't a Restart/Undo), tell the user
+                if not result and pc_exact != "Restart Game" and not pc_exact.startswith("Undo"):
+                    from tkinter import messagebox
+                    messagebox.showerror("Generation Error", "The AI failed to generate the next turn.\nPlease check the Developer Console for details.")
+                self.refresh_timeline(retain_scroll=True)
+            self.after(0, update_ui)
+            
+        import threading
         threading.Thread(target=worker, daemon=True).start()
 
     def _delete_bridge_timeline(self, turn_idx):
@@ -1312,7 +1428,8 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_bridge_edit(self, turn_idx, edit_type):
-        """Uses the robust World Builder API to instantly Polish or Expand a specific bridge."""
+        """Generates a Draft of a Polished or Expanded bridge and opens the Visual Diff window."""
+        if self.btn_submit.cget("state") == "disabled": return 
         if turn_idx <= 0 or turn_idx >= len(self.engine.history): return
         
         current_bridge = self.engine.history[turn_idx].get("narrative_bridge", "").strip()
@@ -1320,27 +1437,31 @@ class StoryTab(ctk.CTkFrame):
             
         self._lock_ui(f"Applying {edit_type} to bridge...")
         
+        # 1. "Trick" the Engine into thinking we are editing a main story turn
+        # This allows us to reuse the massive, robust Visual Diff window seamlessly.
+        self.engine.backup_turn = self.engine.history[turn_idx].copy()
+        self.engine.backup_turn["story_text"] = current_bridge 
+        self.engine.backup_turn_idx = turn_idx
+        
         def worker():
             from api import TomeWeaverAPI
-            # We "trick" the field generator by passing it a custom shorthand instruction
-            if edit_type == "polish":
-                shorthand = f"Proofread and elevate the prose of this transition sentence: '{current_bridge}'"
-            else:
-                shorthand = f"Slightly expand this transition sentence by adding sensory detail: '{current_bridge}'"
-                
-            # 'tone' is a safe field key to pass so it borrows the world's vibe
-            success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, "tone", shorthand)
+            success, result = TomeWeaverAPI.edit_narrative_bridge(current_bridge, edit_type)
             
             def update_ui():
                 if success and result:
-                    # Strip quotes if the LLM wrapped it
-                    clean_res = result.strip('"\'')
-                    self.engine.history[turn_idx]["narrative_bridge"] = clean_res
-                    self.engine.save_state()
-                    self._render_visible_cards(retain_scroll=True) 
+                    clean_result = result.replace('"', '').replace('*', '').strip()
+                    
+                    # Create a mock draft object
+                    draft_turn = self.engine.backup_turn.copy()
+                    draft_turn["story_text"] = clean_result
+                    
+                    # Tell the Diff window that this is a special bridge edit
+                    self._show_draft_diff(draft_turn, f"{edit_type} (Bridge)")
                 else:
+                    from tkinter import messagebox
                     messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
-                self._unlock_ui("Ready.")
+                    self.engine.cancel_draft()
+                    self._unlock_ui("Ready.")
                 
             self.after(0, update_ui)
             
@@ -1366,8 +1487,13 @@ class StoryTab(ctk.CTkFrame):
                     self._lock_ui("Resuming interrupted generation...")
                     def worker():
                         action_to_resume = last_turn["player_choice"]
-                        self.engine.submit_action(action_to_resume)
-                        self.after(0, self.refresh_timeline)
+                        result = self.engine.submit_action(action_to_resume)
+                        def update_ui():
+                            if not result:
+                                from tkinter import messagebox
+                                messagebox.showerror("Generation Error", "Failed to resume the interrupted turn.\nPlease check the Developer Console for details.")
+                            self.refresh_timeline(retain_scroll=True)
+                        self.after(0, update_ui)
                     import threading
                     threading.Thread(target=worker, daemon=True).start()
 
@@ -1391,12 +1517,19 @@ class StoryTab(ctk.CTkFrame):
             if "btn_bridge" in refs: refs["btn_bridge"].configure(state="disabled")
             if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="disabled")
             
+            # Disable Edit/Polish/Condense/Expand/Undo buttons
             for w in refs["btn_frame"].winfo_children():
                 if isinstance(w, ctk.CTkButton): 
                     w.configure(state="disabled")
-                elif isinstance(w, ctk.CTkFrame):
+                elif isinstance(w, ctk.CTkFrame): 
                     for sub_w in w.winfo_children():
                         if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="disabled")
+                        
+            # Safely grab the Retry/Cancel buttons if they exist
+            if "btn_retry" in refs and refs["btn_retry"].winfo_exists():
+                refs["btn_retry"].configure(state="disabled")
+            if "btn_cancel" in refs and refs["btn_cancel"].winfo_exists():
+                refs["btn_cancel"].configure(state="disabled")
 
     def _unlock_ui(self, status_msg):
         """Restores interactivity after an AI generation completes."""
@@ -1405,13 +1538,42 @@ class StoryTab(ctk.CTkFrame):
             print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
             
         self.winfo_toplevel().configure(cursor="") # Restore cursor
-            
         self.status_var.set(status_msg)
-        self.btn_submit.configure(state="normal")
+        
+        # Check if the game is over to permanently lock the input bar
+        is_game_over = False
+        if self.engine.history:
+            is_game_over = str(self.engine.history[-1].get("is_game_over", False)).lower() == "true"
+            
+        if is_game_over:
+            self.btn_submit.configure(state="disabled")
+            self.text_input.configure(state="disabled")
+            self.cmd_dropdown.configure(state="disabled")
+        else:
+            self.btn_submit.configure(state="normal")
+            self.text_input.configure(state="normal")
+            self.cmd_dropdown.configure(state="normal")
+            
+        if len(self.engine.history) > self.MAX_CARDS:
+            self.history_slider.configure(state="normal")
             
         for refs in self.recycled_cards:
             if "btn_bridge" in refs: refs["btn_bridge"].configure(state="normal")
             if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="normal")
+            
+            # Safely restore the Retry/Cancel buttons if they exist
+            if "btn_retry" in refs and refs["btn_retry"].winfo_exists():
+                refs["btn_retry"].configure(state="normal")
+            if "btn_cancel" in refs and refs["btn_cancel"].winfo_exists():
+                refs["btn_cancel"].configure(state="normal")
+            
+            # Note: We do not unlock card buttons if the game is over, except for the explicit UI commands
+            for w in refs["btn_frame"].winfo_children():
+                if isinstance(w, ctk.CTkButton) and w not in [refs.get("btn_retry"), refs.get("btn_cancel")]: 
+                    w.configure(state="normal")
+                elif isinstance(w, ctk.CTkFrame):
+                    for sub_w in w.winfo_children():
+                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="normal")
 
         # --- AUTOPILOT HOOK ---
         if self.engine.is_test_mode:

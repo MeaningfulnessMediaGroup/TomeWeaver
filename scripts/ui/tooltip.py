@@ -110,3 +110,24 @@ def apply_global_text_bindings(root_app):
 
     root_app.bind_class("Entry", "<Control-BackSpace>", entry_del_word_back)
     root_app.bind_class("Entry", "<Option-BackSpace>", entry_del_word_back)
+    
+def center_window_on_parent(dialog, parent):
+    """Mathematically centers a popup dialog over its parent window."""
+    dialog.update_idletasks() # Force UI to calculate required width/height
+    
+    p_w = parent.winfo_width()
+    p_h = parent.winfo_height()
+    p_x = parent.winfo_rootx()
+    p_y = parent.winfo_rooty()
+    
+    d_w = dialog.winfo_reqwidth()
+    d_h = dialog.winfo_reqheight()
+    
+    x = p_x + (p_w // 2) - (d_w // 2)
+    y = p_y + (p_h // 2) - (d_h // 2)
+    
+    # Failsafe: Prevent the dialog's title bar from spawning off-screen
+    if x < 0: x = 0
+    if y < 0: y = 30
+    
+    dialog.geometry(f"+{x}+{y}")

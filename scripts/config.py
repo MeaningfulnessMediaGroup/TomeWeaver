@@ -294,35 +294,62 @@ def load_engine_config():
         "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
-        "window_geometry": "1100x750",
-        "window_state": "normal",
-        "last_active_story": "",
         "max_inventory_keys": 8
     }
     
-    # 1. Create default config if it doesn't exist
     if not config_path.exists():
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(default_config, f, indent=4)
         return default_config
     
-    # 2. Load existing config (utilizing the repair layer in load_json_safely)
     config = load_json_safely(config_path, "engine_config.json")
     
-    # 3. Migration Check: Ensure all default keys exist in the user's config
     needs_update = False
     for key, val in default_config.items():
         if key not in config:
             config[key] = val
             needs_update = True
             
-    # Save the migrated config back to disk if keys were added
+    # Clean up legacy volatile keys from engine_config
+    for legacy_key in ["window_geometry", "window_state", "last_active_story"]:
+        if legacy_key in config:
+            del config[legacy_key]
+            needs_update = True
+            
     if needs_update:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
             
     return config
+
+def load_instance_config():
+    """Loads volatile session settings (Window size, last active story)."""
+    configs_dir = ROOT_DIR / "configs"
+    config_path = configs_dir / "instance_config.json"
     
+    default_config = {
+        "window_geometry": "1100x750",
+        "window_state": "normal",
+        "last_active_story": ""
+    }
+    
+    if not config_path.exists():
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, indent=4)
+        return default_config
+    
+    config = load_json_safely(config_path, "instance_config.json")
+    needs_update = False
+    for key, val in default_config.items():
+        if key not in config:
+            config[key] = val
+            needs_update = True
+            
+    if needs_update:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4)
+    return config
+
 
 # ---------------------------------------------------------
 # DEFAULT FILE CREATION FOR NEW STORIES
@@ -378,3 +405,4 @@ def create_boilerplate_files(adv_dir, mode):
             
 
 ENGINE_CONFIG = load_engine_config()
+INSTANCE_CONFIG = load_instance_config()

@@ -9,7 +9,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 from pathlib import Path
 from api import TomeWeaverAPI
-from config import create_boilerplate_files, ENGINE_CONFIG, ROOT_DIR
+from config import create_boilerplate_files, ENGINE_CONFIG, INSTANCE_CONFIG, ROOT_DIR
 from ui.dashboard import DashboardFrame
 
 
@@ -29,8 +29,8 @@ class TomeWeaverApp(ctk.CTk):
         apply_global_text_bindings(self)
         
         # --- RESTORE SAVED WINDOW GEOMETRY ---
-        saved_geom = ENGINE_CONFIG.get("window_geometry", "1100x750")
-        saved_state = ENGINE_CONFIG.get("window_state", "normal")
+        saved_geom = INSTANCE_CONFIG.get("window_geometry", "1100x750")
+        saved_state = INSTANCE_CONFIG.get("window_state", "normal")
         
         # Apply Width, Height, and X/Y Screen Coordinates
         self.geometry(saved_geom)
@@ -58,7 +58,7 @@ class TomeWeaverApp(ctk.CTk):
             self.open_workspace(startup_story)
         else:
             # Auto-Resume last played session
-            last_story = ENGINE_CONFIG.get("last_active_story", "")
+            last_story = INSTANCE_CONFIG.get("last_active_story", "")
             if last_story and (Path("adventures") / last_story).exists():
                 self.open_workspace(last_story)
             else:
@@ -71,7 +71,14 @@ class TomeWeaverApp(ctk.CTk):
                 json.dump(ENGINE_CONFIG, f, indent=4)
         except Exception:
             pass
-
+    def _save_instance_config_silently(self):
+        """Helper to safely dump volatile session settings to disk."""
+        try:
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
+        except Exception:
+            pass
+            
     def _on_closing(self):
         """Fires exactly when the user clicks the X to close the app. Saves window state."""
         current_state = self.state()
@@ -79,10 +86,10 @@ class TomeWeaverApp(ctk.CTk):
         if current_state == "iconic":
             current_state = "normal"
             
-        ENGINE_CONFIG["window_state"] = current_state
-        ENGINE_CONFIG["window_geometry"] = self.geometry()
+        INSTANCE_CONFIG["window_state"] = current_state
+        INSTANCE_CONFIG["window_geometry"] = self.geometry()
         
-        self._save_config_silently()
+        self._save_instance_config_silently()
         self.destroy()
         
     def clear_container(self):
@@ -136,14 +143,14 @@ class TomeWeaverApp(ctk.CTk):
                 except ValueError:
                     pass # Failsafe if the tab name doesn't exist
             
-            from config import ENGINE_CONFIG
-            ENGINE_CONFIG["last_active_story"] = folder_name
-            self._save_config_silently()
+            from config import INSTANCE_CONFIG
+            INSTANCE_CONFIG["last_active_story"] = folder_name
+            self._save_instance_config_silently()
             
         except Exception as e:
-            from config import ENGINE_CONFIG
-            ENGINE_CONFIG["last_active_story"] = ""
-            self._save_config_silently()
+            from config import INSTANCE_CONFIG
+            INSTANCE_CONFIG["last_active_story"] = ""
+            self._save_instance_config_silently()
             messagebox.showerror("Engine Error", f"Failed to load story: {e}")
             self.open_dashboard()
             

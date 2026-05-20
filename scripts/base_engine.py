@@ -715,12 +715,35 @@ class BaseEngine:
         max_retries = ENGINE_CONFIG.get("max_retries", 10)
         
         # --- CONTEXT OVERRIDE FOR FIX/POLISH ---
+        dynamic_max_tokens = ENGINE_CONFIG.get("max_tokens", 2000)
+        
         if self.active_fix and self.is_fix_mode:
             editor_sys = self.system_prompt_text + "\n\n" + PROMPTS.get("SYS_EDITOR", "")
             base_messages = [
                 {"role": "system", "content": editor_sys},
                 {"role": "user", "content": self.active_fix}
             ]
+            
+            # DYNAMIC TOKEN SCALING FOR EDITORS
+            if self.backup_turn:
+                orig_text = self.backup_turn.get("story_text", "")
+                word_count = len(orig_text.split())
+                estimated_input_tokens = int(word_count * 1.5)
+                
+                if "CONDENSE" in self.active_fix:
+                    # Condensing strictly reduces text
+                    dynamic_max_tokens = max(150, estimated_input_tokens)
+                elif "POLISH" in self.active_fix or "FIX" in self.active_fix:
+                    # Polish/Fix keeps roughly the same length + small buffer
+                    dynamic_max_tokens = max(300, estimated_input_tokens + 250)
+                elif "EXPAND" in self.active_fix:
+                    # Expand needs massive headroom
+                    dynamic_max_tokens = max(500, estimated_input_tokens + 800)
+                    
+                # Never exceed the user's global hard cap
+                global_cap = ENGINE_CONFIG.get("max_tokens", 2000)
+                dynamic_max_tokens = min(global_cap, dynamic_max_tokens)
+                
         else:
             base_messages = self.build_messages(self.get_next_turn_number())
 
@@ -742,7 +765,8 @@ class BaseEngine:
             inv_schema = self.setup_data.get("inventory_dictionary", {})
             turn_data, err, raw = get_llm_response(
                 active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
-                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode, inv_schema
+                self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode, inv_schema,
+                override_tokens=dynamic_max_tokens
             )
             
             if turn_data:

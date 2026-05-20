@@ -97,12 +97,12 @@ class WorkspaceFrame(ctk.CTkFrame):
         """Safely shuts down the workspace and returns to the dashboard context."""
         self.console_tab.restore_stdout()
         
-        from config import ENGINE_CONFIG, ROOT_DIR
+        from config import INSTANCE_CONFIG, ROOT_DIR
         import json
-        ENGINE_CONFIG["last_active_story"] = ""
+        INSTANCE_CONFIG["last_active_story"] = ""
         try:
-            with open(ROOT_DIR / "configs" / "engine_config.json", "w", encoding="utf-8") as f:
-                json.dump(ENGINE_CONFIG, f, indent=4)
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
         except Exception:
             pass
             

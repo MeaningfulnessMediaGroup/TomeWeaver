@@ -470,50 +470,60 @@ def translate_api_error(exception=None, response=None):
     # 1. Handle Hard Network Failures (Server offline, No internet)
     if exception:
         if isinstance(exception, requests.exceptions.ConnectionError):
-            return "Server Unreachable. Is your local AI (LM Studio) running, or are you offline?"
+            return "Server Unreachable (Connection Refused). Is your local AI (LM Studio) running, or are you offline?"
         if isinstance(exception, requests.exceptions.Timeout):
             return "Request Timed Out. The AI took too long to respond."
-        return f"Network Exception: {str(exception)}"
+            
+        # If it's a generic Python exception that leaked through, show its class name to help debug
+        return f"Internal Exception [{type(exception).__name__}]: {str(exception)}"
 
     # 2. Handle API HTTP Status Codes
     if response is not None:
         code = response.status_code
         
-        # Explicitly map known codes
-        if code == 400: 
-            return "No models loaded or invalid model (Error 400). Ensure you have loaded a model if you are using local LM Studio or that the model you have specified is valid."
-        elif code == 401: 
-            return "Invalid API Key or Unauthorized Access (Error 401)."
-        elif code == 403: 
-            return "Invalid API Key or Unauthorized Access (Error 403)."
-        elif code == 404: 
-            return "Model or API Endpoint not found (Error 404). Check your Global Settings."
-        elif code == 429: 
-            return "Rate Limit Exceeded (Too Many Requests, Error 429). Please wait a moment."
-        elif code == 502:
-            return "Bad Gateway (Error 502). The API provider's routing failed."
-        elif code == 503:
-            return "Service Unavailable (Error 503). The API provider is down or overloaded."
-        elif code == 504:
-            return "Gateway Timeout (Error 504). The AI took too long to generate."
-            
-        # Try to parse the specific error message provided by the cloud provider
-        # for ANY unhandled or generic code.
+        # A. EXTRACT EXACT PROVIDER ERROR FIRST
+        provider_msg = ""
         try:
             err_data = response.json()
-            if isinstance(err_data, dict) and "error" in err_data:
-                e = err_data["error"]
-                return f"API Error [{code}]: {e.get('message', str(e)) if isinstance(e, dict) else str(e)}"
-            return f"API Error [{code}]: {str(err_data)}"
+            if isinstance(err_data, dict):
+                if "error" in err_data:
+                    e = err_data["error"]
+                    provider_msg = e.get('message', str(e)) if isinstance(e, dict) else str(e)
+                elif "message" in err_data:
+                    provider_msg = str(err_data["message"])
         except Exception:
-            # If the response isn't JSON, just return the raw text block
-            raw_text = response.text[:100].strip() if response.text else "No response body."
-            return f"Unhandled HTTP Error [{code}]. Raw response: {raw_text}"
+            # If the response isn't JSON, grab the raw text block
+            provider_msg = response.text[:200].strip() if response.text else ""
+
+        # B. ASSIGN BROAD HTTP CONTEXT
+        base_err = f"API Error [{code}]"
+        if code == 400:
+            base_err = "Bad Request (Error 400)"
+        elif code == 401: 
+            base_err = "Unauthorized Access (Error 401)"
+        elif code == 403: 
+            base_err = "Forbidden (Error 403)"
+        elif code == 404: 
+            base_err = "Endpoint Not Found (Error 404)"
+        elif code == 429: 
+            base_err = "Rate Limit Exceeded (Error 429)"
+        elif code == 502:
+            base_err = "Bad Gateway (Error 502)"
+        elif code == 503:
+            base_err = "Service Unavailable (Error 503)"
+        elif code == 504:
+            base_err = "Gateway Timeout (Error 504)"
+
+        # C. COMBINE FOR MAXIMUM CLARITY
+        if provider_msg:
+            return f"{base_err}.\nServer Response: {provider_msg}"
+        else:
+            return f"{base_err}.\nServer Response: No specific message provided."
             
     return "Unknown Generation Error."
 
     
-def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None):
+def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None, override_tokens=None):
     """
     Master API request function. Handles payload construction, dynamic 
     temperature scaling (cools down for syntax errors, heats up for loops), 
@@ -535,11 +545,14 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
         # High temperatures cause format collapse. Cold temperatures enforce logic.
         temp = max(0.2, temp_base - (attempt * 0.15))
         
+    # Use dynamically calculated tokens if provided, otherwise default to global config
+    final_max_tokens = override_tokens if override_tokens is not None else ENGINE_CONFIG.get("max_tokens", 2000)
+        
     payload = {
         "model": ENGINE_CONFIG.get("model", "loaded-model"),
         "messages": messages,
         "temperature": temp,
-        "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)
+        "max_tokens": final_max_tokens
     }
     
     api_url = ENGINE_CONFIG.get("api_url", "")

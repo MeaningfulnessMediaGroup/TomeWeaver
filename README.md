@@ -59,13 +59,21 @@ Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine 
 
 ## 🧠 Supported LLM Providers
 
-TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI specification. Use the **API Connections Manager** in the UI to plug in:
+TomeWeaver is provider-agnostic and supports any API compatible with the OpenAI specification. Use the **API Connections Manager** in the UI to plug in your provider of choice.
 
-*   **LM Studio (Highly Recommended):** For 100% free, unlimited, and private local generations. This is the gold standard for testing and personal play.
-*   **OpenAI:** Native support for GPT-5 and GPT-5.5.
-*   **Gemini:** Access to your favorite AI model via Google AI Studio.
-*   **OpenRouter:** Access Claude 3.5 Sonnet, Llama 3.1, and dozens of other top-tier models.
-*   **Grok / xAI:** Compatible with the Grok API.
+### 🌟 Highly Recommended: LM Studio (Local AI)
+We strongly recommend running TomeWeaver locally using **[LM Studio](https://lmstudio.ai/)**. 
+*   **100% Free & Private:** Runs entirely on your own hardware offline. No subscriptions, no data harvesting.
+*   **Uncensored:** Cloud providers (like OpenAI or Anthropic) often filter dark fantasy, horror, or gritty violence. Local models do not.
+*   **Infinite Play:** Play a 5-hour campaign or a 50-hour campaign; you will never have to pay per token.
+
+📖 **[Read the LM Studio Setup & Model Guide](docs/LM_STUDIO_CONFIG.md)** for step-by-step instructions on configuring the local server, preventing context-limit crashes, and downloading our curated list of the best local models for JSON-based story generation.
+
+### Cloud Providers
+If you do not have a dedicated GPU, TomeWeaver supports cloud providers seamlessly:
+*   **OpenAI:** Native support for GPT-4o.
+*   **OpenRouter:** Access Claude 3.5 Sonnet, Llama 3.1, and dozens of other top-tier models for pennies.
+*   **Gemini & Grok:** Fully compatible via their respective OpenAI-compatible endpoints.
 
 ---
 

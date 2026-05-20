@@ -1133,3 +1133,69 @@ class TomeWeaverAPI:
         else: return SandboxEngine(target_dir, setup_data)
         
         
+        
+    @staticmethod
+    def edit_narrative_bridge(bridge_text, edit_type):
+        """
+        AI Bridge Editor.
+        Specifically handles the Polish and Expand actions for transition sentences.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit
+        import requests, time
+        
+        sys_prompt = PROMPTS.get("SYS_BRIDGE_EDIT", "")
+        
+        if edit_type == "polish":
+            user_prompt = PROMPTS.get("USER_BRIDGE_POLISH", "").replace("{bridge}", bridge_text)
+        else:
+            user_prompt = PROMPTS.get("USER_BRIDGE_EXPAND", "").replace("{bridge}", bridge_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        # Dynamically scale tokens based on the size of the input text
+        # 1 word is roughly 1.3 tokens. We add a massive buffer so it never truncates.
+        word_count = len(bridge_text.split())
+        estimated_input_tokens = int(word_count * 1.5)
+        
+        if edit_type == "polish":
+            # Polish shouldn't add much length, just fix grammar
+            dynamic_tokens = max(150, estimated_input_tokens + 100)
+        else:
+            # Expand needs room to grow significantly
+            dynamic_tokens = max(300, estimated_input_tokens + 400)
+            
+        # Hard cap to prevent runaway billing if using cloud APIs
+        dynamic_tokens = min(2000, dynamic_tokens)
+
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.4 if edit_type == "polish" else 0.7, 
+                "max_tokens": dynamic_tokens
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+                if resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                
+                # Clean up artifacts
+                raw = raw.strip('"\'')
+                if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                
+                return True, raw
+                
+            except Exception as e:
+                time.sleep(2)
+                continue
+                
+        return False, "Failed to edit bridge. Please check API connection."

@@ -19,6 +19,7 @@ adventures/*
 
 # Logs and Exports
 *.log
+configs/instance_config.json
 session_log.txt
 history.json
 *.html
