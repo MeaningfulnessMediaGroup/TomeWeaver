@@ -47,8 +47,8 @@ class WorkspaceFrame(ctk.CTkFrame):
         opt_menu = ctk.CTkOptionMenu(
             header, 
             variable=self.opt_var, 
-            values=["Generate Recap", "Export Story", "Restart Story"], 
-            width=130,
+            values=["Generate Recap", "Generate Missing Bridges", "Export Story", "Restart Story"], 
+            width=200,
             command=self._handle_options_menu
         )
         opt_menu.pack(side="right", padx=10)
@@ -118,10 +118,54 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.opt_var.set("Options...") # Reset label immediately
         if choice == "Generate Recap":
             self._generate_recap()
+        elif choice == "Generate Missing Bridges":
+            self._generate_missing_bridges()
         elif choice == "Export Story":
             self._export_dialog()
         elif choice == "Restart Story":
             self._restart_story()
+
+    def _generate_missing_bridges(self):
+        """Manually triggers the background worker to patch all missing narrative bridges."""
+        from tkinter import messagebox
+        
+        if len(self.engine.history) < 2:
+            messagebox.showinfo("Narrative Bridges", "Not enough history to generate bridges.")
+            return
+
+        warn_msg = (
+            "This will scan your entire history and ask the AI to generate "
+            "missing narrative transitions between your actions and the prose.\n\n"
+            "This may take several minutes depending on the length of your story, "
+            "and will consume API tokens. Proceed?"
+        )
+        if not messagebox.askyesno("Generate Missing Bridges", warn_msg):
+            return
+
+        # Lock the UI visually to indicate processing
+        if hasattr(self, 'story_tab'):
+            self.story_tab._lock_ui("Generating missing bridges... Please wait.")
+        else:
+            self.winfo_toplevel().configure(cursor="watch")
+
+        def worker():
+            # Call the existing backend method (silent=False prints progress to the Developer Console tab)
+            self.engine.novelize_history(silent=False)
+            
+            def update_ui():
+                # Unlock and refresh the UI safely
+                if hasattr(self, 'story_tab'):
+                    self.story_tab._unlock_ui("Ready.")
+                    self.story_tab.refresh_timeline()
+                else:
+                    self.winfo_toplevel().configure(cursor="")
+                    
+                messagebox.showinfo("Complete", "Finished generating missing narrative bridges.\nCheck the Developer Console for details.")
+                
+            self.after(0, update_ui)
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
 
     def _generate_recap(self):
         """Asks the LLM to generate a summary of the adventure on a background thread."""

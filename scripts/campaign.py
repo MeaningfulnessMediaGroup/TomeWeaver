@@ -266,24 +266,27 @@ class CampaignEngine(BaseEngine):
             # --- NORMAL GAMEPLAY (Context Window Splicing) ---
             messages = [{"role": "system", "content": system_content}]
             if completed_history:
-                # Build the sliding window. We inject strict structural markers [Loc:] and | Inv: 
-                # so the AI learns to associate the narrative with the changing state data.
                 history_text = "RECENT HISTORY:\n"
                 for turn in completed_history[-context_window:]:
-                    loc = turn.get('location', 'Unknown')
-                    inv_text = f" | Inv: {turn.get('inventory_and_state', '')}" if self.track_inventory else ""
-                    goal_prog = turn.get('goal_progress', '')
-                    prog_text = f" | Progress Checklist: {goal_prog}" if goal_prog else ""
+                    # Clearly separate state fields on their own lines to prevent hallucination bleeding
+                    history_text += f"Turn {turn['turn']}:\n"
+                    history_text += f"Location: {turn.get('location', 'Unknown')}\n"
                     
-                    # Inject the Narrative Bridge before the story prose if it exists
+                    if self.track_inventory:
+                        history_text += f"Inventory & State: {turn.get('inventory_and_state', '')}\n"
+                        
+                    goal_prog = turn.get('goal_progress', '')
+                    if goal_prog:
+                        # Replace newlines in the checklist with slashes to keep the prompt block tight
+                        history_text += f"Goal Progress: {goal_prog.replace(chr(10), ' / ')}\n"
+                    
                     bridge = turn.get('narrative_bridge', '')
                     bridge_text = f"Transition: {bridge}\n" if bridge and bridge not in ["[OK]", "[FAILED]"] else ""
                     
-                    history_text += f"Turn {turn['turn']} [Loc: {loc}{inv_text}{prog_text}]:\n{bridge_text}Story: {turn['story_text']}\nPlayer Action: {turn['player_choice']}\n\n"
+                    history_text += f"{bridge_text}Story: {turn['story_text']}\nPlayer Action: {turn['player_choice']}\n\n"
                 
                 messages.append({"role": "user", "content": history_text + (self.active_fix if self.active_fix else base_instruction)})
             else:
-                # Failsafe if history gets completely wiped but it's not Turn 0
                 messages.append({"role": "user", "content": self.active_fix if self.active_fix else base_instruction})
 
         # ==========================================

@@ -180,43 +180,49 @@ class StoryTab(ctk.CTkFrame):
             refs["choice"].configure(wraplength=adjusted_wrap)
             if "br_prose" in refs: refs["br_prose"].configure(wraplength=adjusted_wrap)
             if "br_hdr" in refs: refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
-            
-            # Dynamic Height calculation for the Inventory Textbox
-            if "inv_box" in refs and refs["inv_box"].winfo_exists():
-                tb = refs["inv_box"]._textbox
-                # Query the C-engine for the exact number of wrapped display lines
-                lines = tb.count("1.0", "end", "displaylines")
-                num_lines = lines[0] if lines else 1
-                
-                # 32px per line + 10px padding provides a perfect, tight fit for the embedded frames
-                calc_h = (num_lines * 32) + 10
-                
-                # Only configure if changed to prevent visual jitter
-                if refs["inv_box"].cget("height") != calc_h:
-                    refs["inv_box"].configure(height=calc_h)
 
     def _wrap_heartbeat(self):
         """
-        An infinitely repeating background loop. Checks if the user resized the 
-        application window, and recalculates the paragraph wrapping boundaries if so.
+        An infinitely repeating background loop. 
+        Recalculates text wrap margins if the window resizes, and GUARANTEES 
+        the inventory textbox height is always perfectly snapped to its content.
         """
         current_width = self.timeline._parent_canvas.winfo_width()
         if current_width > 100 and current_width != self._last_width:
             self._last_width = current_width
             self._apply_wrapping(current_width)
+            
+        # CRITICAL FIX: Always verify Inventory box height on every tick!
+        # When a new turn is generated, Tkinter packs the widget before it knows its true width.
+        # This caused the text to temporarily wrap to 5+ lines, trapping the height at a huge value.
+        # Checking this continuously ensures it snaps back down instantly once fully drawn.
+        for refs in self.recycled_cards:
+            if "inv_box" in refs and refs["inv_box"].winfo_exists():
+                tb = refs["inv_box"]._textbox
+                lines = tb.count("1.0", "end", "displaylines")
+                num_lines = lines[0] if lines else 1
+                
+                # 32px per line + 10px padding is the perfect tight fit
+                calc_h = (num_lines * 32) + 10
+                
+                if refs["inv_box"].cget("height") != calc_h:
+                    refs["inv_box"].configure(height=calc_h)
+
         self.after(200, self._wrap_heartbeat)
 
-    def _force_scroll_bottom(self):
-        """Forces the Canvas to update its bounding box, then drops to the absolute floor."""
+    def _maintain_scroll_position(self, target_y=None):
+        """
+        Forces the Canvas to update its bounding box and then snaps the viewport 
+        to a specific coordinate, preventing the screen from jumping after an edit.
+        """
         self.timeline.update_idletasks()
         
-        # Manually force the canvas to recognize the exact physical height of all the cards
         bbox = self.timeline._parent_canvas.bbox("all")
         if bbox:
             self.timeline._parent_canvas.configure(scrollregion=bbox)
             
-        # Now that the canvas knows its true height, 1.0 will flawlessly hit the bottom
-        self.timeline._parent_canvas.yview_moveto(1.0)
+        if target_y is not None:
+            self.timeline._parent_canvas.yview_moveto(target_y)
 
     # ---------------------------------------------------------
     # WIDGET VIRTUALIZATION (The 3-Card Engine)
@@ -245,11 +251,17 @@ class StoryTab(ctk.CTkFrame):
             br_btn_del = ctk.CTkButton(br_hdr_frame, text="X", width=28, height=24, fg_color="#B71C1C", hover_color="#7F0000")
             Tooltip(br_btn_del, "Delete this narrative bridge.")
             
-            br_btn_gen = ctk.CTkButton(br_hdr_frame, text="✨", width=28, height=24, fg_color="#00ACC1", hover_color="#00838F")
-            Tooltip(br_btn_gen, "Ask AI to regenerate this bridge.")
+            br_btn_gen = ctk.CTkButton(br_hdr_frame, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            Tooltip(br_btn_gen, "Ask AI to generate a brand new bridge from scratch.")
             
-            br_btn_edit = ctk.CTkButton(br_hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
-            Tooltip(br_btn_edit, "Open the Narrative Editor to tweak this bridge.")
+            br_btn_pol = ctk.CTkButton(br_hdr_frame, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2")
+            Tooltip(br_btn_pol, "AI Copy-Edit: Fix grammar/flow of this bridge.")
+            
+            br_btn_exp = ctk.CTkButton(br_hdr_frame, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            Tooltip(br_btn_exp, "AI Expansion: Make this bridge slightly longer and more descriptive.")
+            
+            br_btn_edit = ctk.CTkButton(br_hdr_frame, text="✎ Edit", width=50, height=24, font=("Arial", 11), fg_color="#4A4A4A", hover_color="#333333")
+            Tooltip(br_btn_edit, "Open the Narrative Editor to manually type changes.")
             
             br_hdr_lbl = ctk.CTkLabel(br_hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
             br_hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
@@ -285,12 +297,13 @@ class StoryTab(ctk.CTkFrame):
                 "chap_card": chap_card, "chap_lbl": chap_lbl,
                 "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
                 "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
-                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame, 
+                "br_btn_pol": br_btn_pol, "br_btn_exp": br_btn_exp,
+                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame,
                 "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
                 "choice": c_lbl, "btn_frame": btn_frame
             })
 
-    def refresh_timeline(self):
+    def refresh_timeline(self, retain_scroll=False):
         """
         Master Update Endpoint. Syncs the slider scale to the history length, 
         evaluates UI configurations, and triggers a visual render of the cards.
@@ -348,7 +361,7 @@ class StoryTab(ctk.CTkFrame):
         self.current_top_idx = max_start
         
         # 2. Draw the cards to the screen
-        self._render_visible_cards(auto_scroll=True)
+        self._render_visible_cards(retain_scroll=retain_scroll)
         
         # 3. Unlock the UI explicitly (Resets all states)
         self._unlock_ui("Ready.")
@@ -391,12 +404,17 @@ class StoryTab(ctk.CTkFrame):
             # When manually browsing history, always snap to the top of the slice
             self.timeline._parent_canvas.yview_moveto(0.0)
 
-    def _render_visible_cards(self, auto_scroll=False):
+    def _render_visible_cards(self, retain_scroll=False):
         """
         Draws the actual history data into the 3 empty widget shells.
-        Automatically unpacks tools (like Edit, Polish, Fix) depending on 
-        whether the turn is historical or active.
+        If retain_scroll is True, it memorizes the exact pixel position of the viewport
+        before redrawing, and restores it afterward to prevent UI jumping.
         """
+        # Capture exactly where the user is looking before we destroy the layout
+        current_scroll_y = None
+        if retain_scroll and hasattr(self.timeline, "_parent_canvas"):
+            current_scroll_y = self.timeline._parent_canvas.yview()[0]
+            
         history = self.engine.history
         cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
         from ui.tooltip import Tooltip
@@ -464,17 +482,19 @@ class StoryTab(ctk.CTkFrame):
                     refs["br_card"].pack(fill="x", padx=20, pady=(5, 0))
                     refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
                     refs["br_prose"].configure(text=bridge)
-                    if cheats_allowed:
-                        refs["br_btn_del"].pack(side="right", padx=(5, 0))
-                        refs["br_btn_gen"].pack(side="right", padx=(5, 0))
-                        refs["br_btn_edit"].pack(side="right", padx=(5, 0))
-                        refs["br_btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                        refs["br_btn_gen"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
-                        refs["br_btn_del"].configure(command=lambda idx=target_idx: self._delete_bridge_timeline(idx))
-                    else:
-                        refs["br_btn_del"].pack_forget()
-                        refs["br_btn_gen"].pack_forget()
-                        refs["br_btn_edit"].pack_forget()
+                    
+                    # Bridges are post-production polish, so they are ALWAYS editable regardless of 'allow_cheats'
+                    refs["br_btn_del"].pack(side="right", padx=(5, 0))
+                    refs["br_btn_edit"].pack(side="right", padx=(5, 0))
+                    refs["br_btn_pol"].pack(side="right", padx=(5, 0))
+                    refs["br_btn_exp"].pack(side="right", padx=(5, 0))
+                    refs["br_btn_gen"].pack(side="right", padx=(5, 0))
+                    
+                    refs["br_btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
+                    refs["br_btn_del"].configure(command=lambda idx=target_idx: self._delete_bridge_timeline(idx))
+                    refs["br_btn_pol"].configure(command=lambda idx=target_idx: self._trigger_bridge_edit(idx, "polish"))
+                    refs["br_btn_exp"].configure(command=lambda idx=target_idx: self._trigger_bridge_edit(idx, "expand"))
+                    refs["br_btn_gen"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
 
 
                 # 3. RENDER STORY CARD (Packed THIRD)
@@ -556,13 +576,15 @@ class StoryTab(ctk.CTkFrame):
                 refs["btn_edit"].pack_forget()
                 refs["btn_bridge"].pack_forget()
                 
+                # Manual turn editing is a cheat, but Bridge generation is always allowed
                 if cheats_allowed:
                     refs["btn_edit"].pack(side="right")
                     refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                    if target_idx > 0 and not is_valid_bridge and bridge != "[OK]":
-                        refs["btn_bridge"].pack(side="right", padx=(0, 5))
-                        refs["btn_bridge"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
-                        Tooltip(refs["btn_bridge"], "Generate a narrative transition from the previous turn.")
+                    
+                if target_idx > 0 and not is_valid_bridge and bridge != "[OK]":
+                    refs["btn_bridge"].pack(side="right", padx=(0, 5))
+                    refs["btn_bridge"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
+                    Tooltip(refs["btn_bridge"], "Generate a narrative transition from the previous turn.")
                         
                 # FIX: Aggressively strip trailing newlines to prevent phantom vertical space
                 prose_text = turn.get("story_text", "").replace("\\n", "\n").strip()
@@ -656,10 +678,13 @@ class StoryTab(ctk.CTkFrame):
             self._apply_wrapping(current_width)
             self._last_width = current_width
             
-        if auto_scroll:
-            self._force_scroll_bottom() 
-            for ms in [50, 150, 300, 500, 850]:
-                self.after(ms, self._force_scroll_bottom)
+        # Apply the layout and restore the camera
+        target_y = current_scroll_y if retain_scroll else 1.0
+        
+        self._maintain_scroll_position(target_y) 
+        # Multi-pass ensures it sticks even if images/text wrap late
+        for ms in [50, 150, 300]:
+            self.after(ms, lambda y=target_y: self._maintain_scroll_position(y))
                 
                 
     # ---------------------------------------------------------
@@ -707,17 +732,31 @@ class StoryTab(ctk.CTkFrame):
             br_hdr.pack(fill="x", pady=(0, 5))
             ctk.CTkLabel(br_hdr, text="Narrative Bridge (Transition from previous turn):", font=("Arial", 12, "bold")).pack(side="left")
             
-            # Clear Textbox Button
-            btn_clear_br = ctk.CTkButton(br_hdr, text="X Clear", width=60, fg_color="#B71C1C", hover_color="#7F0000")
-            btn_clear_br.pack(side="right", padx=5)
+            # Action Buttons
+            btn_clear_br = ctk.CTkButton(br_hdr, text="X Clear", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000")
+            btn_clear_br.pack(side="right", padx=2)
             Tooltip(btn_clear_br, "Wipe the textbox below.")
 
-            btn_gen_br = ctk.CTkButton(br_hdr, text="✨ Generate", width=80, fg_color="#00ACC1", hover_color="#00838F")
-            btn_gen_br.pack(side="right", padx=5)
+            btn_gen_br = ctk.CTkButton(br_hdr, text="⟳ Reroll", width=70, height=24, fg_color="#F57C00", hover_color="#E65100")
+            btn_gen_br.pack(side="right", padx=2)
+            Tooltip(btn_gen_br, "Ask AI to generate a brand new bridge connecting the previous action to this prose.")
+            
+            btn_pol_br = ctk.CTkButton(br_hdr, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2")
+            btn_pol_br.pack(side="right", padx=2)
+            Tooltip(btn_pol_br, "AI Copy-Edit: Fix grammar/flow of this bridge.")
+            
+            btn_exp_br = ctk.CTkButton(br_hdr, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F")
+            btn_exp_br.pack(side="right", padx=2)
+            Tooltip(btn_exp_br, "AI Expansion: Make this bridge slightly longer and more descriptive.")
             
             bridge_box = ctk.CTkTextbox(scroll, height=100, wrap="word", font=self.prose_font)
             bridge_box.insert("1.0", turn.get("narrative_bridge", "").replace("\\n", "\n"))
             bridge_box.pack(fill="x", pady=(0, 20))
+            
+            # Enable OS standard shortcuts
+            from ui.tooltip import apply_global_text_bindings
+            try: bind_modern_text_shortcuts(bridge_box._textbox) # Fallback if global fails
+            except: pass
             
             btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
             
@@ -736,13 +775,44 @@ class StoryTab(ctk.CTkFrame):
                         else:
                             from tkinter import messagebox
                             messagebox.showerror("Error", "Failed to generate bridge.")
-                        btn_gen_br.configure(state="normal", text="✨ Generate")
+                        btn_gen_br.configure(state="normal", text="⟳ Reroll")
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            def edit_bridge_async(edit_type, btn_ref):
+                current_bridge = bridge_box.get("1.0", "end").strip()
+                if not current_bridge: return
+                
+                orig_text = btn_ref.cget("text")
+                btn_ref.configure(state="disabled", text="Working...")
+                
+                def worker():
+                    from api import TomeWeaverAPI
+                    if edit_type == "polish":
+                        shorthand = f"Proofread and elevate the prose of this transition sentence: '{current_bridge}'"
+                    else:
+                        shorthand = f"Slightly expand this transition sentence by adding sensory detail: '{current_bridge}'"
+                        
+                    success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, "tone", shorthand)
+                    
+                    def update_ui():
+                        btn_ref.configure(state="normal", text=orig_text)
+                        if success and result:
+                            clean_res = result.strip('"\'')
+                            bridge_box.delete("1.0", "end")
+                            bridge_box.insert("1.0", clean_res)
+                        else:
+                            from tkinter import messagebox
+                            messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
+                            
                     self.after(0, update_ui)
                 import threading
                 threading.Thread(target=worker, daemon=True).start()
                 
             btn_gen_br.configure(command=generate_bridge_async)
-            Tooltip(btn_gen_br, "Ask AI to generate a bridge connecting the previous action to this prose.")
+            btn_pol_br.configure(command=lambda: edit_bridge_async("polish", btn_pol_br))
+            btn_exp_br.configure(command=lambda: edit_bridge_async("expand", btn_exp_br))
         else:
             bridge_box = None
 
@@ -876,7 +946,7 @@ class StoryTab(ctk.CTkFrame):
                     del self.engine.history[turn_idx]["narrative_bridge"]
             
             self.engine.save_state()
-            self._render_visible_cards()
+            self._render_visible_cards(retain_scroll=True) 
             dialog.destroy()
 
         def on_seed_save():
@@ -1094,7 +1164,7 @@ class StoryTab(ctk.CTkFrame):
         def on_accept():
             self.engine.commit_draft(draft_turn)
             dialog.destroy()
-            self.refresh_timeline()
+            self.refresh_timeline(retain_scroll=True)
 
         def on_cancel():
             self.engine.cancel_draft()
@@ -1235,11 +1305,48 @@ class StoryTab(ctk.CTkFrame):
                     messagebox.showerror("Error", "Failed to generate bridge.")
                     
                 self._unlock_ui("Ready.")
-                self._render_visible_cards()
+                self._render_visible_cards(retain_scroll=True) 
             self.after(0, update_ui)
             
         import threading
         threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_bridge_edit(self, turn_idx, edit_type):
+        """Uses the robust World Builder API to instantly Polish or Expand a specific bridge."""
+        if turn_idx <= 0 or turn_idx >= len(self.engine.history): return
+        
+        current_bridge = self.engine.history[turn_idx].get("narrative_bridge", "").strip()
+        if not current_bridge: return
+            
+        self._lock_ui(f"Applying {edit_type} to bridge...")
+        
+        def worker():
+            from api import TomeWeaverAPI
+            # We "trick" the field generator by passing it a custom shorthand instruction
+            if edit_type == "polish":
+                shorthand = f"Proofread and elevate the prose of this transition sentence: '{current_bridge}'"
+            else:
+                shorthand = f"Slightly expand this transition sentence by adding sensory detail: '{current_bridge}'"
+                
+            # 'tone' is a safe field key to pass so it borrows the world's vibe
+            success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, "tone", shorthand)
+            
+            def update_ui():
+                if success and result:
+                    # Strip quotes if the LLM wrapped it
+                    clean_res = result.strip('"\'')
+                    self.engine.history[turn_idx]["narrative_bridge"] = clean_res
+                    self.engine.save_state()
+                    self._render_visible_cards(retain_scroll=True) 
+                else:
+                    messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
+                self._unlock_ui("Ready.")
+                
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
         
     def _async_init(self):
         """Runs the Turn 1 / Prologue startup logic in the background."""
