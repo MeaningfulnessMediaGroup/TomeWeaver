@@ -1,0 +1,20 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+    "can_die": false,
+    "title": "Chroma's Color Conundrum",
+    "tone": "A whimsical, surreal science fiction story with a hint of wonder and mystery",
+    "goal": "Zelda must understand the source of these new colors and decide whether they pose a threat to her world or offer an exciting opportunity for exploration and cultural exchange.",
+    "setting": "City of Chroma is a sprawling metropolis made entirely of glass and crystal, reflecting various shades of green and yellow light. Buildings range from low-rise apartments to towering skyscrapers that seem to defy gravity. The city is illuminated by bioluminescent plants that grow along the streets",
+    "main_character": "Zelda Zeta, age 34, personality: Curious but cautious, Loves exploring new cultures, Struggles with homesickness",
+    "starting_situation": "[\"Zelda wakes up in a small, dimly lit room with unfamiliar surroundings.\", \"She hears strange sounds outside and notices odd colors through a nearby window: red, blue, and orange. These colors are unlike anything she's ever seen before.\"]",
+    "allow_cheats": true,
+    "author": "dobrado76",
+    "version": "1.0",
+    "creation_date": "2026-05-20",
+    "lore_and_rules": "[\"The planet Xanthos is entirely monochromatic, existing in shades of green and yellow from black to white. The inhabitants have never seen any other colors.\", \"Zelda's species are humanoid but with translucent skin that glows slightly in the dark\", \"Xanthian technology is advanced but limited by their color perception\"]",
+    "narrative": {
+        "prologue": "as_is"
+    },
+    "inventory_dictionary": {}
+}

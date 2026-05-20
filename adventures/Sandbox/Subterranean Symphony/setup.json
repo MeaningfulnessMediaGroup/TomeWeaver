@@ -1,0 +1,19 @@
+{
+    "mode": "sandbox",
+    "track_inventory": false,
+    "can_die": false,
+    "title": "Subterranean Symphony",
+    "tone": "Futuristic fantasy adventure with a dystopian atmosphere and steampunk elements.",
+    "goal": "As an engineer, Zeta is driven to solve the mysterious power issues and potentially uncover lost ancient technologies or undiscovered tunnel routes that could enhance life in the subterranean world.",
+    "setting": "The story begins in Neo-Atlantis, a sprawling city beneath the Atlantic Ocean floor. The architecture blends classical Greek aesthetics with advanced technology: marble columns support crystalline domes that illuminate the bustling streets below. High-speed trains zip through transparent tubes connecting to distant land-based cities like Terra Prime and Subsahara Station.",
+    "main_character": "Zeta Vox, a curious and resourceful 25-year-old engineer who is passionate about exploring the world's underground tunnels.",
+    "starting_situation": "Zeta Vox wakes up in her dimly lit apartment in Neo-Atlantis, still groggy from a dream about exploring an uncharted tunnel system. She notices the city-wide power grid is flickering due to intermittent crystal node malfunctions.",
+    "allow_cheats": true,
+    "author": "Anonymous",
+    "version": "1.0",
+    "creation_date": "2026-05-20",
+    "lore_and_rules": "After the surface of Earth became uninhabitable due to atmospheric depletion, humanity built an intricate network of subterranean cities connected by advanced transit systems. The core power source are crystal nodes that generate electricity for trains, Hyperloops, and life support systems in both land-based tunnels and underwater habitats.",
+    "narrative": {
+        "prologue": "as_is"
+    }
+}
