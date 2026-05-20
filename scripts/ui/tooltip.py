@@ -57,3 +57,56 @@ class Tooltip:
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
+            
+            
+def apply_global_text_bindings(root_app):
+    """
+    Applies modern OS text shortcuts (Ctrl+Backspace, Undo) GLOBALLY 
+    to all Text and Entry widgets across the entire application.
+    """
+    import re
+
+    # --- 1. GLOBAL TEXTBOX BINDINGS (Story Text, Prompts, Editor) ---
+    def text_focus_in(event):
+        """Silently enables the Undo stack the moment a Textbox is clicked."""
+        try: event.widget.configure(undo=True, autoseparators=True, maxundo=-1)
+        except Exception: pass
+
+    def text_del_word_back(event):
+        try:
+            if event.widget.tag_ranges("sel"): event.widget.delete("sel.first", "sel.last")
+            else: event.widget.delete("insert -1 chars wordstart", "insert")
+        except Exception: pass
+        return "break"
+
+    def text_del_word_fwd(event):
+        try:
+            if event.widget.tag_ranges("sel"): event.widget.delete("sel.first", "sel.last")
+            else: event.widget.delete("insert", "insert wordend")
+        except Exception: pass
+        return "break"
+
+    root_app.bind_class("Text", "<FocusIn>", text_focus_in)
+    root_app.bind_class("Text", "<Control-BackSpace>", text_del_word_back)
+    root_app.bind_class("Text", "<Option-BackSpace>", text_del_word_back)
+    root_app.bind_class("Text", "<Control-Delete>", text_del_word_fwd)
+    root_app.bind_class("Text", "<Option-Delete>", text_del_word_fwd)
+
+    # --- 2. GLOBAL ENTRY BINDINGS (Titles, Search Bars, Single-line Inputs) ---
+    def entry_del_word_back(event):
+        """Standard Tkinter Entry widgets lack the 'wordstart' index, so we math it with Regex."""
+        try:
+            if event.widget.select_present():
+                event.widget.delete("sel.first", "sel.last")
+            else:
+                cursor_pos = event.widget.index("insert")
+                text = event.widget.get()[:cursor_pos]
+                match = re.search(r'\w*\W*$', text) # Finds the last whole word and trailing spaces
+                if match and match.group(0):
+                    del_len = len(match.group(0))
+                    event.widget.delete(cursor_pos - del_len, "insert")
+        except Exception: pass
+        return "break"
+
+    root_app.bind_class("Entry", "<Control-BackSpace>", entry_del_word_back)
+    root_app.bind_class("Entry", "<Option-BackSpace>", entry_del_word_back)

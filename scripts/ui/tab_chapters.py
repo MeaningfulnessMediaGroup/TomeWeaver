@@ -131,9 +131,24 @@ class ChapterTab(ctk.CTkFrame):
 
         chap = outline[idx]
 
-        ctk.CTkLabel(self.editor_frame, text=f"Editing Chapter {idx+1}", font=("Arial", 18, "bold"), text_color="#4CAF50").pack(anchor="w", padx=10, pady=(5, 15))
+        # --- GLOBAL CHAPTER HEADER & BUTTONS ---
+        hdr_top = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+        hdr_top.pack(fill="x", padx=10, pady=(5, 15))
+        
+        ctk.CTkLabel(hdr_top, text=f"Editing Chapter {idx+1}", font=("Arial", 18, "bold"), text_color="#4CAF50").pack(side="left")
+        
+        btn_inspire_chap = ctk.CTkButton(hdr_top, text="🪄 Inspire Chapter", width=120, height=26, font=("Arial", 12, "bold"), fg_color="#00ACC1", hover_color="#00838F")
+        btn_inspire_chap.pack(side="right", padx=5)
+        Tooltip(btn_inspire_chap, "Generate the entire chapter based on a prompt.")
+        
+        btn_reroll_chap = ctk.CTkButton(hdr_top, text="⟳ Reroll Chapter", width=120, height=26, font=("Arial", 12, "bold"), fg_color="#F57C00", hover_color="#E65100")
+        btn_reroll_chap.pack(side="right", padx=5)
+        Tooltip(btn_reroll_chap, "Generate a completely new chapter outline.")
+        
+        btn_inspire_chap.configure(command=lambda: self._generate_full_chapter(True, btn_inspire_chap))
+        btn_reroll_chap.configure(command=lambda: self._generate_full_chapter(False, btn_reroll_chap))
 
-        def add_field(label_text, key, is_multiline=False, show_ai=False):
+        def add_field(label_text, key, uid, is_multiline=False, show_ai=False):
             hdr = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
             hdr.pack(fill="x", padx=10, pady=(10, 2))
             
@@ -154,6 +169,10 @@ class ChapterTab(ctk.CTkFrame):
             self.fields[key] = widget
             
             if show_ai:
+                btn_help = ctk.CTkButton(hdr, text="💡", width=24, height=20, font=("Segoe UI Emoji", 12), fg_color="#FBC02D", hover_color="#F57F17", text_color="black")
+                btn_help.pack(side="right", padx=(2, 0))
+                Tooltip(btn_help, "Help / Template Ideas")
+                
                 btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
                 btn_inspire.pack(side="right", padx=2)
                 Tooltip(btn_inspire, "Expand your shorthand text into a rich description.")
@@ -164,15 +183,73 @@ class ChapterTab(ctk.CTkFrame):
                 
                 btn_reroll.configure(command=lambda k=key, w=widget, btn=btn_reroll: self._generate_chapter_field(k, w, btn, False))
                 btn_inspire.configure(command=lambda k=key, w=widget, btn=btn_inspire: self._generate_chapter_field(k, w, btn, True))
+                
+                # Route the Chapter help requests to the global parent method so we don't have to duplicate the UI logic
+                parent_tab = self.master.master
+                if hasattr(parent_tab, 'codex_tab'):
+                    btn_help.configure(command=lambda u=uid, w=widget, t=label_text: parent_tab.codex_tab._show_field_guide(u, w, t))
 
-        add_field("Chapter Title:", "title", show_ai=True)
-        add_field("Setting Override (Leave blank to keep current):", "setting", show_ai=True)
-        add_field("POV Override (Leave blank to keep current):", "pov", show_ai=False)
-        add_field("Time Jump (e.g., 'Two days later...'):", "time", show_ai=True)
-        add_field("Chapter Goal (Required):", "goal", is_multiline=True, show_ai=True)
-        add_field("Obstacles (Required):", "obstacles", is_multiline=True, show_ai=True)
+        add_field("Chapter Title:", "title", "CHAP_TITLE", show_ai=True)
+        add_field("Setting Override (Leave blank to keep current):", "setting", "CHAP_SETTING", show_ai=True)
+        add_field("POV Override (Leave blank to keep current):", "pov", "CHAP_POV", show_ai=False)
+        add_field("Time Jump (e.g., 'Two days later...'):", "time", "CHAP_TIME", show_ai=True)
+        add_field("Chapter Goal (Required):", "goal", "CHAP_GOAL", is_multiline=True, show_ai=True)
+        add_field("Obstacles (Required):", "obstacles", "CHAP_OBSTACLES", is_multiline=True, show_ai=True)
 
         ctk.CTkButton(self.editor_frame, text="Save Chapter", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_chapter).pack(pady=30)
+
+    def _generate_full_chapter(self, is_inspire, button):
+        """Generates the entire chapter contextually."""
+        idx = self.selected_idx.get()
+        shorthand = None
+        
+        if is_inspire:
+            msg = "Enter a prompt for this chapter:"
+            if idx == 0:
+                msg = "Enter a prompt for the FIRST chapter (Mandatory):"
+            else:
+                msg = "Enter a prompt for this chapter (Leave blank to auto-continue the plot):"
+                
+            dialog = ctk.CTkInputDialog(text=msg, title="Inspire Chapter")
+            shorthand = dialog.get_input()
+            
+            if shorthand is None: return # User clicked cancel
+            
+            # Mandate prompt for Chapter 1
+            if idx == 0 and not shorthand.strip():
+                messagebox.showwarning("Missing Input", "A prompt is strictly required to inspire the first chapter.")
+                return
+
+        orig_text = button.cget("text")
+        button.configure(state="disabled", text="Generating...")
+        self._save_chapter(memory_only=True)
+        
+        outline = self.engine.setup_data.get("plot_outline", [])
+        prev_chap = outline[idx - 1] if idx > 0 else None
+        
+        def worker():
+            from api import TomeWeaverAPI
+            success, result = TomeWeaverAPI.generate_chapter_data(self.engine.setup_data, prev_chap, shorthand)
+            
+            def update_ui():
+                button.configure(state="normal", text=orig_text)
+                if success and isinstance(result, dict):
+                    # Visually push the results directly into the text boxes
+                    for key, val in result.items():
+                        if key in self.fields:
+                            w = self.fields[key]
+                            if isinstance(w, ctk.StringVar):
+                                w.set(str(val))
+                            else:
+                                w.delete("1.0", "end")
+                                w.insert("1.0", str(val))
+                else:
+                    messagebox.showerror("Generation Error", str(result))
+                    
+            self.after(0, update_ui)
+            
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
 
     def _generate_chapter_field(self, field_key, widget, button, is_inspire):
         """Asynchronously calls the API to generate or expand data for a single Chapter field."""

@@ -24,6 +24,10 @@ class TomeWeaverApp(ctk.CTk):
         self.title("TomeWeaver")
         self.minsize(900, 600)
         
+        # Apply modern typing shortcuts globally to all Text and Entry widgets
+        from ui.tooltip import apply_global_text_bindings
+        apply_global_text_bindings(self)
+        
         # --- RESTORE SAVED WINDOW GEOMETRY ---
         saved_geom = ENGINE_CONFIG.get("window_geometry", "1100x750")
         saved_state = ENGINE_CONFIG.get("window_state", "normal")
@@ -97,7 +101,7 @@ class TomeWeaverApp(ctk.CTk):
         self.active_frame = DashboardFrame(self.container, self, initial_dir=restore_dir)
         self.active_frame.pack(fill="both", expand=True)
 
-    def open_workspace(self, folder_name):
+    def open_workspace(self, folder_name, target_tab=None):
         """Loads the Screen 2: Workspace for a specific story."""
         
         # Safely lock the active directory into the App's memory BEFORE destroying the Dashboard
@@ -124,6 +128,13 @@ class TomeWeaverApp(ctk.CTk):
             from ui.workspace import WorkspaceFrame
             self.active_frame = WorkspaceFrame(self.container, self, engine)
             self.active_frame.pack(fill="both", expand=True)
+            
+            # Route to a specific tab if requested (e.g., from the Create Story menus)
+            if target_tab:
+                try:
+                    self.active_frame.tabs.set(target_tab)
+                except ValueError:
+                    pass # Failsafe if the tab name doesn't exist
             
             from config import ENGINE_CONFIG
             ENGINE_CONFIG["last_active_story"] = folder_name

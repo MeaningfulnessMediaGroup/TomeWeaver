@@ -40,7 +40,7 @@ class DashboardFrame(ctk.CTkFrame):
         btn_new = ctk.CTkOptionMenu(
             header, 
             variable=self.new_story_var, 
-            values=["Manual Setup...", "Generate via AI..."], 
+            values=["Manual Setup...", "Generate via AI...", "Guided Wizard..."], 
             fg_color="#2E7D32", 
             button_color="#1B5E20", 
             button_hover_color="#0D3B13",
@@ -832,6 +832,167 @@ class DashboardFrame(ctk.CTkFrame):
             self.show_create_dialog()
         elif choice == "Generate via AI...":
             self.show_ai_create_dialog()
+        elif choice == "Guided Wizard...":
+            self.show_wizard_dialog()
+
+    def show_wizard_dialog(self):
+        """Spawns the step-by-step guided narrative builder."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Story Creation Wizard")
+        dialog.geometry("600x550")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        # Data State
+        v_title = ctk.StringVar()
+        v_author = ctk.StringVar()
+        v_mode = ctk.StringVar(value="sandbox")
+        v_inv = ctk.BooleanVar(value=False)
+        v_die = ctk.BooleanVar(value=False)
+        
+        main_container = ctk.CTkFrame(dialog, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        steps = []
+        current_step = [0]
+        
+        # --- Step 0: Basics ---
+        f0 = ctk.CTkFrame(main_container, fg_color="transparent")
+        ctk.CTkLabel(f0, text="Step 1: The Basics", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(0, 20))
+        
+        ctk.CTkLabel(f0, text="Adventure Title (Required):", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkEntry(f0, textvariable=v_title, width=300, font=("Arial", 14)).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(f0, text="Author Name:", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkEntry(f0, textvariable=v_author, width=300, placeholder_text="Anonymous", font=("Arial", 14)).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(f0, text="Game Mode:", font=("Arial", 14, "bold")).pack(anchor="w")
+        mf = ctk.CTkFrame(f0, fg_color="transparent")
+        mf.pack(fill="x", pady=(0, 15))
+        ctk.CTkRadioButton(mf, text="Sandbox (Open-World)", variable=v_mode, value="sandbox").pack(side="left", padx=(0, 20))
+        ctk.CTkRadioButton(mf, text="Campaign (Plot-Driven)", variable=v_mode, value="campaign").pack(side="left")
+        
+        ctk.CTkLabel(f0, text="Engine Rules:", font=("Arial", 14, "bold")).pack(anchor="w")
+        rf = ctk.CTkFrame(f0, fg_color="transparent")
+        rf.pack(fill="x", pady=(0, 15))
+        ctk.CTkSwitch(rf, text="Track Inventory", variable=v_inv).pack(side="left", padx=(0, 20))
+        ctk.CTkSwitch(rf, text="Allow Death", variable=v_die).pack(side="left")
+        
+        steps.append(f0)
+        
+        # --- Step 1: Protagonist ---
+        f1 = ctk.CTkFrame(main_container, fg_color="transparent")
+        ctk.CTkLabel(f1, text="Step 2: The Protagonist", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(0, 10))
+        ctk.CTkLabel(f1, text="Who is the main character?", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkLabel(f1, text="Tip: The AI performs best when you include personality traits and physical limitations.\n(e.g., 'A cynical, aging detective with a bad knee.')", text_color="gray", justify="left").pack(anchor="w", pady=(0, 10))
+        t_char = ctk.CTkTextbox(f1, height=150, wrap="word", font=("Arial", 14))
+        t_char.pack(fill="x")
+        steps.append(f1)
+        
+        # --- Step 2: Setting & Lore ---
+        f2 = ctk.CTkFrame(main_container, fg_color="transparent")
+        ctk.CTkLabel(f2, text="Step 3: The World", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(0, 10))
+        ctk.CTkLabel(f2, text="Where does the story start?", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkLabel(f2, text="Tip: Location, time, period, etc. Sensory details (lighting, smell, architecture).", text_color="gray", justify="left").pack(anchor="w", pady=(0, 5))
+        t_set = ctk.CTkTextbox(f2, height=120, wrap="word", font=("Arial", 14))
+        t_set.pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(f2, text="What are the rules of this world? (Lore)", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkLabel(f2, text="Tip: (e.g., 'Magic is illegal', 'Zombies are blind but hear well')", text_color="gray", justify="left").pack(anchor="w", pady=(0, 5))
+        t_lore = ctk.CTkTextbox(f2, height=120, wrap="word", font=("Arial", 14))
+        t_lore.pack(fill="x")
+        steps.append(f2)
+        
+        # --- Step 3: Objective ---
+        f3 = ctk.CTkFrame(main_container, fg_color="transparent")
+        ctk.CTkLabel(f3, text="Step 4: The Objective", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(0, 10))
+        ctk.CTkLabel(f3, text="What is the primary goal?", font=("Arial", 14, "bold")).pack(anchor="w")
+        ctk.CTkLabel(f3, text="Give the character a reason to move forward.", text_color="gray", justify="left").pack(anchor="w", pady=(0, 10))
+        t_goal = ctk.CTkTextbox(f3, height=150, wrap="word", font=("Arial", 14))
+        t_goal.pack(fill="x")
+        steps.append(f3)
+        
+        # --- Navigation Footer ---
+        nav_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        nav_frame.pack(fill="x", side="bottom", padx=20, pady=20)
+        
+        btn_back = ctk.CTkButton(nav_frame, text="< Back", width=100, fg_color="#4A4A4A", hover_color="#333333")
+        btn_back.pack(side="left")
+        
+        btn_next = ctk.CTkButton(nav_frame, text="Next >", width=100, fg_color="#1F6AA5", hover_color="#144870")
+        btn_next.pack(side="right")
+        
+        def update_view():
+            idx = current_step[0]
+            for f in steps: f.pack_forget()
+            steps[idx].pack(fill="both", expand=True)
+            
+            btn_back.configure(state="normal" if idx > 0 else "disabled")
+            
+            if idx == len(steps) - 1:
+                btn_next.configure(text="Finish & Build World", fg_color="#2E7D32", hover_color="#1B5E20")
+            else:
+                btn_next.configure(text="Next >", fg_color="#1F6AA5", hover_color="#144870")
+                
+            # Disable next if on Step 1 and Title is missing
+            if idx == 0 and not v_title.get().strip():
+                btn_next.configure(state="disabled")
+            else:
+                btn_next.configure(state="normal")
+                
+        def on_title_change(*args):
+            if current_step[0] == 0: update_view()
+                
+        v_title.trace_add("write", on_title_change)
+        
+        def go_next():
+            idx = current_step[0]
+            if idx < len(steps) - 1:
+                current_step[0] += 1
+                update_view()
+            else:
+                on_finish()
+                
+        def go_back():
+            idx = current_step[0]
+            if idx > 0:
+                current_step[0] -= 1
+                update_view()
+                
+        btn_next.configure(command=go_next)
+        btn_back.configure(command=go_back)
+        
+        def on_finish():
+            title = v_title.get().strip()
+            if not title: return
+            
+            rules_cfg = {
+                "track_inventory": v_inv.get(),
+                "can_die": v_die.get(),
+                "allow_cheats": True if v_mode.get() == "sandbox" else False
+            }
+            
+            # Extract Textbox values
+            extra_data = {
+                "main_character": t_char.get("1.0", "end").strip(),
+                "setting": t_set.get("1.0", "end").strip(),
+                "lore_and_rules": t_lore.get("1.0", "end").strip(),
+                "goal": t_goal.get("1.0", "end").strip()
+            }
+            
+            success, msg = TomeWeaverAPI.create_story(
+                title, v_author.get().strip(), v_mode.get(), rules_cfg, self.current_dir, extra_data
+            )
+            
+            if success:
+                dialog.destroy()
+                self.load_data()
+                # Dump the user straight into the World Builder to review their answers
+                self.app.open_workspace(msg, target_tab="World Builder")
+            else:
+                messagebox.showerror("Creation Failed", msg)
+
+        update_view()
 
     def show_create_dialog(self):
         """Spawns the modal dialog for initializing a new, empty adventure framework."""
@@ -842,7 +1003,9 @@ class DashboardFrame(ctk.CTkFrame):
         dialog.grab_set()
 
         ctk.CTkLabel(dialog, text="Adventure Title:", font=("Arial", 14)).pack(pady=(15, 2))
-        title_entry = ctk.CTkEntry(dialog, width=300)
+        
+        title_var = ctk.StringVar()
+        title_entry = ctk.CTkEntry(dialog, textvariable=title_var, width=300)
         title_entry.pack(pady=5)
         
         ctk.CTkLabel(dialog, text="Author Name:", font=("Arial", 14)).pack(pady=(10, 2))
@@ -867,11 +1030,21 @@ class DashboardFrame(ctk.CTkFrame):
         die_var = ctk.BooleanVar(value=False)
         ctk.CTkSwitch(rules_frame, text="Allow Death", variable=die_var).pack(side="left")
 
+        # Instantiate button early so the tracker can modify it
+        btn_create = ctk.CTkButton(dialog, text="Create")
+        
+        def check_title(*args):
+            """Real-time validation: Disable the button if the title is empty."""
+            if title_var.get().strip():
+                btn_create.configure(state="normal")
+            else:
+                btn_create.configure(state="disabled")
+                
+        title_var.trace_add("write", check_title)
+
         def on_create():
-            title = title_entry.get().strip()
-            if not title:
-                messagebox.showwarning("Missing Info", "Please enter a title.")
-                return
+            title = title_var.get().strip()
+            if not title: return
                 
             rules_cfg = {
                 "track_inventory": inv_var.get(),
@@ -879,17 +1052,20 @@ class DashboardFrame(ctk.CTkFrame):
                 "allow_cheats": True if mode_var.get() == "sandbox" else False
             }
                 
+            # The backend API automatically validates if the physical folder exists
             success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get(), rules_cfg, self.current_dir)
             
-            # Auto-open logic added
-            dialog.destroy() 
             if success:
+                dialog.destroy() # Only close the window if the folder was successfully created
                 self.load_data()
-                self.app.open_workspace(msg) # 'msg' is the folder_name on success
+                # Route directly to the World Builder tab
+                self.app.open_workspace(msg, target_tab="World Builder")
             else:
+                # If folder exists, pop an error but leave the form open so the user can fix the title
                 messagebox.showerror("Creation Failed", msg)
 
-        ctk.CTkButton(dialog, text="Create", command=on_create).pack(pady=25)
+        btn_create.configure(command=on_create, state="disabled", width=150, height=36) # Start disabled
+        btn_create.pack(pady=25)
         
     def show_ai_create_dialog(self):
         """Spawns the advanced AI Generator modal."""
@@ -931,13 +1107,13 @@ class DashboardFrame(ctk.CTkFrame):
 
         # AI Prompt (Taller Box)
         ctk.CTkLabel(dialog, text="Adventure Prompt:").pack(anchor="w", padx=20, pady=(5, 0))
-        prompt_box = ctk.CTkTextbox(dialog, height=280, wrap="word", font=("Arial", 14)) # Taller textbox
-        prompt_box.pack(fill="x", padx=20, pady=5)
+        prompt_box = ctk.CTkTextbox(dialog, height=230, wrap="word", font=("Arial", 14)) # Taller textbox
+        prompt_box.pack(fill="x", padx=20, pady=0)
         prompt_box.insert("1.0", "A dark fantasy heist where a master thief must break into the crypt of the Sunken King to steal a cursed ruby.")
 
         # Narrative Generation Toggles
         chk_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        chk_frame.pack(fill="x", padx=20, pady=0) 
+        chk_frame.pack(fill="x", padx=20, pady=5) 
         
         gen_pro_var = ctk.BooleanVar(value=True)
         ctk.CTkSwitch(chk_frame, text="Generate Prologue", variable=gen_pro_var).pack(side="left", padx=(0, 20))
@@ -987,20 +1163,26 @@ class DashboardFrame(ctk.CTkFrame):
                 )
                 
                 def on_complete():
-                    # CRITICAL FIX: Destroy dialog first to prevent hidden messagebox deadlock!
-                    dialog.destroy() 
                     if success:
+                        dialog.destroy() 
                         self.load_data() # Update the dashboard list behind the scenes
-                        self.app.open_workspace(msg) # Automatically open the newly generated story
+                        # Route directly to the World Builder tab so the user can review the AI's output
+                        self.app.open_workspace(msg, target_tab="World Builder") 
                     else:
+                        # Restore button states so the user can edit the prompt and try again
+                        btn_gen.configure(state="normal", text="✨ Generate World")
+                        status_lbl.configure(text="Generation failed. Please edit your prompt and try again.", text_color="#F44336")
+                        
+                        # Use a standard root messagebox instead of tying it to the dialog to prevent deadlocks
                         messagebox.showerror("AI Generation Error", msg)
                         
                 self.after(0, on_complete)
 
             threading.Thread(target=worker, daemon=True).start()
 
-        btn_gen = ctk.CTkButton(dialog, text="✨ Generate World", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", height=40, command=on_generate)
-        btn_gen.pack(pady=(5, 10)) # Reduced padding before/after button
+        # Enforce both width and height to prevent CustomTkinter from collapsing the button
+        btn_gen = ctk.CTkButton(dialog, text="✨ Generate World", font=("Arial", 16, "bold"), fg_color="#00ACC1", hover_color="#00838F", width=220, height=45, command=on_generate)
+        btn_gen.pack(pady=20) # Add healthy padding to let the button breathe
         
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""

@@ -54,11 +54,26 @@ class CodexTab(ctk.CTkFrame):
     # ---------------------------------------------------------
     def _build_core_settings(self):
         """Constructs the standard, fixed-schema UI fields for the setup.json."""
+        
+        # --- STICKY HEADER (Always visible) ---
+        sticky_hdr = ctk.CTkFrame(self.tab_core, fg_color="transparent")
+        sticky_hdr.pack(fill="x", padx=20, pady=(10, 0))
+        
+        # We save a reference to the Save button so we can change its text during AI Inventory Styling
+        self.btn_save_core = ctk.CTkButton(sticky_hdr, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core)
+        self.btn_save_core.pack(side="left")
+        
+        btn_master_ai = ctk.CTkButton(sticky_hdr, text="✨ Generate World", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", command=self._show_master_ai_dialog)
+        btn_master_ai.pack(side="right")
+        Tooltip(btn_master_ai, "Completely overhaul this active story using a single AI prompt. (Warning: Destructive)")
+        
+        # --- SCROLLABLE FORM ---
         scroll = ctk.CTkScrollableFrame(self.tab_core, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
+        self.core_scroll_frame = scroll # Save global reference for auto-scrolling
         
         # Helper to create consistent labeled textboxes with tooltips
-        def add_field(parent, label_text, key, is_multiline=False, tooltip_text="", show_ai=False):
+        def add_field(parent, label_text, key, uid, is_multiline=False, tooltip_text="", show_ai=False):
             hdr = ctk.CTkFrame(parent, fg_color="transparent")
             hdr.pack(fill="x", pady=(10, 2))
             
@@ -79,6 +94,11 @@ class CodexTab(ctk.CTkFrame):
                 widget = var
                 
             if show_ai:
+                # 💡 Help / Examples Button (Square, far right)
+                btn_help = ctk.CTkButton(hdr, text="💡", width=24, height=20, font=("Segoe UI Emoji", 12), fg_color="#FBC02D", hover_color="#F57F17", text_color="black")
+                btn_help.pack(side="right", padx=(2, 0))
+                Tooltip(btn_help, "Help / Template Ideas")
+                
                 btn_inspire = ctk.CTkButton(hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
                 btn_inspire.pack(side="right", padx=2)
                 Tooltip(btn_inspire, "Expand your shorthand text into a rich description.")
@@ -87,19 +107,19 @@ class CodexTab(ctk.CTkFrame):
                 btn_reroll.pack(side="right", padx=2)
                 Tooltip(btn_reroll, "Generate a completely new, creative idea for this field.")
                 
-                # Bind the async generator
+                # Bindings
                 btn_reroll.configure(command=lambda k=key, w=widget, btn=btn_reroll: self._generate_field_ui(k, w, btn, False))
                 btn_inspire.configure(command=lambda k=key, w=widget, btn=btn_inspire: self._generate_field_ui(k, w, btn, True))
+                btn_help.configure(command=lambda u=uid, w=widget, t=label_text: self._show_field_guide(u, w, t))
 
             return widget
 
         self.core_vars = {}
         
-        self.core_vars["title"] = add_field(scroll, "Adventure Title:", "title", tooltip_text="The display name of your story.", show_ai=True)
+        self.core_vars["title"] = add_field(scroll, "Adventure Title:", "title", "TITLE", tooltip_text="The display name of your story.", show_ai=True)
         
         # Group Author, Version, and Date into 3 neat columns
         av_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        # FIX: Explicit 15px gap above to push away from Title, 0px gap below to prevent double-spacing before Tone.
         av_frame.pack(fill="x", pady=(15, 0))
         
         # Column 1: Author (Expands)
@@ -131,40 +151,244 @@ class CodexTab(ctk.CTkFrame):
         self.core_vars["creation_date"] = ctk.StringVar(value=self.engine.setup_data.get("creation_date", "Unknown"))
         ctk.CTkEntry(date_frame, textvariable=self.core_vars["creation_date"], font=("Arial", 14), width=120).pack(fill="x")
 
-        self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", tooltip_text="Instructs the AI on the writing style (e.g., Gritty, Fast-paced, Humorous).", show_ai=True)
-        self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", True, tooltip_text="Name and brief description of the protagonist.", show_ai=True)
-        self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", True, tooltip_text="The ultimate motivation driving the protagonist (mainly used in Sandbox).", show_ai=True)
-        self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", True, tooltip_text="The initial environment where the story begins.", show_ai=True)
-        self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", True, tooltip_text="Sets the immediate context for Turn 1.", show_ai=True)
-        self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", True, tooltip_text="Hard rules the AI must follow (e.g., 'Magic does not exist', 'Vampires burn in sunlight').", show_ai=True)
+        self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", "TONE", tooltip_text="Instructs the AI on the writing style.", show_ai=True)
+        self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", "CHAR", True, tooltip_text="Name and brief description of the protagonist.", show_ai=True)
+        self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", "GOAL", True, tooltip_text="The ultimate motivation driving the protagonist.", show_ai=True)
+        self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", "SETTING", True, tooltip_text="The initial environment where the story begins.", show_ai=True)
+        self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", "COLD_OPEN", True, tooltip_text="Sets the immediate context for Turn 1.", show_ai=True)
+        self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", "LORE", True, tooltip_text="Hard rules the AI must follow.", show_ai=True)
         
-        # --- INVENTORY SCHEMA EDITOR ---
-        lbl = ctk.CTkLabel(scroll, text="Inventory & State Schema (Max 8 Slots):", font=("Arial", 14, "bold"))
-        lbl.pack(anchor="w", pady=(15, 2))
+        # --- SETTINGS TOGGLES (Placed directly below Lore) ---
+        settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        settings_frame.pack(fill="x", pady=(15, 20)) 
+        
+        # We must instantiate the variables FIRST so they exist in memory before the UI draws
+        self.var_inv = ctk.BooleanVar(value=self.engine.setup_data.get("track_inventory", False))
+        self.var_die = ctk.BooleanVar(value=self.engine.setup_data.get("can_die", False))
+        self.var_cheats = ctk.BooleanVar(value=self.engine.setup_data.get("allow_cheats", False))
+        
+        switch_inv = ctk.CTkSwitch(settings_frame, text="Track Inventory & Health", variable=self.var_inv, command=self._toggle_inv_editor_visibility)
+        switch_inv.pack(side="left", padx=(0, 20))
+        
+        ctk.CTkSwitch(settings_frame, text="Allow Game Over (Death)", variable=self.var_die).pack(side="left", padx=(0, 20))
+        ctk.CTkSwitch(settings_frame, text="Allow Editing (Cheats)", variable=self.var_cheats).pack(side="left", padx=(0, 20))
+
+        # --- INVENTORY SCHEMA EDITOR (Placed directly below Toggles) ---
+        self.inv_master_container = ctk.CTkFrame(scroll, fg_color="transparent")
+        self.inv_master_container.pack(fill="x", pady=(10, 50))
+        
+        # 1. Permanent Header for Buttons
+        ai_hdr = ctk.CTkFrame(self.inv_master_container, fg_color="transparent")
+        ai_hdr.pack(fill="x", padx=10, pady=(0, 10))
+        
+        lbl = ctk.CTkLabel(ai_hdr, text="Inventory & State Schema (Max 8 Slots):", font=("Arial", 14, "bold"))
+        lbl.pack(side="left")
         Tooltip(lbl, "Define tracking slots and their visual style. The AI will strictly update these keys.")
         
-        self.inv_editor_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        self.inv_editor_frame.pack(fill="x", padx=10)
+        btn_help_inv = ctk.CTkButton(ai_hdr, text="💡", width=24, height=20, font=("Segoe UI Emoji", 12), fg_color="#FBC02D", hover_color="#F57F17", text_color="black")
+        btn_help_inv.pack(side="right", padx=(2, 10))
+        Tooltip(btn_help_inv, "Help / Template Ideas")
+        
+        btn_inspire = ctk.CTkButton(ai_hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+        btn_inspire.pack(side="right", padx=2)
+        Tooltip(btn_inspire, "Ask the AI to generate an inventory based on an idea (e.g. 'Cyberpunk gear').")
+        
+        btn_reroll = ctk.CTkButton(ai_hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+        btn_reroll.pack(side="right", padx=2)
+        Tooltip(btn_reroll, "Ask the AI to invent a brand new starting inventory schema fitting this world.")
+        
+        # Link the Help button to the global modal, passing 'INVENTORY' as the UID
+        btn_help_inv.configure(command=lambda: self._show_field_guide("INVENTORY", None, "Inventory & State"))
+        
+        self.btn_add_slot = ctk.CTkButton(
+            ai_hdr, text="+ Add Slot", width=80, height=20, font=("Arial", 11), fg_color="#4A4A4A", 
+            command=lambda: self._add_inv_row("New_Key", "Empty", "📦", "#4A4A4A")
+        )
+        self.btn_add_slot.pack(side="right", padx=10)
+        
+        btn_reroll.configure(command=lambda btn=btn_reroll: self._generate_schema_ui("inventory_dictionary", "inventory", btn, False))
+        btn_inspire.configure(command=lambda btn=btn_inspire: self._generate_schema_ui("inventory_dictionary", "inventory", btn, True))
+
+        # 2. Permanent Container for Rows
+        self.inv_rows_container = ctk.CTkFrame(self.inv_master_container, fg_color="transparent")
+        self.inv_rows_container.pack(fill="x", padx=10)
+        
         self.inv_schema_vars = []
         self._render_inv_editor()
+        self._toggle_inv_editor_visibility() # Apply initial visibility state
+
+
+    # ---------------------------------------------------------
+    # UI EVENT HANDLERS
+    # ---------------------------------------------------------
+
+    def _show_field_guide(self, uid, widget, field_name):
+        """Spawns the Help & Examples modal, filtering examples by the active engine mode."""
+        from config import FIELD_GUIDES
+        guide_data = FIELD_GUIDES.get(uid, {})
         
+        if not guide_data:
+            messagebox.showinfo("Help", "No guide available for this field yet.")
+            return
+            
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"Guide: {field_name.replace(':', '')}")
+        dialog.geometry("800x600")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        help_text = guide_data.get("help", "")
+        if help_text:
+            ctk.CTkLabel(dialog, text="How to use this field:", font=("Arial", 16, "bold"), text_color="#00ACC1").pack(anchor="w", padx=20, pady=(15, 5))
+            ctk.CTkLabel(dialog, text=help_text, font=("Arial", 14), justify="left", wraplength=750).pack(anchor="w", padx=20, pady=(0, 15))
+
+        ctk.CTkLabel(dialog, text="Click an example to use it:", font=("Arial", 16, "bold"), text_color="#00ACC1").pack(anchor="w", padx=20, pady=(10, 5))
         
-        # Settings Row
-        settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        settings_frame.pack(fill="x", pady=20)
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
         
-        self.var_inv = ctk.BooleanVar(value=self.engine.setup_data.get("track_inventory", False))
-        ctk.CTkSwitch(settings_frame, text="Track Inventory & Health", variable=self.var_inv).pack(side="left", padx=(0, 20))
+        active_mode = str(self.engine.setup_data.get("mode", "sandbox")).upper()
+        has_examples = False
+
+        def apply_example(text):
+            # Special Override: If it's the Inventory guide, route the text directly to the AI Schema generator
+            if uid == "INVENTORY":
+                # Find the 'Inspire' button in the main UI so we can use its loading state
+                btn_ref = None
+                try: btn_ref = self.inv_master_container.winfo_children()[0].winfo_children()[3] # The Inspire button
+                except Exception: pass
+                
+                if btn_ref:
+                    self._generate_schema_ui("inventory_dictionary", "inventory", btn_ref, True, direct_shorthand=text)
+            else:
+                # Standard behavior: Paste the text into the target widget
+                if isinstance(widget, ctk.StringVar):
+                    widget.set(text)
+                else:
+                    widget.delete("1.0", "end")
+                    widget.insert("1.0", text)
+            dialog.destroy()
+
+        for ex in guide_data.get("examples", []):
+            mode = ex.get("mode", "ALL")
+            if mode in ["ALL", "ANY_MODE", active_mode]:
+                has_examples = True
+                btn = ctk.CTkButton(scroll, text=ex.get("text"), font=("Arial", 13), fg_color="#2B2B2B", hover_color="#4A4A4A", anchor="w", command=lambda t=ex.get("text"): apply_example(t))
+                btn.pack(fill="x", pady=4, padx=10)
+
+        if not has_examples:
+            ctk.CTkLabel(scroll, text="No examples available for this game mode.", font=("Arial", 14, "italic"), text_color="gray").pack(pady=20)
+
+    def _toggle_inv_editor_visibility(self):
+        """Shows or hides the Inventory Editor based on the toggle switch."""
+        if self.var_inv.get():
+            self.inv_master_container.pack(fill="x", pady=(10, 50))
+            
+            # Auto-spawn the default Health slot if the dictionary is completely empty
+            schema = self.engine.setup_data.get("inventory_dictionary", {})
+            if not isinstance(schema, dict) or not schema:
+                self.engine.setup_data["inventory_dictionary"] = {
+                    "Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"}
+                }
+                self._render_inv_editor()
+                
+            # Auto-scroll to the absolute bottom so the new UI is instantly visible
+            if hasattr(self, 'core_scroll_frame'):
+                def snap_to_bottom():
+                    self.core_scroll_frame.update_idletasks() # Force UI to recalculate heights
+                    self.core_scroll_frame._parent_canvas.yview_moveto(1.0)
+                self.after(50, snap_to_bottom)
+        else:
+            self.inv_master_container.pack_forget()
+
+    def _show_master_ai_dialog(self):
+        """Spawns the AI World Generator modal, pre-configured for the active workspace."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("AI World Overhaul")
+        dialog.geometry("550x550")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="AI World Overhaul", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
         
-        self.var_die = ctk.BooleanVar(value=self.engine.setup_data.get("can_die", False))
-        ctk.CTkSwitch(settings_frame, text="Allow Game Over (Death)", variable=self.var_die).pack(side="left", padx=(0, 20))
+        warn_lbl = ctk.CTkLabel(dialog, text="⚠️ WARNING: This will completely overwrite your current story settings.\nThere is no undo.", font=("Arial", 12, "bold"), text_color="#FBC02D")
+        warn_lbl.pack(pady=(0, 10))
+
+        # Lock the mode to whatever the current story already is
+        current_mode = self.engine.setup_data.get("mode", "sandbox")
         
-        self.var_cheats = ctk.BooleanVar(value=self.engine.setup_data.get("allow_cheats", False))
-        ctk.CTkSwitch(settings_frame, text="Allow Editing (Cheats)", variable=self.var_cheats).pack(side="left", padx=(0, 20))
+        mode_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        mode_frame.pack(pady=5)
+        ctk.CTkLabel(mode_frame, text=f"Target Engine Mode: {current_mode.upper()}", font=("Arial", 12, "bold"), text_color="gray").pack()
+
+        # AI Prompt
+        ctk.CTkLabel(dialog, text="Overhaul Prompt:").pack(anchor="w", padx=20, pady=(5, 0))
+        prompt_box = ctk.CTkTextbox(dialog, height=200, wrap="word", font=("Arial", 14))
+        prompt_box.pack(fill="x", padx=20, pady=5)
         
-        # Save Button
-        self.btn_save_core = ctk.CTkButton(scroll, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core)
-        self.btn_save_core.pack(pady=30)
+        # Pre-fill with the active title to give the AI context
+        active_title = self.engine.setup_data.get("title", "")
+        if active_title: prompt_box.insert("1.0", f"A story titled '{active_title}' where...")
+
+        # Narrative Generation Toggles
+        chk_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        chk_frame.pack(fill="x", padx=20, pady=10) 
+        
+        gen_pro_var = ctk.BooleanVar(value=True)
+        ctk.CTkSwitch(chk_frame, text="Generate Prologue", variable=gen_pro_var).pack(side="left", padx=(0, 20))
+        
+        gen_epi_var = ctk.BooleanVar(value=False)
+        chk_epi = ctk.CTkSwitch(chk_frame, text="Generate Epilogue", variable=gen_epi_var)
+        chk_epi.pack(side="left")
+        if current_mode == "sandbox":
+            chk_epi.configure(state="disabled")
+
+        status_lbl = ctk.CTkLabel(dialog, text="", font=("Arial", 12, "italic"))
+        status_lbl.pack(pady=(5, 0)) 
+
+        def on_generate():
+            prompt = prompt_box.get("1.0", "end").strip()
+            if not prompt:
+                messagebox.showwarning("Missing Info", "Please enter an adventure concept prompt.")
+                return
+
+            btn_gen.configure(state="disabled", text="Overhauling... Please wait.")
+            status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
+            
+            def worker():
+                from api import TomeWeaverAPI
+                from api import ADV_DIR
+                
+                # Use the new dedicated Overhaul method which injects directly into active memory
+                success, msg = TomeWeaverAPI.overhaul_active_story(
+                    self.engine, prompt, gen_pro_var.get(), gen_epi_var.get()
+                )
+                
+                def on_complete():
+                    if success:
+                        dialog.destroy() 
+                        
+                        # Tell the app to do a hard visual reload of the workspace
+                        folder_name = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
+                        app = self.winfo_toplevel()
+                        app.clear_container() 
+                        app.open_workspace(folder_name, target_tab="World Builder")
+                        
+                        messagebox.showinfo("Success", "World successfully overhauled!")
+                    else:
+                        btn_gen.configure(state="normal", text="✨ Overhaul World")
+                        status_lbl.configure(text="Generation failed. Check prompt and try again.", text_color="#F44336")
+                        messagebox.showerror("AI Generation Error", msg)
+                        
+                self.after(0, on_complete)
+
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_gen = ctk.CTkButton(dialog, text="✨ Overhaul World", font=("Arial", 16, "bold"), fg_color="#D32F2F", hover_color="#9A0007", width=220, height=45, command=on_generate)
+        btn_gen.pack(pady=20)
+        
+    
 
     def _save_core(self, memory_only=False):
         """Extracts data from the standard form fields. Writes to disk unless memory_only is True."""
@@ -257,35 +481,10 @@ class CodexTab(ctk.CTkFrame):
         messagebox.showinfo("Saved", "Core Settings updated successfully.")
 
     def _render_inv_editor(self):
-        # Clear existing layout
-        for w in self.inv_editor_frame.winfo_children(): w.destroy()
+        # Clear ONLY the rows container
+        for w in self.inv_rows_container.winfo_children(): w.destroy()
         self.inv_schema_vars.clear()
         
-        # --- AI TOOLS HEADER ---
-        ai_hdr = ctk.CTkFrame(self.inv_editor_frame, fg_color="transparent")
-        ai_hdr.pack(fill="x", pady=(0, 10))
-        
-        btn_inspire = ctk.CTkButton(ai_hdr, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
-        btn_inspire.pack(side="right", padx=2)
-        Tooltip(btn_inspire, "Ask the AI to generate an inventory based on an idea (e.g. 'Cyberpunk gear').")
-        
-        btn_reroll = ctk.CTkButton(ai_hdr, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
-        btn_reroll.pack(side="right", padx=2)
-        Tooltip(btn_reroll, "Ask the AI to invent a brand new starting inventory schema fitting this world.")
-        
-        btn_reroll.configure(command=lambda btn=btn_reroll: self._generate_schema_ui("inventory_dictionary", "inventory", btn, False))
-        btn_inspire.configure(command=lambda btn=btn_inspire: self._generate_schema_ui("inventory_dictionary", "inventory", btn, True))
-
-        # We need a dedicated container just for the rows so the +Add button stays firmly at the bottom
-        self.inv_rows_container = ctk.CTkFrame(self.inv_editor_frame, fg_color="transparent")
-        self.inv_rows_container.pack(fill="x")
-        
-        self.btn_add_slot = ctk.CTkButton(
-            self.inv_editor_frame, text="+ Add Slot", fg_color="#4A4A4A", 
-            command=lambda: self._add_inv_row("New_Key", "Empty", "📦", "#4A4A4A")
-        )
-        
-        # Make sure we read from the new correct name!
         schema = self.engine.setup_data.get("inventory_dictionary", {})
         if not isinstance(schema, dict): schema = {}
         
@@ -297,7 +496,8 @@ class CodexTab(ctk.CTkFrame):
     def _update_add_button_visibility(self):
         """Hides the +Add button if we reach the max limit of 8."""
         if len(self.inv_schema_vars) < 8:
-            self.btn_add_slot.pack(pady=10)
+            # We must re-pack it into the correct position inside the header
+            self.btn_add_slot.pack(side="right", padx=10)
         else:
             self.btn_add_slot.pack_forget()
 
@@ -795,10 +995,10 @@ class CodexTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
         
         
-    def _generate_schema_ui(self, field_key, schema_type, button, is_inspire):
+    def _generate_schema_ui(self, field_key, schema_type, button, is_inspire, direct_shorthand=None):
         """Asynchronously generates complex JSON (Lists/Dicts/Inventory) and triggers a full UI redraw."""
-        shorthand = None
-        if is_inspire:
+        shorthand = direct_shorthand
+        if is_inspire and not direct_shorthand:
             dialog = ctk.CTkInputDialog(text="Enter an idea for this field (e.g. 'Cyberpunk hacker gear'):", title="AI Inspiration")
             shorthand = dialog.get_input()
             if not shorthand: return

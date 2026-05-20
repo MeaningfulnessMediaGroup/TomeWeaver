@@ -181,7 +181,7 @@ class TomeWeaverAPI:
     # ---------------------------------------------------------
 
     @staticmethod
-    def create_story(title, author, mode, rules_cfg=None, parent_dir=""):
+    def create_story(title, author, mode, rules_cfg=None, parent_dir="", extra_data=None):
         """Creates a new boilerplate adventure folder and applies mechanical rules."""
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
@@ -207,6 +207,12 @@ class TomeWeaverAPI:
                     setup_data["can_die"] = rules_cfg.get("can_die", False)
                     setup_data["allow_cheats"] = rules_cfg.get("allow_cheats", False)
                     
+                # Inject the Wizard's narrative answers into the world file
+                if extra_data:
+                    for k, v in extra_data.items():
+                        if v: # Only overwrite if the wizard actually provided content
+                            setup_data[k] = v
+                            
                 with open(setup_file, "w", encoding="utf-8") as f:
                     json.dump(setup_data, f, indent=4)
                     
@@ -765,6 +771,209 @@ class TomeWeaverAPI:
 
 
     @staticmethod
+    def generate_chapter_data(setup_data, prev_chapter=None, shorthand=None):
+        """
+        AI Full Chapter Generator.
+        Contextually aware of the previous chapter to maintain sequential plot pacing.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json
+        
+        # 1. Build Global Context
+        context_parts = []
+        for key in ["title", "tone", "main_character", "setting", "goal", "lore_and_rules"]:
+            val = setup_data.get(key)
+            if val and isinstance(val, str) and val.strip():
+                context_parts.append(f"{key.replace('_', ' ').title()}: {val.strip()}")
+        context_str = "\n".join(context_parts) if context_parts else "A brand new, undefined world."
+        
+        # 2. Build Previous Chapter Context
+        prev_str = ""
+        if prev_chapter:
+            prev_str = "PREVIOUS CHAPTER CONTEXT:\n"
+            for k in ["title", "setting", "goal", "obstacles"]:
+                if prev_chapter.get(k): prev_str += f"{k.title()}: {prev_chapter[k]}\n"
+
+        sys_prompt = PROMPTS.get("SYS_CHAP_GEN", "You are an expert campaign writer. Output ONLY a flat JSON Dictionary matching the chapter schema.")
+        shorthand_str = shorthand.strip() if shorthand else "Advance the plot naturally based on the previous chapter."
+        
+        user_prompt = PROMPTS.get("USER_CHAP_GEN", "")
+        user_prompt = user_prompt.replace("{context}", context_str)
+        user_prompt = user_prompt.replace("{prev_chap_context}", prev_str)
+        user_prompt = user_prompt.replace("{shorthand}", shorthand_str)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"), 
+                "messages": messages, 
+                "temperature": 0.8, 
+                "max_tokens": 1000
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code != 200:
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                
+                if isinstance(data, dict): return True, data
+                time.sleep(1)
+            except Exception as e:
+                time.sleep(2)
+                continue
+                
+        return False, "Failed to generate valid chapter JSON. Please check API connection."
+        
+    @staticmethod
+    def overhaul_active_story(engine, prompt_text, gen_pro, gen_epi):
+        """
+        AI Overhaul Generator. Dynamically generates world data and safely injects 
+        it directly into an already-loaded engine's setup_data without touching the physical folder.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json
+        import requests, re, time
+        
+        sys_prompt = PROMPTS.get("SYS_WORLD_GEN", "")
+        mode = engine.setup_data.get("mode", "sandbox")
+        
+        # 1. Build the strict JSON schema request dynamically
+        schema = "{\n"
+        schema += '  "tone": "Brief description of the atmosphere and genre",\n'
+        schema += '  "main_character": "Name, age, and brief personality traits",\n'
+        schema += '  "lore_and_rules": "Key facts about the world, magic, or technology",\n'
+        
+        if mode == "sandbox":
+            schema += '  "setting": "Detailed description of the starting location",\n'
+            schema += '  "starting_situation": "The exact situation the player wakes up in",\n'
+            schema += '  "goal": "A loose overarching motivation for the character",\n'
+            
+        if engine.setup_data.get("track_inventory"):
+            schema += '  "inventory_dictionary": {"Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"}, "Items": {"val": "Rusty Dagger", "icon": "🎒", "color": "#1F6AA5"}},\n'
+            
+        if mode == "campaign":
+            schema += '  "plot_outline": [\n    {"title": "Chapter 1", "setting": "Description", "pov": "Character Name", "goal": "Specific objective", "obstacles": "Specific threats"}\n  ],\n'
+            
+        if gen_pro: schema += '  "prologue_text": "Write 3 to 4 paragraphs of rich, cinematic opening prose setting the scene",\n'
+        if gen_epi and mode == "campaign": schema += '  "epilogue_text": "Write 2 to 3 paragraphs of satisfying concluding prose"\n'
+            
+        schema = schema.rstrip(",\n") + "\n}"
+        
+        title_str = f"TITLE: {engine.setup_data.get('title', 'Adventure')}\n"
+        user_msg = PROMPTS.get("USER_WORLD_GEN", "")
+        user_msg = user_msg.replace("{mode}", mode.upper())
+        user_msg = user_msg.replace("{prompt_text}", prompt_text)
+        user_msg = user_msg.replace("{title}", title_str)
+        user_msg = user_msg.replace("{schema}", schema)
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        active_messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_msg}]
+        
+        data = None
+        err = None
+        
+        for attempt in range(3):
+            if attempt > 0 and err:
+                active_messages.append({"role": "user", "content": f"Invalid JSON. Error: {err}. Please return valid JSON."})
+                
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": active_messages,
+                "temperature": 0.8,
+                "max_tokens": 3000
+            }
+            
+            try:
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = f"API Error {resp.status_code}"
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not match:
+                    err = "No JSON object found."
+                    continue
+                    
+                clean_json = sanitize_json(match.group(0))
+                data = json.loads(clean_json, strict=False)
+                break 
+                
+            except Exception as e:
+                err = str(e)
+                time.sleep(1)
+                continue
+
+        if not data:
+            return False, f"Failed to generate world overhaul. Last error: {err}"
+            
+        try:
+            # 2. Inject directly into the engine's active memory
+            keys_to_merge = ["tone", "main_character", "lore_and_rules", "setting", "starting_situation", "goal", "inventory_dictionary", "plot_outline"]
+            for k in keys_to_merge:
+                if k in data:
+                    if isinstance(data[k], (dict, list)) and k not in ["plot_outline", "inventory_dictionary"]:
+                        engine.setup_data[k] = json.dumps(data[k])
+                    else:
+                        engine.setup_data[k] = data[k]
+                
+            # 3. Handle Narrative Text Files
+            if gen_pro and data.get("prologue_text"):
+                pro_str = "\n\n".join([str(p) for p in data["prologue_text"]]) if isinstance(data["prologue_text"], list) else str(data["prologue_text"])
+                if pro_str.strip():
+                    with open(engine.adv_dir / "prologue.txt", "w", encoding="utf-8") as f:
+                        f.write(pro_str.strip())
+                    engine.setup_data.setdefault("narrative", {})["prologue"] = "as_is"
+                    engine.prologue_content = pro_str.strip()
+                
+            if gen_epi and mode == "campaign" and data.get("epilogue_text"):
+                epi_str = "\n\n".join([str(e) for e in data["epilogue_text"]]) if isinstance(data["epilogue_text"], list) else str(data["epilogue_text"])
+                if epi_str.strip():
+                    with open(engine.adv_dir / "epilogue.txt", "w", encoding="utf-8") as f:
+                        f.write(epi_str.strip())
+                    engine.setup_data.setdefault("narrative", {})["epilogue"] = "as_is"
+                    engine.epilogue_content = epi_str.strip()
+                
+            # 4. Save setup_data
+            setup_file = engine.adv_dir / "setup.json"
+            with open(setup_file, "w", encoding="utf-8") as f:
+                json.dump(engine.setup_data, f, indent=4)
+                
+            # 5. Overwrite chapters.json if Campaign Mode
+            if mode == "campaign" and "plot_outline" in data:
+                chapters_file = engine.adv_dir / "chapters.json"
+                first_chap = data["plot_outline"][0] if data["plot_outline"] else {}
+                engine.chapters = [{
+                    "chapter_number": 1,
+                    "title": first_chap.get("title", "Chapter 1"),
+                    "start_turn": 1, "end_turn": None,
+                    "setting": first_chap.get("setting"),
+                    "pov": first_chap.get("pov"),
+                    "goal": first_chap.get("goal"),
+                    "obstacles": first_chap.get("obstacles")
+                }]
+                with open(chapters_file, "w", encoding="utf-8") as f:
+                    json.dump(engine.chapters, f, indent=4)
+                    
+            return True, ""
+            
+        except Exception as e:
+            return False, f"Failed to apply overhaul: {str(e)}"
+            
+    @staticmethod
     def autofill_inventory_styles(inventory_dict):
         """
         Scans an inventory dictionary for empty icons or colors and asks the AI to 
@@ -911,3 +1120,5 @@ class TomeWeaverAPI:
         
         if mode == "campaign": return CampaignEngine(target_dir, setup_data)
         else: return SandboxEngine(target_dir, setup_data)
+        
+        

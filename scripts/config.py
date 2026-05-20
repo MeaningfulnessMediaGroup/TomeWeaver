@@ -92,6 +92,70 @@ def load_system_prompts():
 PROMPTS = load_system_prompts()
 
 # ---------------------------------------------------------
+# FIELD GUIDES (HELP & EXAMPLES) PARSER
+# ---------------------------------------------------------
+
+def load_field_guides():
+    """
+    Parses the configs/field_guides.txt file to populate the 💡 Help modals.
+    Returns: { "UID": {"help": "string", "examples": [ {"mode": "ALL", "text": "..."} ] } }
+    """
+    guide_file = ROOT_DIR / "configs" / "field_guides.txt"
+    if not guide_file.exists():
+        return {}
+        
+    guides = {}
+    with open(guide_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        
+    current_key = None
+    current_type = None # "help" or "example"
+    current_text = []
+    
+    header_pattern = re.compile(r'^\[(HELP|EXAMPLE):([A-Z0-9_]+)\]\s*$')
+
+    def save_block():
+        if current_key and current_type:
+            if current_key not in guides:
+                guides[current_key] = {"help": "", "examples": []}
+                
+            text_block = "\n".join(current_text).strip()
+            if current_type == "HELP":
+                guides[current_key]["help"] = text_block
+            elif current_type == "EXAMPLE":
+                # Parse lines like: "SANDBOX: Bob the builder"
+                for line in text_block.split('\n'):
+                    if ':' in line:
+                        mode_part, ex_text = line.split(':', 1)
+                        guides[current_key]["examples"].append({
+                            "mode": mode_part.strip().upper(),
+                            "text": ex_text.strip()
+                        })
+
+    for line in lines:
+        stripped = line.strip()
+        # Ignore comments
+        if stripped.startswith('#') or stripped in ["'''", '"""']:
+            continue
+            
+        match = header_pattern.match(stripped)
+        if match:
+            save_block()
+            current_type = match.group(1)
+            current_key = match.group(2)
+            current_text = []
+            continue
+            
+        if current_key is not None and stripped:
+            current_text.append(line.strip())
+            
+    save_block()
+    return guides
+
+FIELD_GUIDES = load_field_guides()
+
+
+# ---------------------------------------------------------
 # API PROFILE UTILITIES
 # ---------------------------------------------------------
 
