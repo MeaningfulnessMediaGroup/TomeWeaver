@@ -968,10 +968,10 @@ class CodexTab(ctk.CTkFrame):
                 messagebox.showwarning("Missing Input", "Type some shorthand ideas in the box first to inspire the AI!")
                 return
                 
+        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
         orig_text = button.cget("text")
         button.configure(state="disabled", text="...")
         
-        # Pull UI edits into the engine memory so the LLM has up-to-date context, but DO NOT write to disk.
         self._save_core(memory_only=True)
         
         def worker():
@@ -979,6 +979,7 @@ class CodexTab(ctk.CTkFrame):
             success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, field_key, shorthand)
             
             def update_ui():
+                self.winfo_toplevel().configure(cursor="") # Restore cursor
                 button.configure(state="normal", text=orig_text)
                 if success:
                     if isinstance(widget, ctk.StringVar):
@@ -1003,6 +1004,7 @@ class CodexTab(ctk.CTkFrame):
             shorthand = dialog.get_input()
             if not shorthand: return
                 
+        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
         orig_text = button.cget("text")
         button.configure(state="disabled", text="...")
         
@@ -1013,12 +1015,10 @@ class CodexTab(ctk.CTkFrame):
             success, result = TomeWeaverAPI.generate_schema_data(self.engine.setup_data, schema_type, field_key, shorthand)
             
             def update_ui():
+                self.winfo_toplevel().configure(cursor="") # Restore cursor
                 button.configure(state="normal", text=orig_text)
                 if success:
-                    # Update active memory with the newly generated JSON object
                     self.engine.setup_data[field_key] = result
-                    
-                    # Force a UI redraw depending on which tab we are in
                     if schema_type == "inventory":
                         self._render_inv_editor()
                     else:

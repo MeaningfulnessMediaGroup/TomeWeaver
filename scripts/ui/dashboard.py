@@ -1146,10 +1146,10 @@ class DashboardFrame(ctk.CTkFrame):
                 messagebox.showwarning("Missing Info", "Please enter an adventure concept prompt.")
                 return
 
+            dialog.configure(cursor="watch") # Spin cursor
             btn_gen.configure(state="disabled", text="Generating... Please wait.")
             status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
             
-            # Pack the user's mechanical choices into a dictionary
             rules_cfg = {
                 "track_inventory": inv_var.get(),
                 "can_die": die_var.get(),
@@ -1165,15 +1165,12 @@ class DashboardFrame(ctk.CTkFrame):
                 def on_complete():
                     if success:
                         dialog.destroy() 
-                        self.load_data() # Update the dashboard list behind the scenes
-                        # Route directly to the World Builder tab so the user can review the AI's output
+                        self.load_data() 
                         self.app.open_workspace(msg, target_tab="World Builder") 
                     else:
-                        # Restore button states so the user can edit the prompt and try again
+                        dialog.configure(cursor="") # Restore cursor on failure
                         btn_gen.configure(state="normal", text="✨ Generate World")
                         status_lbl.configure(text="Generation failed. Please edit your prompt and try again.", text_color="#F44336")
-                        
-                        # Use a standard root messagebox instead of tying it to the dialog to prevent deadlocks
                         messagebox.showerror("AI Generation Error", msg)
                         
                 self.after(0, on_complete)

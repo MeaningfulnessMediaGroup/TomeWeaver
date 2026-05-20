@@ -665,32 +665,32 @@ class TomeWeaverAPI:
             }
             
             try:
-                from llm import enforce_rate_limit
+                from llm import enforce_rate_limit, translate_api_error
                 enforce_rate_limit()
                 
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
                     time.sleep(2)
                     continue
                     
                 raw = resp.json()['choices'][0]['message']['content'].strip()
                 
-                # Clean common LLM artifacts
-                raw = raw.strip('"\'') # Remove wrapping quotes
-                if raw.lower().startswith("here is"):
-                    raw = raw.split("\n", 1)[-1].strip() # Strip preamble
+                raw = raw.strip('"\'')
+                if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
                 
-                # Strip annoying labels the LLM might prepend
                 import re
                 raw = re.sub(r'^(Title|Tone|Goal|Setting|Main Character):\s*', '', raw, flags=re.IGNORECASE).strip('"\'')
                     
                 return True, raw
                 
             except Exception as e:
+                from llm import translate_api_error
+                err = translate_api_error(exception=e)
                 time.sleep(2)
                 continue
                 
-        return False, "Failed to generate field data. Check API connection."
+        return False, f"Generation failed.\nReason: {err}"
         
      
     @staticmethod
@@ -738,6 +738,7 @@ class TomeWeaverAPI:
             headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
             
         # 3. Call LLM with Fortress Parsing
+        err = "Unknown error."
         for attempt in range(3):
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
@@ -749,6 +750,8 @@ class TomeWeaverAPI:
                 enforce_rate_limit()
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code != 200:
+                    from llm import translate_api_error
+                    err = translate_api_error(response=resp)
                     time.sleep(2)
                     continue
                     
@@ -760,14 +763,16 @@ class TomeWeaverAPI:
                 if schema_type == "list" and isinstance(data, list): return True, data
                 if schema_type in ["dict", "inventory"] and isinstance(data, dict): return True, data
                 
-                # If AI returned wrong type (e.g. dict instead of list), trigger retry
+                err = "The AI returned the wrong JSON data type."
                 time.sleep(1)
                 
             except Exception as e:
+                from llm import translate_api_error
+                err = translate_api_error(exception=e)
                 time.sleep(2)
                 continue
                 
-        return False, "Failed to generate valid JSON schema. Try again."
+        return False, f"Failed to generate JSON schema.\nReason: {err}"
 
 
     @staticmethod
@@ -819,6 +824,8 @@ class TomeWeaverAPI:
                 enforce_rate_limit()
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code != 200:
+                    from llm import translate_api_error
+                    err = translate_api_error(response=resp)
                     time.sleep(2)
                     continue
                     
@@ -827,12 +834,16 @@ class TomeWeaverAPI:
                 data = json.loads(clean_json, strict=False)
                 
                 if isinstance(data, dict): return True, data
+                
+                err = "The AI did not output a valid JSON Dictionary."
                 time.sleep(1)
             except Exception as e:
+                from llm import translate_api_error
+                err = translate_api_error(exception=e)
                 time.sleep(2)
                 continue
                 
-        return False, "Failed to generate valid chapter JSON. Please check API connection."
+        return False, f"Failed to generate chapter.\nReason: {err}"
         
     @staticmethod
     def overhaul_active_story(engine, prompt_text, gen_pro, gen_epi):

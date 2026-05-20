@@ -463,20 +463,54 @@ def is_repetitive(prev_text, new_text, num_words=4):
 # LLM API COMMUNICATION
 # ---------------------------------------------------------
 
-def extract_api_error(response):
-    """Safely parses HTTP error objects returned by cloud LLM APIs."""
-    try:
-        err_json = response.json()
-        if isinstance(err_json, list):
-            return str(err_json)
-        elif isinstance(err_json, dict):
-            e = err_json.get("error", err_json)
-            if isinstance(e, dict):
-                return e.get("message", str(e))
-            return str(e)
-        return str(err_json)
-    except:
-        return response.text
+def translate_api_error(exception=None, response=None):
+    """Safely translates HTTP codes and Network Exceptions into user-friendly error messages."""
+    import requests
+    
+    # 1. Handle Hard Network Failures (Server offline, No internet)
+    if exception:
+        if isinstance(exception, requests.exceptions.ConnectionError):
+            return "Server Unreachable. Is your local AI (LM Studio) running, or are you offline?"
+        if isinstance(exception, requests.exceptions.Timeout):
+            return "Request Timed Out. The AI took too long to respond."
+        return f"Network Exception: {str(exception)}"
+
+    # 2. Handle API HTTP Status Codes
+    if response is not None:
+        code = response.status_code
+        
+        # Explicitly map known codes
+        if code == 400: 
+            return "No models loaded or invalid model (Error 400). Ensure you have loaded a model if you are using local LM Studio or that the model you have specified is valid."
+        elif code == 401: 
+            return "Invalid API Key or Unauthorized Access (Error 401)."
+        elif code == 403: 
+            return "Invalid API Key or Unauthorized Access (Error 403)."
+        elif code == 404: 
+            return "Model or API Endpoint not found (Error 404). Check your Global Settings."
+        elif code == 429: 
+            return "Rate Limit Exceeded (Too Many Requests, Error 429). Please wait a moment."
+        elif code == 502:
+            return "Bad Gateway (Error 502). The API provider's routing failed."
+        elif code == 503:
+            return "Service Unavailable (Error 503). The API provider is down or overloaded."
+        elif code == 504:
+            return "Gateway Timeout (Error 504). The AI took too long to generate."
+            
+        # Try to parse the specific error message provided by the cloud provider
+        # for ANY unhandled or generic code.
+        try:
+            err_data = response.json()
+            if isinstance(err_data, dict) and "error" in err_data:
+                e = err_data["error"]
+                return f"API Error [{code}]: {e.get('message', str(e)) if isinstance(e, dict) else str(e)}"
+            return f"API Error [{code}]: {str(err_data)}"
+        except Exception:
+            # If the response isn't JSON, just return the raw text block
+            raw_text = response.text[:100].strip() if response.text else "No response body."
+            return f"Unhandled HTTP Error [{code}]. Raw response: {raw_text}"
+            
+    return "Unknown Generation Error."
 
     
 def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None):
@@ -522,7 +556,7 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
         response = requests.post(api_url, headers=headers, json=payload, timeout=60)
         
         if response.status_code != 200:
-            err_msg = f"API Error {response.status_code}"
+            err_msg = translate_api_error(response=response)
             log_llm_interaction(adv_dir, messages, response.text, error=err_msg, attempt=attempt+1)
             return None, err_msg, response.text
             
@@ -556,8 +590,9 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
             
     except requests.exceptions.RequestException as e:
         # Catches ACTUAL network drops, timeouts, and API server crashes
-        log_llm_interaction(adv_dir, messages, "NETWORK_ERROR", error=str(e), attempt=attempt+1)
-        return None, f"Network Error: {str(e)}", ""
+        err_msg = translate_api_error(exception=e)
+        log_llm_interaction(adv_dir, messages, "NETWORK_ERROR", error=err_msg, attempt=attempt+1)
+        return None, err_msg, ""
         
     except Exception as e:
         # Catches internal Python code crashes and prints the traceback to the console for easy debugging

@@ -220,6 +220,7 @@ class ChapterTab(ctk.CTkFrame):
                 messagebox.showwarning("Missing Input", "A prompt is strictly required to inspire the first chapter.")
                 return
 
+        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
         orig_text = button.cget("text")
         button.configure(state="disabled", text="Generating...")
         self._save_chapter(memory_only=True)
@@ -232,6 +233,7 @@ class ChapterTab(ctk.CTkFrame):
             success, result = TomeWeaverAPI.generate_chapter_data(self.engine.setup_data, prev_chap, shorthand)
             
             def update_ui():
+                self.winfo_toplevel().configure(cursor="") # Restore cursor
                 button.configure(state="normal", text=orig_text)
                 if success and isinstance(result, dict):
                     # Visually push the results directly into the text boxes
@@ -262,19 +264,19 @@ class ChapterTab(ctk.CTkFrame):
                 messagebox.showwarning("Missing Input", "Type some shorthand ideas in the box first to inspire the AI!")
                 return
                 
+        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
         orig_text = button.cget("text")
         button.configure(state="disabled", text="...")
         
-        # Save memory temporarily so the AI context is perfectly up to date
         self._save_chapter(memory_only=True)
         
         def worker():
             from api import TomeWeaverAPI
-            # Prefix the key so the AI prompt understands the context (e.g., "chapter goal")
             prompt_field = f"chapter {field_key}"
             success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, prompt_field, shorthand)
             
             def update_ui():
+                self.winfo_toplevel().configure(cursor="") # Restore cursor
                 button.configure(state="normal", text=orig_text)
                 if success:
                     if isinstance(widget, ctk.StringVar):

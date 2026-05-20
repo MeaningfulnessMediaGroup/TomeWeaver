@@ -1272,6 +1272,8 @@ class StoryTab(ctk.CTkFrame):
             from colorama import Style
             print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
             
+        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
+            
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="disabled")
         self.text_input.configure(state="disabled")
@@ -1285,7 +1287,7 @@ class StoryTab(ctk.CTkFrame):
             for w in refs["btn_frame"].winfo_children():
                 if isinstance(w, ctk.CTkButton): 
                     w.configure(state="disabled")
-                elif isinstance(w, ctk.CTkFrame): # Look inside dir_frame
+                elif isinstance(w, ctk.CTkFrame):
                     for sub_w in w.winfo_children():
                         if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="disabled")
 
@@ -1295,12 +1297,10 @@ class StoryTab(ctk.CTkFrame):
             from colorama import Style
             print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
             
+        self.winfo_toplevel().configure(cursor="") # Restore cursor
+            
         self.status_var.set(status_msg)
         self.btn_submit.configure(state="normal")
-        self.text_input.configure(state="normal")
-        self.cmd_dropdown.configure(state="normal")
-        if len(self.engine.history) > self.MAX_CARDS:
-            self.history_slider.configure(state="normal")
             
         for refs in self.recycled_cards:
             if "btn_bridge" in refs: refs["btn_bridge"].configure(state="normal")
