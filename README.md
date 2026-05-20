@@ -27,22 +27,32 @@ When you ask the AI to "Polish" or "Expand" a scene, TomeWeaver does not blindly
 ### 3. The Visual "Codex" (Zero JSON Syntax Errors)
 You never have to look at raw JSON brackets again. The built-in **World Builder** dynamically generates UI forms for strings, bulleted lists, and dictionaries, allowing authors to build massive, deeply nested world lore safely.
 
-### 4. Dual-Mode Storytelling
+### 4. The "Story Forge" (AI Generation & Guided Wizard)
+Banish the blank page. You can initialize a brand new world manually, use the **Guided Wizard** for a step-by-step onboarding experience, or type a single concept into the **AI World Generator** to instantly overhaul the entire cartridge with rich, AI-generated lore, settings, and goals.
+
+### 5. Granular AI Co-Writing (Inspire & Reroll)
+AI assistance isn't just for the main story. Every lore field, chapter goal, and inventory schema features dedicated **🪄 Inspire** and **⟳ Reroll** buttons. Type a quick shorthand idea, click Inspire, and watch the AI expand it into rich, cinematic detail. Stuck? Click the **💡 Help** button to browse dozens of ready-to-use templates.
+
+### 6. Dual-Mode Storytelling
 *   **Sandbox Mode:** Open-ended world simulation. Use the Director tools to manually trigger scene shifts, POV changes, or time-jumps.
 *   **Campaign Mode:** Plot-driven adventures. The AI strictly follows a `plot_outline`, tracking goals and obstacles, and automatically triggers chapter transitions when you succeed.
 
-### 5. Non-Destructive Narrative Bridging
+### 7. Non-Destructive Narrative Bridging
 TomeWeaver solves the "narrative gap" common in AI games. 
 *   **The Problem:** You click "Go inside" and the next paragraph starts inside, leaving a jarring jump-cut.
 *   **The Solution:** TomeWeaver auto-generates a **Narrative Bridge**—a surgical patch that weaves your action into the prose. These bridges are stored as metadata, meaning your original human-curated prose is never modified.
 
-### 6. The "Fortress" JSON Sanitizer
+### 8. The "Fortress" JSON Sanitizer & Error Handler
 Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stage sanitizer is built for extreme resilience:
 *   **State-Machine Repair:** Differentiates between structural JSON markers and rogue dialogue quotes.
 *   **Surgical Repair:** Uses Python's error-coordinate metadata to "patch" missing quotes or trailing commas before giving up.
 *   **Truncation Recovery:** If the AI hits its token limit mid-sentence, the engine auto-balances the JSON so you can continue playing without a crash.
+*   **API Translator:** Gracefully intercepts network timeouts, 429 rate limits, and 502 bad gateways, providing human-readable UI alerts instead of crashing.
 
-### 7. Storybook Compiler (Export)
+### 9. Modern Native UX
+TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
+
+### 10. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
 ---
