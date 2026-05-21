@@ -30,6 +30,7 @@ history.json
 !COMMAND_GUIDE.md
 !LICENSE.md
 !LM_STUDIO_CONFIG.md
+!RAG.md
 !default_system_prompt_*.txt
 !system_prompt.txt
 !requirements.txt

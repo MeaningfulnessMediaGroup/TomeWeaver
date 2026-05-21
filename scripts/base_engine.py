@@ -225,6 +225,9 @@ class BaseEngine:
         Commits the current history, chapters, and memory state to the disk using atomic writes, 
         ensuring that player progress is safely and persistently stored without corruption risk.
         """
+        import time
+        self.last_save_time = time.time() # Used by the UI to detect background updates
+        
         from config import save_json_atomically
         save_json_atomically(self.history, self.history_file)
         save_json_atomically(self.chapters, self.adv_dir / "chapters.json")
@@ -1330,8 +1333,10 @@ class BaseEngine:
             for i, tc in enumerate(chunks_to_process):
                 if progress_callback: progress_callback(i + 1, len(chunks_to_process))
                 
-                # Fetch turns (indices in history are turn-1)
-                chunk = self.history[tc["start"] - 1 : tc["end"]]
+                # Fetch turns safely using absolute turn values, completely ignoring list indices
+                chunk = [t for t in self.history if tc["start"] <= t.get("turn", 0) <= tc["end"]]
+                
+                if not chunk: continue
                 
                 turns_text = ""
                 for t in chunk:
@@ -1343,7 +1348,7 @@ class BaseEngine:
                 # 1. Plot Summary (Skip if we are only backfilling entities)
                 succ_plot = False
                 if not force_entities_only:
-                    succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text)
+                    succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text, chunk[0]["turn"], chunk[-1]["turn"], self.adv_dir)
                     if succ_plot:
                             self.memory.setdefault("plot_ledger", []).append({
                                 "chapter_title": chap_title,

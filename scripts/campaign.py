@@ -143,8 +143,8 @@ class CampaignEngine(BaseEngine):
         else:
             active_prompt_text = active_prompt_text.replace("{inv_template}", "")
             
-        # Inject Lore and Memory BEFORE the rules
-        system_content = "CORE WORLD:\n" + json.dumps(active_setup, indent=2)
+        # The Context Sandwich (Top Bread): Brief identity + World Lore
+        system_content = "You are an expert Game Master running a text-based interactive campaign.\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         
         # --- INJECT LONG-TERM MEMORY (RAG) ---
         memory_str = ""
@@ -227,9 +227,6 @@ class CampaignEngine(BaseEngine):
         goal_text = active_chapter.get('goal', 'Survive')
         system_content += f"GOAL: {goal_text}\n"
         system_content += f"OBSTACLES: {active_chapter.get('obstacles', 'None')}\n"
-        
-        # Inject the Master Rules & JSON Schema AFTER the memory so the AI doesn't forget it
-        system_content += "\n\n" + active_prompt_text
         
         outline = self.setup_data.get("plot_outline", [])
         is_final_chapter = (active_chapter['chapter_number'] == len(outline))
@@ -371,12 +368,12 @@ class CampaignEngine(BaseEngine):
                 messages.append({"role": "user", "content": self.active_fix if self.active_fix else base_instruction})
 
         # ==========================================
-        # 5. EXPLOIT RECENCY BIAS (The Director's Note)
+        # 5. THE CONTEXT SANDWICH (Bottom Bread)
         # ==========================================
-        # LLMs suffer heavily from "recency bias"—they pay the most attention to the very last sentences 
-        # they read. By appending the strict JSON formatting rules to the absolute bottom of the user message,
-        # we drastically reduce syntax hallucinations and missing choices.
-        messages[-1]["content"] += "\n\n" + PROMPTS.get("FRAG_DIRECTOR_NOTE", "")
+        # If the local model's KV Context Window (e.g. 8192 tokens) is exceeded, the server will truncate the prompt.
+        # By forcing the massive System Prompt (which contains the JSON template and rules) into the absolute bottom 
+        # of the User Message, we guarantee it is the very last thing the AI reads and can NEVER be truncated!
+        messages[-1]["content"] += "\n\n" + ("=" * 40) + "\n\n" + active_prompt_text + "\n\n" + PROMPTS.get("FRAG_DIRECTOR_NOTE", "")
         
         return messages
         

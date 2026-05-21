@@ -1248,6 +1248,7 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkLabel(scroll, text="--- LLM Parameters ---", text_color="gray").pack(pady=(20, 5))
         add_field("Base Temperature:", "temperature_base", is_number=True, tooltip_text="Base creativity (0.0 to 2.0). Lower is more logical, higher is more chaotic.")
         add_field("Context & Memory Window (Turns):", "context_window", is_number=True, tooltip_text="How many past turns the AI remembers. This also dictates how often the background memory engine runs.")
+        add_field("Memory Decay Threshold (Turns):", "memory_decay_threshold", is_number=True, tooltip_text="Entities not mentioned in this many turns are auto-archived to save tokens. Pinned entities ignore this.")
         
         ctk.CTkLabel(scroll, text="--- Engine Rules ---", text_color="gray").pack(pady=(20, 5))
         add_field("Max Retries (Healer):", "max_retries", is_number=True, tooltip_text="How many times the engine attempts to self-heal broken JSON before giving up.")

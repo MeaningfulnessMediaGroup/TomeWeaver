@@ -305,6 +305,7 @@ def load_engine_config():
         "temperature_base": 0.8,
         "max_retries": 5,
         "context_window": 15,
+        "memory_decay_threshold": 40,
         "max_query_per_minute": 0,
         "max_tokens": 2000,
         "logging_enabled": True,

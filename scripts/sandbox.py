@@ -85,9 +85,9 @@ class SandboxEngine(BaseEngine):
             active_prompt_text = active_prompt_text.replace("{inv_template}", inv_template_str)
         else:
             active_prompt_text = active_prompt_text.replace("{inv_template}", "")
-
-        # Inject Lore and Memory BEFORE the rules
-        system_content = "CORE WORLD:\n" + json.dumps(active_setup, indent=2)
+            
+        # The Context Sandwich (Top Bread): Brief identity + World Lore
+        system_content = "You are an expert Game Master running a text-based interactive campaign.\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         
         # --- INJECT LONG-TERM MEMORY (RAG) ---
         memory_str = ""

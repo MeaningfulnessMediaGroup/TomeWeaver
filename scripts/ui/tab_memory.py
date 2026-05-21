@@ -15,6 +15,7 @@ class MemoryTab(ctk.CTkFrame):
     def __init__(self, parent, engine):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
+        self._last_render_time = 0 # Tracks when this tab was last drawn
         
         # --- HEADER ---
         hdr = ctk.CTkFrame(self, fg_color="transparent")
@@ -22,7 +23,7 @@ class MemoryTab(ctk.CTkFrame):
         
         ctk.CTkLabel(hdr, text="Long-Term Memory Ledger", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(side="left", padx=10, pady=10)
         
-        self.btn_compile = ctk.CTkButton(hdr, text="⟳ Compile Missing History", font=("Arial", 12, "bold"), fg_color="#F57C00", hover_color="#E65100", command=self._compile_history)
+        self.btn_compile = ctk.CTkButton(hdr, text="🔄 Compile Missing History", font=("Arial", 12, "bold"), fg_color="#F57C00", hover_color="#E65100", command=self._compile_history)
         self.btn_compile.pack(side="right", padx=10)
         Tooltip(self.btn_compile, "Scans your past turns and generates memory for any missing chunks.")
         
@@ -117,7 +118,7 @@ class MemoryTab(ctk.CTkFrame):
             def on_complete(success, msg):
                 def update_ui():
                     self.winfo_toplevel().configure(cursor="") # Restore cursor
-                    self.btn_compile.configure(state="normal", text="⟳ Compile Missing History")
+                    self.btn_compile.configure(state="normal", text="🔄 Compile Missing History")
                     
                     if mode_selection == "verify":
                         self._show_verification_report(msg)
@@ -140,18 +141,18 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
         ctk.CTkButton(btn_frame, text="Start Compiler", width=120, fg_color="#F57C00", hover_color="#E65100", command=apply_compile).pack(side="right", padx=10)
 
-    def _show_verification_report(self, report_text):
+    def _show_verification_report(self, report_text, patch_callback=None):
         """Spawns a scrollable text window to display the Continuity Editor's report."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Continuity & Integrity Report")
-        dialog.geometry("600x450")
+        dialog.geometry("650x500")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
         
-        is_clear = "Nothing to report" in report_text
+        is_clear = "Nothing to report" in report_text or "100/100" in report_text
         hdr_color = "#4CAF50" if is_clear else "#F57C00"
         hdr_text = "Verification Complete: No Issues Found" if is_clear else "Verification Complete: Potential Issues Found"
 
@@ -162,7 +163,16 @@ class MemoryTab(ctk.CTkFrame):
         box.configure(state="disabled")
         box.pack(fill="both", expand=True, padx=20, pady=10)
 
-        ctk.CTkButton(dialog, text="Close Report", command=dialog.destroy).pack(pady=20)
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+        
+        ctk.CTkButton(btn_frame, text="Close Report", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", expand=True, padx=10)
+        
+        # Only show the Auto-Patch button if there are issues AND a callback was provided
+        if patch_callback and not is_clear:
+            btn_patch = ctk.CTkButton(btn_frame, text="🔧 Auto-Patch Summary", fg_color="#009688", hover_color="#00796B", command=lambda: patch_callback(dialog))
+            btn_patch.pack(side="right", expand=True, padx=10)
+            Tooltip(btn_patch, "Ask the AI to automatically rewrite the summary to fix these exact issues.")
         
     def _show_clear_dialog(self):
         """Spawns a granular memory-wipe dialog."""
@@ -189,6 +199,7 @@ class MemoryTab(ctk.CTkFrame):
         def apply_clear():
             if v_plot.get():
                 self.engine.memory["plot_ledger"] = []
+                self.engine.memory["chapter_ledger"] = [] # Also wipe high-level chapter summaries
             if v_bullets.get():
                 # Preserve the Author's Notes while wiping the AI's data
                 for l_type in ["character_ledger", "location_ledger", "artifact_ledger"]:
@@ -253,7 +264,7 @@ class MemoryTab(ctk.CTkFrame):
             r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
             r.pack(fill="x", pady=2)
             s_icon = get_state_icon(locs[name])
-            ctk.CTkRadioButton(r, text=f"🗺️ {s_icon}{name}", variable=self.active_selection, value=f"LOC_{name}", command=self._render_view).pack(side="left")
+            ctk.CTkRadioButton(r, text=f"📍 {s_icon}{name}", variable=self.active_selection, value=f"LOC_{name}", command=self._render_view).pack(side="left")
             ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "location_ledger")).pack(side="right")
             
         ctk.CTkButton(self.nav_frame, text="+ Add Location", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("location_ledger")).pack(fill="x", pady=(5, 15))
@@ -311,6 +322,9 @@ class MemoryTab(ctk.CTkFrame):
                 self._refresh_nav()
 
     def _render_view(self):
+        import time
+        self._last_render_time = time.time() # Update the tracker
+        
         for w in self.editor_frame.winfo_children(): w.destroy()
         selection = self.active_selection.get()
         
@@ -364,11 +378,124 @@ class MemoryTab(ctk.CTkFrame):
                     self._render_view()
                     
             btn_del = ctk.CTkButton(hdr, text="🗑️ Delete", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=delete_chunk)
-            btn_del.pack(side="right")
+            btn_del.pack(side="right", padx=(5, 0))
+
+            # --- Individual Reroll Button ---
+            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=(5, 0))
+            Tooltip(btn_reroll, "Ask the AI to regenerate this specific chunk from the raw history.")
+            
+            # --- Individual Validate Button ---
+            btn_val = ctk.CTkButton(hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_val.pack(side="right")
+            Tooltip(btn_val, "Audits the text currently in the box below against the raw game history to check for hallucinations or missing facts.")
             
             box = ctk.CTkTextbox(card, height=120, wrap="word", font=("Arial", 14))
             box.insert("1.0", chunk.get("summary", ""))
             box.pack(fill="x", padx=15, pady=(0, 15))
+            
+            def validate_chunk(c=chunk, b=box, btn=btn_val):
+                orig_text = btn.cget("text")
+                btn.configure(state="disabled", text="...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
+                def worker():
+                    raw_chunk = [t for t in self.engine.history if c["start_turn"] <= t.get("turn", 0) <= c["end_turn"]]
+                    if not raw_chunk:
+                        self.after(0, lambda: messagebox.showerror("Error", "Could not find raw turns for this chunk."))
+                        self.after(0, lambda: [btn.configure(state="normal", text=orig_text), self.winfo_toplevel().configure(cursor="")])
+                        return
+                        
+                    turns_text = ""
+                    for t in raw_chunk:
+                        turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
+                        
+                    current_summary = b.get("1.0", "end").strip()
+                    from api import TomeWeaverAPI
+                    succ, res = TomeWeaverAPI.validate_plot_chunk(turns_text, current_summary, self.engine.adv_dir)
+                    
+                    def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        btn.configure(state="normal", text=orig_text)
+                        if succ:
+                            # --- AUTO-PATCH LOGIC ---
+                            def trigger_patch(report_dialog):
+                                report_dialog.destroy()
+                                btn.configure(state="disabled", text="Patching...")
+                                self.winfo_toplevel().configure(cursor="watch")
+                                
+                                def patch_worker():
+                                    succ_patch, patched_text = TomeWeaverAPI.patch_plot_chunk(turns_text, current_summary, res, self.engine.adv_dir)
+                                    
+                                    def post_patch_ui():
+                                        if succ_patch:
+                                            b.delete("1.0", "end")
+                                            b.insert("1.0", patched_text)
+                                            
+                                            # Restore UI state so the button is allowed to be clicked
+                                            btn.configure(state="normal", text=orig_text)
+                                            self.winfo_toplevel().configure(cursor="")
+                                            
+                                            # Programmatically "click" the Validate button.
+                                            # This completely bypasses Python's loop memory bug because the 
+                                            # button internally remembers the exact chunk it belongs to!
+                                            btn.invoke()
+                                        else:
+                                            btn.configure(state="normal", text=orig_text)
+                                            self.winfo_toplevel().configure(cursor="")
+                                            messagebox.showerror("Patch Error", patched_text)
+                                            
+                                    self.after(0, post_patch_ui)
+                                    
+                                import threading
+                                threading.Thread(target=patch_worker, daemon=True).start()
+
+                            self._show_verification_report(res, patch_callback=trigger_patch)
+                        else:
+                            messagebox.showerror("Error", res)
+                            
+                    self.after(0, update_ui)
+                    
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_val.configure(command=validate_chunk)
+            
+            def reroll_chunk(c=chunk, b=box, btn=btn_reroll):
+                orig_text = btn.cget("text")
+                btn.configure(state="disabled", text="...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
+                def worker():
+                    # 1. Fetch exact turns mathematically
+                    raw_chunk = [t for t in self.engine.history if c["start_turn"] <= t.get("turn", 0) <= c["end_turn"]]
+                    if not raw_chunk:
+                        self.after(0, lambda: messagebox.showerror("Error", "Could not find raw turns for this chunk."))
+                        return
+                        
+                    turns_text = ""
+                    for t in raw_chunk:
+                        turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
+                        
+                    # 2. Ask LLM
+                    from api import TomeWeaverAPI
+                    succ, res = TomeWeaverAPI.generate_plot_summary(turns_text, c["start_turn"], c["end_turn"], self.engine.adv_dir)
+                    
+                    def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        btn.configure(state="normal", text=orig_text)
+                        if succ:
+                            b.delete("1.0", "end")
+                            b.insert("1.0", res)
+                        else:
+                            messagebox.showerror("Error", res)
+                            
+                    self.after(0, update_ui)
+                    
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_reroll.configure(command=reroll_chunk)
             
             # Save the UI reference in a localized list instead of injecting it into the Engine's data
             self.plot_ui_references.append((chunk, box))
@@ -434,7 +561,7 @@ class MemoryTab(ctk.CTkFrame):
 
     def _render_entity_editor(self, entity_name, ledger_type):
         if ledger_type == "character_ledger": type_str = "Character"; icon = "👤"
-        elif ledger_type == "location_ledger": type_str = "Location"; icon = "🗺️"
+        elif ledger_type == "location_ledger": type_str = "Location"; icon = "📍"
         elif ledger_type == "faction_ledger": type_str = "Faction / Org"; icon = "🛡️"
         else: type_str = "Artifact / Item"; icon = "💎"
         

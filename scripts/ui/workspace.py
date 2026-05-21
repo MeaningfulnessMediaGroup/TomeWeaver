@@ -214,9 +214,17 @@ class WorkspaceFrame(ctk.CTkFrame):
         
     def _on_tab_change(self):
         """Triggers instantly whenever the user clicks a different tab at the top."""
-        if self.tabs.get() == "Story Mode" and hasattr(self, 'story_tab'):
+        target = self.tabs.get()
+        
+        if target == "Story Mode" and hasattr(self, 'story_tab'):
             # Instantly re-evaluate setup.json and redraw the buttons/UI
             self.story_tab.refresh_timeline()
+            
+        elif target == "Memory & Lore" and hasattr(self, 'memory_tab'):
+            # If the engine saved new RAG data in the background since we last looked at this tab, force a redraw!
+            engine_save_time = getattr(self.engine, 'last_save_time', 0)
+            if engine_save_time > self.memory_tab._last_render_time:
+                self.memory_tab._refresh_nav()
             
     def _export_dialog(self):
         """Opens a configuration dialog allowing the user to select their export format."""

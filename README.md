@@ -55,6 +55,14 @@ TomeWeaver feels like a professional OS application. It features global OS-stand
 ### 10. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
+### 11. Autonomous Long-Term Memory (RAG Engine)
+Play infinitely without breaking your model's context limit. TomeWeaver features a background Retrieval-Augmented Generation (RAG) engine that silently compiles your history into dense, token-efficient ledgers.
+*   **Tiered Summarization:** Automatically compresses 10-turn chunks into "Parts," and finished chapters into high-level summaries.
+*   **The Auto-Decay Engine:** Characters, Locations, Artifacts, and Factions are tracked dynamically. If an entity hasn't been mentioned in 40 turns, they are quietly "Archived" out of the AI's prompt to save memory, and instantly "Revived" the moment they reappear in the story.
+*   **Continuity Auditor:** Includes a built-in QA tool that cross-references the Plot Ledger against the Lore Bible to flag contradictions, complete with 1-click Auto-Patching. 
+
+🧠 **[Read the deep dive into the RAG Engine (docs/RAG.md)](docs/RAG.md)**
+
 ---
 
 ## 🧠 Supported LLM Providers

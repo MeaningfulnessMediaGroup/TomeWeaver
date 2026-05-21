@@ -1202,16 +1202,22 @@ class TomeWeaverAPI:
         
         
     @staticmethod
-    def generate_plot_summary(turns_text):
+    def generate_plot_summary(turns_text, start_turn, end_turn, adv_dir=None):
         """
-        RAG Phase 1: Compresses a chunk of raw turns into a dense paragraph.
+        RAG Phase 1: Compresses a chunk of raw turns into a dense ledger.
         """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import enforce_rate_limit, translate_api_error
-        import requests, time
+        from logger import log_llm_interaction
+        import requests, time, uuid
         
-        sys_prompt = PROMPTS.get("SYS_MEMORY_PLOT", "")
-        user_prompt = PROMPTS.get("USER_MEMORY_PLOT", "").replace("{chunk_text}", turns_text)
+        # CACHE BUSTER: Force the local LLM to evaluate this chunk in a sterile vacuum
+        sys_prompt = PROMPTS.get("SYS_MEMORY_PLOT", "") + f"\n[ISOLATION_KEY: {uuid.uuid4()}]"
+        
+        user_prompt = PROMPTS.get("USER_MEMORY_PLOT", "")
+        user_prompt = user_prompt.replace("{chunk_text}", turns_text)
+        user_prompt = user_prompt.replace("{start_turn}", str(start_turn))
+        user_prompt = user_prompt.replace("{end_turn}", str(end_turn))
 
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
         headers = {"Content-Type": "application/json"}
@@ -1219,36 +1225,127 @@ class TomeWeaverAPI:
             
         err = "Unknown Error"
         for attempt in range(3):
-            # Dynamic token scaling for input size
-            input_tokens = int(len(turns_text.split()) * 1.5)
-            # Give it enough headroom to process massive chunks
-            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 2000), max(500, input_tokens + 500))
-            
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
-                "messages": messages, "temperature": 0.4, "max_tokens": dynamic_limit
+                "messages": messages, "temperature": 0.4, "max_tokens": ENGINE_CONFIG.get("max_tokens", 5000)
             }
             try:
                 enforce_rate_limit()
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
-                if resp.status_code != 200:
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    if adv_dir: log_llm_interaction(adv_dir, messages, raw, attempt=attempt+1)
+                    raw = raw.strip('"\'')
+                    if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                    return True, raw
+                else:
                     err = translate_api_error(response=resp)
-                    time.sleep(2)
-                    continue
-                    
-                raw = resp.json()['choices'][0]['message']['content'].strip()
-                raw = raw.strip('"\'')
-                if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
-                
-                return True, raw
+                    if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
             except Exception as e:
                 err = translate_api_error(exception=e)
+                if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
                 time.sleep(2)
-                continue
-                
         return False, f"Summary Generation Failed:\n{err}"
 
 
+
+    @staticmethod
+    def validate_plot_chunk(raw_text, summary_text, adv_dir=None):
+        """
+        RAG QA Phase: Audits a single Plot Ledger chunk against its raw turns.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        from logger import log_llm_interaction
+        import requests, time, json, uuid
+        
+        # CACHE BUSTER: Injects a unique ID to force the local LLM to dump its KV cache and evaluate in a sterile vacuum
+        sys_prompt = PROMPTS.get("SYS_MEMORY_VALIDATE", "") + f"\n[ISOLATION_KEY: {uuid.uuid4()}]"
+        
+        user_prompt = PROMPTS.get("USER_MEMORY_VALIDATE", "")
+        user_prompt = user_prompt.replace("{raw_text}", raw_text)
+        user_prompt = user_prompt.replace("{summary_text}", summary_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.1, "max_tokens": ENGINE_CONFIG.get("max_tokens", 5000)
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    if adv_dir: log_llm_interaction(adv_dir, messages, raw, attempt=attempt+1)
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict):
+                        score = data.get("score", "?/100")
+                        report = data.get("report", "No report generated.")
+                        return True, f"Fidelity Score: {score}\n\n{report}"
+                else:
+                    err = translate_api_error(response=resp)
+                    if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
+                time.sleep(1)
+        return False, "Failed to connect to AI for validation."
+        
+        
+        
+        
+    @staticmethod
+    def patch_plot_chunk(raw_text, summary_text, qa_report, adv_dir=None):
+        """
+        RAG QA Phase: Asks the LLM to fix a summary based on its own validation report.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit, translate_api_error
+        from logger import log_llm_interaction
+        import requests, time, uuid
+        
+        # CACHE BUSTER: Injects a unique ID to force the local LLM to dump its KV cache and evaluate in a sterile vacuum
+        sys_prompt = PROMPTS.get("SYS_MEMORY_PATCH", "") + f"\n[ISOLATION_KEY: {uuid.uuid4()}]"
+        
+        user_prompt = PROMPTS.get("USER_MEMORY_PATCH", "")
+        user_prompt = user_prompt.replace("{raw_text}", raw_text)
+        user_prompt = user_prompt.replace("{current_summary}", summary_text)
+        user_prompt = user_prompt.replace("{qa_report}", qa_report)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.2, "max_tokens": ENGINE_CONFIG.get("max_tokens", 5000)
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    if adv_dir: log_llm_interaction(adv_dir, messages, raw, attempt=attempt+1)
+                    raw = raw.strip('"\'')
+                    if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                    return True, raw
+                else:
+                    err = translate_api_error(response=resp)
+                    if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                if adv_dir: log_llm_interaction(adv_dir, messages, "FAILED", error=err, attempt=attempt+1)
+                time.sleep(2)
+        return False, f"Patching Failed:\n{err}"
+
+        
     @staticmethod
     def generate_chapter_summary(parts_text):
         """
@@ -1269,7 +1366,7 @@ class TomeWeaverAPI:
         for attempt in range(3):
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
-                "messages": messages, "temperature": 0.3, "max_tokens": 800
+                "messages": messages, "temperature": 0.3,  "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)
             }
             try:
                 enforce_rate_limit()
@@ -1313,7 +1410,7 @@ class TomeWeaverAPI:
         err = "Unknown Error"
         for attempt in range(3):
             input_tokens = int(len(turns_text.split()) * 1.5)
-            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 2000), max(500, input_tokens + 500))
+            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 5000), max(500, input_tokens + 500))
             
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
@@ -1404,7 +1501,7 @@ class TomeWeaverAPI:
         for attempt in range(2):
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
-                "messages": messages, "temperature": 0.2, "max_tokens": 800
+                "messages": messages, "temperature": 0.2,  "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)
             }
             try:
                 enforce_rate_limit()
@@ -1462,7 +1559,7 @@ class TomeWeaverAPI:
         for attempt in range(3):
             payload = {
                 "model": ENGINE_CONFIG.get("model", "loaded-model"),
-                "messages": messages, "temperature": 0.2, "max_tokens": 2000
+                "messages": messages, "temperature": 0.2,  "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)
             }
             try:
                 enforce_rate_limit()
