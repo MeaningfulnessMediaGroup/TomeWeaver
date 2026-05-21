@@ -274,21 +274,44 @@ class WorkspaceFrame(ctk.CTkFrame):
         ctk.CTkButton(dialog, text="Export", fg_color="#4CAF50", hover_color="#388E3C", command=on_export).pack(pady=10)
         
     def _restart_story(self):
-        """Wipes history and returns the adventure to the Start Button state."""
-        from tkinter import messagebox
-        warn_msg = (
-            "Are you sure you want to RESTART this adventure?\n\n"
-            "This will permanently DELETE all current turns, choices, and the session log. "
-            "You will be returned to the very beginning. This action cannot be undone!"
-        )
-        if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
-            # 1. Wipe the backend state but do NOT generate a new turn
+        """Wipes history, resets chapters, and allows granular wiping of Long-Term Memory."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Restart Adventure")
+        dialog.geometry("450x400")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text="⚠️ Restart Adventure", font=("Arial", 18, "bold"), text_color="#D32F2F").pack(pady=(20, 10))
+        ctk.CTkLabel(dialog, text="This will permanently delete all gameplay turns, choices, and the session log. You will return to Turn 0.", wraplength=400).pack(padx=20, pady=(0, 10))
+        ctk.CTkLabel(dialog, text="How should the Long-Term Memory (Lore Bible) be handled?", font=("Arial", 12, "bold"), text_color="#00ACC1").pack(pady=(10, 5))
+
+        # Default to Nuclear Wipe for Campaigns to prevent premature goal completion
+        default_mem_action = "nuclear" if self.engine.is_campaign else "wipe_ai"
+        v_mem = ctk.StringVar(value=default_mem_action)
+        
+        rb1 = ctk.CTkRadioButton(dialog, text="Wipe AI Events (Keep Names & Author Notes)", variable=v_mem, value="wipe_ai")
+        rb1.pack(anchor="w", padx=40, pady=10)
+        Tooltip(rb1, "Deletes the chronological events the AI tracked, but keeps all the Characters/Locations and any notes you manually typed.")
+        
+        rb2 = ctk.CTkRadioButton(dialog, text="Nuclear Wipe (Delete Everything)", variable=v_mem, value="nuclear")
+        rb2.pack(anchor="w", padx=40, pady=10)
+        Tooltip(rb2, "Total reset. Deletes all Characters, Locations, Artifacts, and Factions. A completely blank slate.")
+        
+        rb3 = ctk.CTkRadioButton(dialog, text="Do Not Touch Memory", variable=v_mem, value="keep")
+        rb3.pack(anchor="w", padx=40, pady=10)
+        Tooltip(rb3, "Start at Turn 1, but the AI will still remember everything that happened in the previous playthrough.")
+
+        def apply_restart():
             from logger import log_event
             log_event(self.engine.adv_dir, "Command: RESTART ADVENTURE")
             
+            # 1. Wipe History
             self.engine.history.clear()
             
-            # Reset Chapter bounds depending on Mode
+            # 2. Reset Chapters
             if self.engine.is_campaign:
                 for c in self.engine.chapters:
                     c["start_turn"] = 1 if c["chapter_number"] == 1 else None
@@ -297,21 +320,47 @@ class WorkspaceFrame(ctk.CTkFrame):
                 self.engine.chapters = [self.engine.chapters[0]]
                 self.engine.chapters[0]["start_turn"] = 1
                 self.engine.chapters[0]["end_turn"] = None
+                
+            # 3. Handle Memory
+            mode = v_mem.get()
+            self.engine.memory["plot_ledger"] = []
+            self.engine.memory["chapter_ledger"] = []
             
-            # Flush the session log file
+            if mode == "nuclear":
+                self.engine.memory["character_ledger"] = {}
+                self.engine.memory["location_ledger"] = {}
+                self.engine.memory["artifact_ledger"] = {}
+                self.engine.memory["faction_ledger"] = {}
+                self.engine.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
+            elif mode == "wipe_ai":
+                for l_type in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]:
+                    for k in self.engine.memory.get(l_type, {}): 
+                        saved_notes = self.engine.memory[l_type][k].get("author_notes", "")
+                        self.engine.memory[l_type][k] = {"characteristics": {}, "ledger": [], "author_notes": saved_notes}
+            
+            # 4. Flush the session log file
             log_file = self.engine.adv_dir / "session_log.txt"
             if log_file.exists():
                 try: log_file.unlink() 
                 except Exception: pass
 
             self.engine.save_state()
+            dialog.destroy()
             
-            # 2. Redraw the UI to show the big "Start Adventure" button
+            # 5. Redraw the UI
             if hasattr(self, 'story_tab'):
                 self.story_tab.refresh_timeline()
-            
-            messagebox.showinfo("Reset Complete", "The story has been reverted. You may edit your world in the World Builder before clicking Start Adventure.")
-            
+            if hasattr(self, 'memory_tab'):
+                self.memory_tab.active_selection.set("PLOT_LEDGER")
+                self.memory_tab._refresh_nav()
+                
+            from tkinter import messagebox
+            messagebox.showinfo("Reset Complete", "The story has been reverted to Turn 0.\n\nYou may edit your world in the World Builder before clicking Start Adventure.")
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Restart Game", width=120, font=("Arial", 14, "bold"), fg_color="#B71C1C", hover_color="#7F0000", command=apply_restart).pack(side="right", padx=10)
             
     def _toggle_test(self):
         """Switches autopilot on or off."""

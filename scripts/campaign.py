@@ -225,8 +225,10 @@ class CampaignEngine(BaseEngine):
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         
         goal_text = active_chapter.get('goal', 'Survive')
+        system_content += f"\n--- ACTIVE OBJECTIVE ---\n"
         system_content += f"GOAL: {goal_text}\n"
         system_content += f"OBSTACLES: {active_chapter.get('obstacles', 'None')}\n"
+        system_content += "CRITICAL INSTRUCTION: You must actively steer the narrative to allow the player to confront and achieve this goal.\n"
         
         outline = self.setup_data.get("plot_outline", [])
         is_final_chapter = (active_chapter['chapter_number'] == len(outline))

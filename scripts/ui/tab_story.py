@@ -198,8 +198,8 @@ class StoryTab(ctk.CTkFrame):
                 lines = tb.count("1.0", "end-1c", "displaylines")
                 num_lines = lines[0] if lines else 1
                 
-                # Tighter line-height multiplier (1.35) to match native font kerning perfectly
-                calc_h = int(num_lines * (self.prose_font[1] * 1.35)) + 10
+                # Add a dynamic buffer (one full line height + 10px padding) to prevent bottom truncation
+                calc_h = int(num_lines * (self.prose_font[1] * 1.35)) + self.prose_font[1] + 10
                 if refs["prose"].cget("height") != calc_h: refs["prose"].configure(height=calc_h)
                 
             # 2. Bridge Prose
@@ -209,7 +209,7 @@ class StoryTab(ctk.CTkFrame):
                 num_lines = lines[0] if lines else 1
                 
                 # Apply the exact same flawless padding logic as the main prose
-                calc_h = int(num_lines * (self.bridge_font[1] * 1.35)) + 10
+                calc_h = int(num_lines * (self.bridge_font[1] * 1.35)) + self.bridge_font[1] + 10
                 if refs["br_prose"].cget("height") != calc_h: refs["br_prose"].configure(height=calc_h)
 
             # 3. Inventory
@@ -584,10 +584,15 @@ class StoryTab(ctk.CTkFrame):
                         i_lbl = ctk.CTkLabel(p_frame, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color, width=0)
                         i_lbl.pack(side="left", padx=(0, 4))
                         
-                        v_lbl = ctk.CTkLabel(p_frame, text=val, font=("Arial", 12, "bold"), text_color="#B3E5FC", width=0)
+                        # VISUAL TRUNCATION: Prevent AI novellas from breaking the pill UI wrapping
+                        val_str = str(val)
+                        display_val = val_str if len(val_str) <= 45 else val_str[:42] + "..."
+                        
+                        v_lbl = ctk.CTkLabel(p_frame, text=display_val, font=("Arial", 12, "bold"), text_color="#B3E5FC", width=0)
                         v_lbl.pack(side="left")
                         
-                        Tooltip(p_frame, key)
+                        # Hovering over the pill shows the Key AND the full, untruncated AI string
+                        Tooltip(p_frame, f"{key}:\n{val_str}")
                         
                         # MAGIC: Embed the entire UI frame directly into the textbox
                         inv_box._textbox.window_create("end", window=p_frame)

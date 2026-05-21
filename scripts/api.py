@@ -1530,8 +1530,8 @@ class TomeWeaverAPI:
         # Create a deep copy so we can destructively modify it without harming the active game
         world_doc = json.loads(json.dumps(setup_data))
         
-        # Strip all mechanical engine flags. The AI only needs narrative lore.
-        keys_to_remove = ["mode", "track_inventory", "can_die", "tone", "allow_cheats", "narrative", "inventory_dictionary"]
+        # Strip all mechanical engine flags and PLOT SPOILERS. The AI only needs static background lore.
+        keys_to_remove = ["mode", "track_inventory", "can_die", "tone", "allow_cheats", "narrative", "inventory_dictionary", "plot_outline"]
         for k in keys_to_remove:
             world_doc.pop(k, None)
             
