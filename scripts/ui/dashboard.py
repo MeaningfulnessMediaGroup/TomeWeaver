@@ -1247,8 +1247,7 @@ class DashboardFrame(ctk.CTkFrame):
         
         ctk.CTkLabel(scroll, text="--- LLM Parameters ---", text_color="gray").pack(pady=(20, 5))
         add_field("Base Temperature:", "temperature_base", is_number=True, tooltip_text="Base creativity (0.0 to 2.0). Lower is more logical, higher is more chaotic.")
-        add_field("Context Window (Turns):", "context_window", is_number=True, tooltip_text="How many previous turns the AI remembers. Higher context costs more tokens.")
-        add_field("Memory Chunk Size (Turns):", "memory_chunk_size", is_number=True, tooltip_text="How many turns to wait before the background RAG engine fires. E.g. 15 turns = ~3,000 words.")
+        add_field("Context & Memory Window (Turns):", "context_window", is_number=True, tooltip_text="How many past turns the AI remembers. This also dictates how often the background memory engine runs.")
         
         ctk.CTkLabel(scroll, text="--- Engine Rules ---", text_color="gray").pack(pady=(20, 5))
         add_field("Max Retries (Healer):", "max_retries", is_number=True, tooltip_text="How many times the engine attempts to self-heal broken JSON before giving up.")
@@ -1306,6 +1305,9 @@ class DashboardFrame(ctk.CTkFrame):
             new_config["model"] = prof_data.get("model", "")
             new_config["max_query_per_minute"] = prof_data.get("max_query_per_minute", 0)
             new_config["max_tokens"] = prof_data.get("max_tokens", 2000)
+            
+            # Hard-delete the legacy chunk size if it exists in the active UI payload
+            if "memory_chunk_size" in new_config: del new_config["memory_chunk_size"]
             
             try:
                 # 1. Save to disk

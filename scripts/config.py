@@ -304,7 +304,7 @@ def load_engine_config():
         "model": "loaded-model",
         "temperature_base": 0.8,
         "max_retries": 5,
-        "context_window": 6,
+        "context_window": 15,
         "max_query_per_minute": 0,
         "max_tokens": 2000,
         "logging_enabled": True,
@@ -312,7 +312,6 @@ def load_engine_config():
         "log_raw_json_on_failure": False,
         "auto_polish": False,
         "auto_narrative_bridge": False,
-        "memory_chunk_size": 15, # Turns per chunk for the RAG summarizer
         "ui_scaling": 1.0,
         "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",
@@ -334,7 +333,7 @@ def load_engine_config():
             needs_update = True
             
     # Clean up legacy volatile keys from engine_config
-    for legacy_key in ["window_geometry", "window_state", "last_active_story"]:
+    for legacy_key in ["window_geometry", "window_state", "last_active_story", "memory_chunk_size"]:
         if legacy_key in config:
             del config[legacy_key]
             needs_update = True

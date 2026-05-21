@@ -171,20 +171,29 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
     # --- THE CHOICE SCRUBBER ---
     if isinstance(data.get("choices"), list):
         cleaned_choices = []
+        
+        # 0. Pre-flatten choices in case the AI illegally merged them with newlines
+        flat_choices = []
         for c in data["choices"]:
-            c_str = str(c).strip()
+            c_str = str(c)
+            if '\n' in c_str:
+                flat_choices.extend(c_str.split('\n'))
+            else:
+                flat_choices.append(c_str)
+                
+        for c_str in flat_choices:
+            c_str = c_str.strip()
+            if not c_str: continue
             
             # 1. Remove LLM "Concatenation" artifacts (e.g. "Text" + "\n")
             c_str = c_str.replace('" + "', '').replace('\\" + \\"', '').replace('\" + \"', '')
             
-            # 2. Strip leading non-quote garbage (commas, dots, hyphens, colons, and spaces)
+            # 2. Strip leading and trailing array garbage (commas, colons, hyphens)
             c_str = re.sub(r"^[,;:\.\-\s]+", "", c_str)
+            c_str = re.sub(r"[,;\s]+$", "", c_str)
             
-            # 3. Strip surrounding wrapper quotes ONLY if they match on both sides
-            if c_str.startswith('"') and c_str.endswith('"'):
-                c_str = c_str[1:-1].strip()
-            elif c_str.startswith("'") and c_str.endswith("'"):
-                c_str = c_str[1:-1].strip()
+            # 3. Aggressively strip all external wrapper quotes (handles typos like 'Action'')
+            c_str = c_str.strip("\"' ")
                 
             # 4. Convert any internal dialogue double-quotes into single-quotes 
             c_str = c_str.replace('"', "'")
@@ -523,7 +532,7 @@ def translate_api_error(exception=None, response=None):
     return "Unknown Generation Error."
 
     
-def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None, override_tokens=None):
+def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None, override_tokens=None, override_temp=None):
     """
     Master API request function. Handles payload construction, dynamic 
     temperature scaling (cools down for syntax errors, heats up for loops), 
@@ -534,15 +543,17 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
     # Analyze the reason for the retry by looking at the last injected feedback message
     last_msg = messages[-1].get("content", "") if messages else ""
     
-    if "Linguistic loop detected" in last_msg:
+    if override_temp is not None:
+        # Strict Director override from the UI
+        temp = override_temp
+    elif "Linguistic loop detected" in last_msg:
         # If stuck in a creative rut, spike the temperature to force a new path
         temp = min(1.5, temp_base + 0.4)
     elif is_fix_mode:
-        # Polish and Fix modes must be strictly deterministic
+        # Default Polish and Fix modes
         temp = 0.3
     else:
-        # CRITICAL FIX: For JSON syntax failures, LOWER the temperature on each retry.
-        # High temperatures cause format collapse. Cold temperatures enforce logic.
+        # For JSON syntax failures, LOWER the temperature on each retry
         temp = max(0.2, temp_base - (attempt * 0.15))
         
     # Use dynamically calculated tokens if provided, otherwise default to global config

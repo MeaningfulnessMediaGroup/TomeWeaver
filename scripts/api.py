@@ -1248,6 +1248,43 @@ class TomeWeaverAPI:
                 
         return False, f"Summary Generation Failed:\n{err}"
 
+
+    @staticmethod
+    def generate_chapter_summary(parts_text):
+        """
+        RAG Phase 1.5: Condenses multiple granular plot_ledger parts into a single Chapter Summary.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit, translate_api_error
+        import requests, time
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_CHAPTER", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER", "").replace("{parts_text}", parts_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.3, "max_tokens": 800
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    raw = raw.strip('"\'')
+                    if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                    return True, raw
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+        return False, f"Chapter Condensation Failed:\n{err}"
+        
+        
     @staticmethod
     def extract_entity_updates(turns_text, known_chars_str, known_locs_str, known_arts_str, known_facs_str="", track_factions=False):
         """

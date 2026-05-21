@@ -85,6 +85,11 @@ class BaseEngine:
                 self.memory["faction_ledger"] = {}
                 self.memory["aliases"]["faction_ledger"] = {}
                 self.save_state()
+                
+            # Auto-migrate v1.4 Chapter Ledger
+            if "chapter_ledger" not in self.memory:
+                self.memory["chapter_ledger"] = []
+                self.save_state()
         else:
             self.memory = {
                 "plot_ledger": [], 
@@ -92,6 +97,7 @@ class BaseEngine:
                 "location_ledger": {},
                 "artifact_ledger": {},
                 "faction_ledger": {},
+                "chapter_ledger": [],
                 "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
             }
         # --- AUTO-MIGRATION & REPAIR ---
@@ -583,8 +589,8 @@ class BaseEngine:
             print(f"{Fore.GREEN}✔ Turn {idx} polish draft ready.{Style.RESET_ALL}")
         return draft
 
-    def request_fix(self, instruction, turn_idx=None):
-        """Endpoint: Generates a targeted-edit DRAFT based on user instruction."""
+    def request_fix(self, instruction, turn_idx=None, temp_override=None):
+        """Endpoint: Generates a targeted-edit DRAFT based on user instruction. Accepts optional temperature."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         
@@ -597,11 +603,14 @@ class BaseEngine:
         fix_prompt = fix_prompt.replace("{instruction}", instruction)
         self.active_fix = fix_prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.is_fix_mode = True
+        self._temp_override = temp_override # Pass to generation loop
         
         draft = self._generate_turn()
         if draft: 
             self._apply_draft_inheritance(draft)
             print(f"{Fore.GREEN}✔ Turn {idx} fix draft ready.{Style.RESET_ALL}")
+            
+        if hasattr(self, "_temp_override"): delattr(self, "_temp_override")
         return draft
 
     def _apply_draft_inheritance(self, draft_turn):
@@ -787,6 +796,9 @@ class BaseEngine:
         turn_data = None
         err = None
 
+        # Check if the Director explicitly passed a temp override
+        final_temp = getattr(self, "_temp_override", None)
+
         for attempt in range(max_retries):
         
             # --- THE FEEDBACK LOOP ---
@@ -802,7 +814,7 @@ class BaseEngine:
             turn_data, err, raw = get_llm_response(
                 active_messages, attempt, self.adv_dir, prev_turn_obj, self.is_fix_mode, 
                 self.is_campaign, self.track_inventory, self.can_die, self.is_test_mode, inv_schema,
-                override_tokens=dynamic_max_tokens
+                override_tokens=dynamic_max_tokens, override_temp=final_temp
             )
             
             if turn_data:
@@ -889,8 +901,6 @@ class BaseEngine:
 
         # 3. Mortality/Victory Interceptor
         if self.can_die:
-            # FIX: Explicitly ignore Turn 0 (Prologue/Seed) because the player cannot die before the game starts.
-            # A malformed key from a bypass or a seed file might accidentally trigger this.
             if turn_data.get("turn", 0) > 0 and str(turn_data.get("is_game_over", False)).lower() == "true":
                 prev_choice = self.history[-1].get("player_choice", "") if self.history else ""
                 if prev_choice == "Conclude the Story":
@@ -898,7 +908,6 @@ class BaseEngine:
                 else:
                     print(f"\n{Fore.RED}[System: GAME OVER! The protagonist has met their end.]{Style.RESET_ALL}")
                 
-                # Force the UI to display meta-options instead of standard gameplay choices
                 turn_data["input_type"] = "choice"
                 turn_data["choices"] = [
                     "Undo (Cheat Death and try a different action)",
@@ -912,11 +921,126 @@ class BaseEngine:
         self.is_fix_mode = False
         turn_data["player_choice"] = None 
         self.history.append(turn_data)
-        self.save_state()
         
-        # 5. RAG Trigger (Long-Term Memory)
-        self._trigger_memory_compilation()
+        # --- AUTO-DECAY SCANNER ---
+        # Catch entities mentioned in the AI's prose, bridge, and location strings immediately
+        combined_text = f"{turn_data.get('story_text', '')} {turn_data.get('location', '')} {turn_data.get('narrative_bridge', '')}"
+        self._update_entity_visibility(turn_data["turn"], combined_text)
+        
+        self.save_state()
 
+    def _update_entity_visibility(self, current_turn, text_to_scan):
+        """Python text scanner that auto-archives entities not seen in 40 turns, and revives them if mentioned."""
+        import re
+        threshold = ENGINE_CONFIG.get("memory_decay_threshold", 40)
+        text_lower = text_to_scan.lower()
+        
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        aliases_map = self.memory.get("aliases", {})
+        
+        changed = False
+        for l_type in ledgers:
+            if l_type not in self.memory: continue
+            
+            l_aliases = aliases_map.get(l_type, {})
+            reverse_aliases = {}
+            for alias, master in l_aliases.items():
+                reverse_aliases.setdefault(master, []).append(alias.lower())
+                
+            for entity_name, data in self.memory[l_type].items():
+                if isinstance(data, list): continue 
+                
+                # Initialize safety baseline
+                if "last_seen_turn" not in data:
+                    data["last_seen_turn"] = current_turn
+                    changed = True
+                    
+                search_terms = [entity_name.lower()] + reverse_aliases.get(entity_name, [])
+                
+                # Scan text using word boundaries to prevent partial matches (e.g., 'Al' inside 'Always')
+                mentioned = False
+                for term in search_terms:
+                    if re.search(rf'\b{re.escape(term)}\b', text_lower):
+                        mentioned = True
+                        break
+                        
+                if mentioned:
+                    data["last_seen_turn"] = current_turn
+                    if data.get("state", "active") == "archived":
+                        data["state"] = "active" # Auto-Revive
+                        changed = True
+                        
+                # Process Decay (Ignore pinned entities)
+                last_seen = data.get("last_seen_turn", current_turn)
+                if data.get("state", "active") == "active":
+                    if (current_turn - last_seen) >= threshold:
+                        data["state"] = "archived" # Auto-Archive
+                        changed = True
+                        
+        if changed:
+            self.save_state()
+
+    def _resync_all_visibility(self):
+        """Pure Python full-history sweep to definitively guarantee accurate last_seen_turn and states."""
+        import re
+        threshold = ENGINE_CONFIG.get("memory_decay_threshold", 40)
+        max_turn = len(self.history)
+        if max_turn == 0: return
+
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        aliases_map = self.memory.get("aliases", {})
+        
+        # 1. Pre-compile regex patterns for lightning-fast scanning
+        search_dict = {}
+        for l_type in ledgers:
+            search_dict[l_type] = {}
+            if l_type not in self.memory: continue
+            
+            l_aliases = aliases_map.get(l_type, {})
+            reverse_aliases = {}
+            for alias, master in l_aliases.items():
+                reverse_aliases.setdefault(master, []).append(alias.lower())
+                
+            for entity_name, data in self.memory[l_type].items():
+                if isinstance(data, list): continue
+                terms = [entity_name.lower()] + reverse_aliases.get(entity_name, [])
+                patterns = [re.compile(rf'\b{re.escape(t)}\b') for t in terms]
+                search_dict[l_type][entity_name] = patterns
+                
+                # Default to 0 before the sweep
+                if "last_seen_turn" not in data:
+                    data["last_seen_turn"] = 0
+
+        # 2. Sweep forward through ALL history
+        for turn in self.history:
+            t_num = turn.get("turn", 0)
+            text_to_scan = f"{turn.get('story_text', '')} {turn.get('location', '')} {turn.get('narrative_bridge', '')}".lower()
+            
+            for l_type, entities in search_dict.items():
+                for entity_name, patterns in entities.items():
+                    for p in patterns:
+                        if p.search(text_to_scan):
+                            self.memory[l_type][entity_name]["last_seen_turn"] = t_num
+                            break
+
+        # 3. Apply decay states based on true last_seen_turn
+        changed = False
+        for l_type in ledgers:
+            if l_type not in self.memory: continue
+            for entity_name, data in self.memory[l_type].items():
+                if isinstance(data, list): continue
+                last_seen = data.get("last_seen_turn", 0)
+                current_state = data.get("state", "active")
+                
+                if current_state != "pinned":
+                    new_state = "archived" if (max_turn - last_seen) >= threshold else "active"
+                    if current_state != new_state:
+                        data["state"] = new_state
+                        changed = True
+
+        if changed:
+            self.save_state()
+            
     def _smart_merge_traits(self, existing_traits, new_traits):
         """
         Intelligently merges new AI-generated traits into an existing dictionary.
@@ -973,11 +1097,13 @@ class BaseEngine:
             else:
                 existing_traits[target_k] = clean_v
 
-    def _trigger_memory_compilation(self):
-        """Silently spawns a background worker to summarize the plot and update entities."""
-        chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
-        
-        if not self.history: return
+    def _trigger_memory_compilation(self, progress_callback=None, completion_callback=None):
+        """
+        Triggers the Master Compiler in the background when the turn threshold is met.
+        Strictly overrides mode to 'missing' but respects the user's Auto-Reconcile preference.
+        """
+        chunk_size = ENGINE_CONFIG.get("context_window", 15)
+        if not self.history: return False
         
         current_turn = self.history[-1]["turn"]
         active_chap = next((c for c in reversed(self.chapters) if c.get("start_turn") is not None and c.get("start_turn") <= current_turn), self.chapters[0])
@@ -989,80 +1115,21 @@ class BaseEngine:
         turns_active = current_turn - c_start + 1
         
         # Only trigger live if we hit an exact multiple of the chunk size within THIS chapter
-        if turns_active == 0 or turns_active % chunk_size != 0: return
+        if turns_active == 0 or turns_active % chunk_size != 0: return False
             
         print(f"{Style.DIM}Triggering Long-Term Memory compilation (Turns {current_turn-chunk_size+1}-{current_turn})...{Style.RESET_ALL}")
         
-        # Extract the chunk safely (indices are turn - 1)
-        chunk = self.history[current_turn - chunk_size : current_turn]
+        # Fetch the user's preference for Auto-Reconciliation
+        auto_recon = self.setup_data.get("auto_reconcile", True)
         
-        turns_text = ""
-        for t in chunk:
-            turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
-            
-        chap_title = active_chap.get("title", "Chapter")
-        chap_num = active_chap.get("chapter_number", 1)
-        
-        def worker():
-            from api import TomeWeaverAPI
-            
-            # 1. Plot Summary
-            succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text)
-            if succ_plot:
-                self.memory.setdefault("plot_ledger", []).append({
-                    "chapter_title": chap_title,
-                    "chapter_number": chap_num,
-                    "start_turn": chunk[0]["turn"],
-                    "end_turn": chunk[-1]["turn"],
-                    "summary": plot_res
-                })
-                
-            # 2. Entity Status Extract
-            def format_known(ledger):
-                res = ""
-                for k, data in self.memory.get(ledger, {}).items():
-                    if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
-                    else:
-                        t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                        e = " ".join(data.get("ledger", []))
-                        res += f"- {k} (Traits: {t}): {e}\n"
-                return res
-            
-            track_facs = self.setup_data.get("track_factions", False)
-            succ_ent, ent_res = TomeWeaverAPI.extract_entity_updates(
-                turns_text, 
-                format_known("character_ledger"), 
-                format_known("location_ledger"),
-                format_known("artifact_ledger"),
-                format_known("faction_ledger") if track_facs else "",
-                track_factions=track_facs
-            )
-            if succ_ent and isinstance(ent_res, dict):
-                def merge_entities(extracted_dict, ledger_key):
-                    if not isinstance(extracted_dict, dict): return
-                    for k, v in extracted_dict.items():
-                        actual_k = self.memory.get("aliases", {}).get(ledger_key, {}).get(k, k)
-                        if actual_k not in self.memory[ledger_key]: 
-                            self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": [], "author_notes": ""}
-                        if isinstance(v, dict):
-                            event = v.get("event")
-                            traits = v.get("traits", {})
-                            if event and str(event).lower() != "null": 
-                                self.memory[ledger_key][actual_k]["ledger"].append(str(event))
-                            if isinstance(traits, dict) and traits:
-                                self._smart_merge_traits(self.memory[ledger_key][actual_k]["characteristics"], traits)
-                                
-                merge_entities(ent_res.get("Characters", {}), "character_ledger")
-                merge_entities(ent_res.get("Locations", {}), "location_ledger")
-                merge_entities(ent_res.get("Artifacts", {}), "artifact_ledger")
-                if track_facs: merge_entities(ent_res.get("Factions", {}), "faction_ledger")
-                    
-            if succ_plot or succ_ent:
-                self.save_state()
-                print(f"{Fore.GREEN}✔ Memory compilation complete.{Style.RESET_ALL}")
-                
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
+        # Delegate directly to the Master Compiler (It inherently runs asynchronously)
+        self.compile_missing_memories(
+            compile_mode="missing", 
+            run_reconciliation=auto_recon,
+            progress_callback=progress_callback,
+            completion_callback=completion_callback
+        )
+        return True
 
     def _generate_bridge_for_latest_action(self):
         """Background hook to weave novelized prose seamlessly during gameplay."""
@@ -1197,7 +1264,7 @@ class BaseEngine:
                 # We do NOT return yet. We allow it to fall through to Phase 2 (Reconciliation) 
                 # so the user's checkbox for Auto-Reconcile is honored.
             
-            chunk_size = ENGINE_CONFIG.get("memory_chunk_size", 15)
+            chunk_size = ENGINE_CONFIG.get("context_window", 15)
             target_chunks = []
             
             # --- PHASE 1: MATHEMATICAL CHUNKING (Chapter-Aware) ---
@@ -1251,7 +1318,12 @@ class BaseEngine:
             else:
                 chunks_to_process = [tc for tc in target_chunks if (tc["start"], tc["end"]) not in existing_plots]
                 
-            if not chunks_to_process and compile_mode != "verify":
+            # Determine which chapters need high-level condensation
+            condensed_nums = [c.get("chapter_number") for c in self.memory.get("chapter_ledger", [])]
+            chapters_to_condense = [chap for chap in self.chapters if chap.get("end_turn") is not None and chap.get("chapter_number") not in condensed_nums]
+                
+            # Only abort if absolutely nothing needs to be done
+            if not chunks_to_process and not chapters_to_condense and compile_mode != "verify" and not run_reconciliation:
                 if completion_callback: completion_callback(True, "All memories are already up to date!")
                 return
                 
@@ -1273,13 +1345,13 @@ class BaseEngine:
                 if not force_entities_only:
                     succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text)
                     if succ_plot:
-                        self.memory.setdefault("plot_ledger", []).append({
-                            "chapter_title": chap_title,
-                            "chapter_number": chap_num,
-                            "start_turn": chunk[0]["turn"],
-                            "end_turn": chunk[-1]["turn"],
-                            "summary": plot_res
-                        })
+                            self.memory.setdefault("plot_ledger", []).append({
+                                "chapter_title": chap_title,
+                                "chapter_number": chap_num,
+                                "start_turn": chunk[0]["turn"],
+                                "end_turn": chunk[-1]["turn"],
+                                "summary": plot_res
+                            })
                     
                 # 2. Entity Status Extract (Auto-Detects New Entities & Traits)
                 def format_known(ledger):
@@ -1331,6 +1403,22 @@ class BaseEngine:
                         
                 if succ_plot or succ_ent:
                     self.save_state()
+                
+            # --- PHASE 1.8: CONDENSE COMPLETED CHAPTERS ---
+            for chap in chapters_to_condense:
+                c_num = chap.get("chapter_number")
+                chap_chunks = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") == c_num]
+                if chap_chunks:
+                    if progress_callback: progress_callback("Condensing", f"Summarizing Chapter {c_num}")
+                    combined_text = "\n".join([f"Part {i+1}: {p.get('summary', '')}" for i, p in enumerate(chap_chunks)])
+                    succ_chap, chap_res = TomeWeaverAPI.generate_chapter_summary(combined_text)
+                    if succ_chap:
+                        self.memory.setdefault("chapter_ledger", []).append({
+                            "chapter_number": c_num,
+                            "chapter_title": chap.get("title", "Chapter"),
+                            "summary": chap_res
+                        })
+                        self.save_state()
                     
             # --- PHASE 2: RECONCILIATION (The AI Janitor) ---
             if run_reconciliation:
@@ -1363,6 +1451,12 @@ class BaseEngine:
                                 del self.memory[l_type][alias]
                                 
                 self.save_state()
+                
+            # --- PHASE 3: MASTER VISIBILITY SWEEP ---
+            # Now that all entities are extracted and merged, do a lightning-fast 
+            # pure Python sweep of the entire history.json to perfectly sync last_seen_turn and states.
+            if progress_callback: progress_callback("Syncing", "Recalculating Last Seen timestamps")
+            self._resync_all_visibility()
                     
             if completion_callback:
                 if compile_mode == "verify":

@@ -86,14 +86,32 @@ class SandboxEngine(BaseEngine):
         else:
             active_prompt_text = active_prompt_text.replace("{inv_template}", "")
 
-        system_content = active_prompt_text + "\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
+        # Inject Lore and Memory BEFORE the rules
+        system_content = "CORE WORLD:\n" + json.dumps(active_setup, indent=2)
         
         # --- INJECT LONG-TERM MEMORY (RAG) ---
         memory_str = ""
+        
+        # 1. High-Level Chapter Summaries (Past)
+        chapter_ledger = self.memory.get("chapter_ledger", [])
+        if chapter_ledger:
+            memory_str += "COMPLETED CHAPTERS (The Story So Far):\n"
+            for c in chapter_ledger: 
+                memory_str += f"- Chapter {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}\n"
+                
+        # 2. Granular Part Summaries (Current/Active)
         plot_ledger = self.memory.get("plot_ledger", [])
-        if plot_ledger:
-            memory_str += "THE STORY SO FAR:\n"
-            for p in plot_ledger: memory_str += f"- {p.get('summary', '')}\n"
+        condensed_chap_nums = [c.get('chapter_number') for c in chapter_ledger]
+        
+        # Filter out parts that belong to older chapters which have already been condensed
+        active_plot_ledger = [p for p in plot_ledger if p.get('chapter_number') not in condensed_chap_nums]
+        
+        if active_plot_ledger:
+            # Failsafe: Hard cap to the last 15 parts to physically prevent context overflow if a single chapter goes on forever
+            if len(active_plot_ledger) > 15: active_plot_ledger = active_plot_ledger[-15:]
+            memory_str += "\nRECENT EVENTS (Granular):\n"
+            for p in active_plot_ledger: 
+                memory_str += f"- {p.get('summary', '')}\n"
                 
         char_ledger = self.memory.get("character_ledger", {})
         if char_ledger:
@@ -101,6 +119,7 @@ class SandboxEngine(BaseEngine):
             for k, data in char_ledger.items():
                 if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
                 else:
+                    if data.get("state", "active") == "archived": continue
                     traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
                     events = " ".join(data.get("ledger", []))
                     notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
@@ -112,6 +131,7 @@ class SandboxEngine(BaseEngine):
             for k, data in loc_ledger.items(): 
                 if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
                 else:
+                    if data.get("state", "active") == "archived": continue
                     traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
                     events = " ".join(data.get("ledger", []))
                     notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
@@ -123,6 +143,7 @@ class SandboxEngine(BaseEngine):
             for k, data in art_ledger.items(): 
                 if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
                 else:
+                    if data.get("state", "active") == "archived": continue
                     traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
                     events = " ".join(data.get("ledger", []))
                     notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
@@ -134,6 +155,7 @@ class SandboxEngine(BaseEngine):
             for k, data in fac_ledger.items(): 
                 if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
                 else:
+                    if data.get("state", "active") == "archived": continue
                     traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
                     events = " ".join(data.get("ledger", []))
                     notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
@@ -143,9 +165,11 @@ class SandboxEngine(BaseEngine):
             system_content += "\n\nLONG-TERM MEMORY:\n" + memory_str
 
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
-        system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         if active_chapter.get('setting'): system_content += f"Setting Override: {active_chapter['setting']}\n"
         if active_chapter.get('pov'): system_content += f"POV Override: {active_chapter['pov']}\n"
+
+        # Inject the Master Rules & JSON Schema AFTER the memory so the AI doesn't forget it
+        system_content += "\n\n" + active_prompt_text
 
         if self.track_inventory:
             # FIX: Force the rule fragment to use the CURRENT state, not the setup schema

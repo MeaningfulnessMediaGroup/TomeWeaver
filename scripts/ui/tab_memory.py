@@ -65,7 +65,8 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkLabel(dialog, text="Compile Long-Term Memory", font=("Arial", 16, "bold"), text_color="#00ACC1").pack(pady=(20, 10))
         ctk.CTkLabel(dialog, text="This will scan your history and ask the AI to generate missing data. This consumes API tokens.", wraplength=400, text_color="gray").pack(padx=20, pady=(0, 20))
 
-        v_mode = ctk.StringVar(value="missing")
+        # Load the last used mode from engine settings (defaults to 'missing' on first run)
+        v_mode = ctk.StringVar(value=self.engine.setup_data.get("last_compile_mode", "missing"))
         
         rb_base = ctk.CTkRadioButton(dialog, text="Base Lore Only (Parse setup.json and Prologue)", variable=v_mode, value="base")
         rb_base.pack(anchor="w", padx=40, pady=(0, 10))
@@ -82,9 +83,11 @@ class MemoryTab(ctk.CTkFrame):
         Tooltip(rb_verify, "Reads the already summarized Plot Ledger and Lore Bible to check for logical contradictions. Runs Auto-Reconcile if checked.")
 
         # Divider
+        # Divider
         ctk.CTkFrame(dialog, height=2, fg_color="#333333").pack(fill="x", padx=40, pady=15)
 
-        v_recon = ctk.BooleanVar(value=True)
+        # Load the last used reconcile setting (defaults to True on first run)
+        v_recon = ctk.BooleanVar(value=self.engine.setup_data.get("auto_reconcile", True))
         cb_recon = ctk.CTkCheckBox(dialog, text="Auto-Reconcile Duplicates (Merge aliases)", variable=v_recon)
         cb_recon.pack(anchor="w", padx=40)
         Tooltip(cb_recon, "Runs a final AI pass to automatically merge duplicate entities like 'John' and 'John Smith'.")
@@ -92,6 +95,13 @@ class MemoryTab(ctk.CTkFrame):
         def apply_compile():
             mode_selection = v_mode.get()
             run_recon = v_recon.get()
+            
+            # Save preferences to setup.json so they persist
+            self.engine.setup_data["last_compile_mode"] = mode_selection
+            self.engine.setup_data["auto_reconcile"] = run_recon
+            from config import save_json_atomically
+            save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
+            
             dialog.destroy()
             
             self.winfo_toplevel().configure(cursor="watch")
@@ -207,10 +217,22 @@ class MemoryTab(ctk.CTkFrame):
     def _refresh_nav(self):
         for w in self.nav_frame.winfo_children(): w.destroy()
         
-        # 1. The Plot Ledger Button
-        row = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
-        row.pack(fill="x", pady=(0, 15))
-        ctk.CTkRadioButton(row, text="📖 The Plot Ledger", font=("Arial", 14, "bold"), variable=self.active_selection, value="PLOT_LEDGER", command=self._render_view).pack(side="left")
+        def get_state_icon(data_obj):
+            if not isinstance(data_obj, dict): return ""
+            s = data_obj.get("state", "active")
+            if s == "pinned": return "📌 "
+            if s == "archived": return "📦 "
+            return ""
+            
+        # 1. Chapter Summaries
+        row_c = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+        row_c.pack(fill="x", pady=(0, 5))
+        ctk.CTkRadioButton(row_c, text="📚 Chapter Summaries", font=("Arial", 14, "bold"), variable=self.active_selection, value="CHAPTER_LEDGER", command=self._render_view).pack(side="left")
+        
+        # 1.5 The Plot Ledger
+        row_p = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+        row_p.pack(fill="x", pady=(0, 15))
+        ctk.CTkRadioButton(row_p, text="📖 Plot Ledger (Parts)", font=("Arial", 14, "bold"), variable=self.active_selection, value="PLOT_LEDGER", command=self._render_view).pack(side="left")
         
         # 2. Characters List
         ctk.CTkLabel(self.nav_frame, text="Characters", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", pady=(5, 2))
@@ -218,7 +240,8 @@ class MemoryTab(ctk.CTkFrame):
         for name in sorted(chars.keys()):
             r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
             r.pack(fill="x", pady=2)
-            ctk.CTkRadioButton(r, text=f"👤 {name}", variable=self.active_selection, value=f"CHAR_{name}", command=self._render_view).pack(side="left")
+            s_icon = get_state_icon(chars[name])
+            ctk.CTkRadioButton(r, text=f"👤 {s_icon}{name}", variable=self.active_selection, value=f"CHAR_{name}", command=self._render_view).pack(side="left")
             ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "character_ledger")).pack(side="right")
         
         ctk.CTkButton(self.nav_frame, text="+ Add Character", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("character_ledger")).pack(fill="x", pady=(5, 15))
@@ -229,7 +252,8 @@ class MemoryTab(ctk.CTkFrame):
         for name in sorted(locs.keys()):
             r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
             r.pack(fill="x", pady=2)
-            ctk.CTkRadioButton(r, text=f"🗺️ {name}", variable=self.active_selection, value=f"LOC_{name}", command=self._render_view).pack(side="left")
+            s_icon = get_state_icon(locs[name])
+            ctk.CTkRadioButton(r, text=f"🗺️ {s_icon}{name}", variable=self.active_selection, value=f"LOC_{name}", command=self._render_view).pack(side="left")
             ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "location_ledger")).pack(side="right")
             
         ctk.CTkButton(self.nav_frame, text="+ Add Location", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("location_ledger")).pack(fill="x", pady=(5, 15))
@@ -240,7 +264,8 @@ class MemoryTab(ctk.CTkFrame):
         for name in sorted(arts.keys()):
             r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
             r.pack(fill="x", pady=2)
-            ctk.CTkRadioButton(r, text=f"💎 {name}", variable=self.active_selection, value=f"ART_{name}", command=self._render_view).pack(side="left")
+            s_icon = get_state_icon(arts[name])
+            ctk.CTkRadioButton(r, text=f"💎 {s_icon}{name}", variable=self.active_selection, value=f"ART_{name}", command=self._render_view).pack(side="left")
             ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "artifact_ledger")).pack(side="right")
             
         ctk.CTkButton(self.nav_frame, text="+ Add Artifact", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("artifact_ledger")).pack(fill="x", pady=(5, 15))
@@ -252,7 +277,8 @@ class MemoryTab(ctk.CTkFrame):
             for name in sorted(facs.keys()):
                 r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
                 r.pack(fill="x", pady=2)
-                ctk.CTkRadioButton(r, text=f"🛡️ {name}", variable=self.active_selection, value=f"FAC_{name}", command=self._render_view).pack(side="left")
+                s_icon = get_state_icon(facs[name])
+                ctk.CTkRadioButton(r, text=f"🛡️ {s_icon}{name}", variable=self.active_selection, value=f"FAC_{name}", command=self._render_view).pack(side="left")
                 ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name: self._delete_entity(n, "faction_ledger")).pack(side="right")
                 
             ctk.CTkButton(self.nav_frame, text="+ Add Faction", fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._add_entity("faction_ledger")).pack(fill="x", pady=(5, 0))
@@ -288,7 +314,9 @@ class MemoryTab(ctk.CTkFrame):
         for w in self.editor_frame.winfo_children(): w.destroy()
         selection = self.active_selection.get()
         
-        if selection == "PLOT_LEDGER":
+        if selection == "CHAPTER_LEDGER":
+            self._render_chapter_ledger()
+        elif selection == "PLOT_LEDGER":
             self._render_plot_ledger()
         elif selection.startswith("CHAR_"):
             self._render_entity_editor(selection.replace("CHAR_", "", 1), "character_ledger")
@@ -355,22 +383,102 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkButton(self.editor_frame, text="Save Summaries", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_plot_ledger).pack(pady=10)
         ctk.CTkLabel(self.editor_frame, text="Use the engine configuration to change the Memory Chunk size.", font=("Arial", 12, "italic"), text_color="#555555").pack(pady=20)
 
+
+    def _render_chapter_ledger(self):
+        ctk.CTkLabel(self.editor_frame, text="Chapter Summaries (High-Level Memory)", font=("Arial", 18, "bold")).pack(anchor="w", padx=10, pady=(0, 5))
+        ctk.CTkLabel(self.editor_frame, text="Completed chapters are highly condensed here. This prevents Context Limit crashes in long games.", text_color="gray").pack(anchor="w", padx=10, pady=(0, 20))
+        
+        chap_list = self.engine.memory.get("chapter_ledger", [])
+        if not chap_list:
+            ctk.CTkLabel(self.editor_frame, text="No chapters have been completed and summarized yet.", font=("Arial", 14, "italic")).pack(pady=50)
+            return
+
+        self.chap_ui_references = [] 
+
+        for idx, chunk in enumerate(chap_list):
+            card = ctk.CTkFrame(self.editor_frame, fg_color="#2B2B2B", corner_radius=8)
+            card.pack(fill="x", padx=10, pady=10)
+            
+            hdr = ctk.CTkFrame(card, fg_color="transparent")
+            hdr.pack(fill="x", padx=15, pady=10)
+            
+            c_num = chunk.get("chapter_number", "?")
+            title = chunk.get("chapter_title", "Unknown Chapter")
+            
+            ctk.CTkLabel(hdr, text=f"Chapter {c_num}: {title}", font=("Arial", 16, "bold"), text_color="#00BCD4").pack(side="left")
+            
+            def delete_chunk(c=chunk):
+                if messagebox.askyesno("Delete Summary", f"Delete the high-level summary for Chapter {c.get('chapter_number')}?"):
+                    self.engine.memory["chapter_ledger"].remove(c)
+                    self.engine.save_state()
+                    self._render_view()
+                    
+            btn_del = ctk.CTkButton(hdr, text="🗑️ Delete", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=delete_chunk)
+            btn_del.pack(side="right")
+            
+            box = ctk.CTkTextbox(card, height=140, wrap="word", font=("Arial", 14))
+            box.insert("1.0", chunk.get("summary", ""))
+            box.pack(fill="x", padx=15, pady=(0, 15))
+            
+            self.chap_ui_references.append((chunk, box))
+
+        def save_chap_ledger():
+            for chunk, box in getattr(self, 'chap_ui_references', []):
+                chunk["summary"] = box.get("1.0", "end").strip()
+            self.engine.save_state()
+            messagebox.showinfo("Saved", "Chapter summaries updated.")
+            self._render_view()
+
+        ctk.CTkButton(self.editor_frame, text="Save Summaries", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_chap_ledger).pack(pady=10)
+
+
     def _render_entity_editor(self, entity_name, ledger_type):
         if ledger_type == "character_ledger": type_str = "Character"; icon = "👤"
         elif ledger_type == "location_ledger": type_str = "Location"; icon = "🗺️"
         elif ledger_type == "faction_ledger": type_str = "Faction / Org"; icon = "🛡️"
         else: type_str = "Artifact / Item"; icon = "💎"
         
+        # --- DATA EXTRACTION (Moved to top so UI can read state flags) ---
+        if entity_name not in self.engine.memory[ledger_type]:
+            self.engine.memory[ledger_type][entity_name] = {"characteristics": {}, "ledger": [], "author_notes": "", "state": "active"}
+            
+        active_data = self.engine.memory[ledger_type][entity_name]
+        
+        # Safely migrate legacy lists
+        if isinstance(active_data, list):
+            active_data = {"characteristics": {}, "ledger": active_data, "author_notes": "", "state": "active"}
+            self.engine.memory[ledger_type][entity_name] = active_data
+
         # --- HEADER (Editable Name & Merge Tool) ---
         hdr = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         hdr.pack(fill="x", padx=10, pady=(0, 5))
         
         ctk.CTkLabel(hdr, text=f"The Lore Bible: {icon}", font=("Arial", 18, "bold")).pack(side="left")
         
-        # LOCAL VARIABLES (Prevents cross-contamination during redraws)
+        # LOCAL VARIABLES
         var_entity_name = ctk.StringVar(value=entity_name)
-        ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=300, fg_color="transparent", border_width=1).pack(side="left", padx=10)
+        ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=250, fg_color="transparent", border_width=1).pack(side="left", padx=10)
+
+        # STATE TOGGLE
+        var_state = ctk.StringVar(value=active_data.get("state", "active"))
         
+        # Color the dropdown dynamically based on selection
+        def update_state_color(*args):
+            s = var_state.get()
+            if s == "pinned": state_menu.configure(fg_color="#FBC02D", text_color="black")
+            elif s == "archived": state_menu.configure(fg_color="#4A4A4A", text_color="white")
+            else: state_menu.configure(fg_color="#1F6AA5", text_color="white")
+            
+        state_menu = ctk.CTkOptionMenu(hdr, variable=var_state, values=["active", "pinned", "archived"], width=100, command=update_state_color)
+        state_menu.pack(side="left", padx=10)
+        update_state_color() # Init color
+        Tooltip(state_menu, "Active: Included in AI prompt.\nPinned: Guaranteed included in AI prompt.\nArchived: Hidden from AI to save tokens.")
+        
+        last_seen = active_data.get("last_seen_turn", "?")
+        lbl_seen = ctk.CTkLabel(hdr, text=f"(Last Seen: Turn {last_seen})", font=("Arial", 12, "italic"), text_color="gray")
+        lbl_seen.pack(side="left", padx=10)
+        Tooltip(lbl_seen, "The Auto-Decay engine tracks when this entity was last mentioned.\nIt automatically archives entities not seen in 40 turns, and revives them instantly if mentioned again.")
+
         def prompt_merge():
             safe_entity_name = entity_name
             if safe_entity_name not in self.engine.memory[ledger_type]: return
@@ -545,6 +653,12 @@ class MemoryTab(ctk.CTkFrame):
             target_obj["characteristics"] = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
             target_obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
             target_obj["author_notes"] = var_notes.get("1.0", "end").strip()
+            
+            # If the user manually rescues them from the archive to active, reset their last_seen so they don't immediately decay again
+            if var_state.get() == "active" and target_obj.get("state") == "archived":
+                target_obj["last_seen_turn"] = len(self.engine.history)
+                
+            target_obj["state"] = var_state.get()
             
             # 2. Handle Rename Safely
             new_name = var_entity_name.get().strip()

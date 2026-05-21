@@ -686,19 +686,19 @@ class StoryTab(ctk.CTkFrame):
                             Tooltip(btn_rt, "Reroll this entire scene.")
 
                         if show_qol:
-                            btn_rc = ctk.CTkButton(dir_frame, text="⟳ Choices", width=60, fg_color="#0288D1", hover_color="#01579B", command=lambda: self._trigger_redo_choices(target_idx))
+                            btn_rc = ctk.CTkButton(dir_frame, text="⟳ Choices", width=60, fg_color="#0288D1", hover_color="#01579B", command=lambda idx=target_idx: self._trigger_redo_choices(idx))
                             btn_rc.pack(side="left", padx=5)
                             Tooltip(btn_rc, "Keep text, but get new choices.")
                             
-                            btn_exp = ctk.CTkButton(dir_frame, text="✨ Expand", width=60, fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_expansion(target_idx))
+                            btn_exp = ctk.CTkButton(dir_frame, text="✨ Expand", width=60, fg_color="#00ACC1", hover_color="#00838F", command=lambda idx=target_idx: self._trigger_expansion(idx))
                             btn_exp.pack(side="left", padx=5)
                             Tooltip(btn_exp, "Add sensory depth to this scene.")
 
-                            btn_cond = ctk.CTkButton(dir_frame, text="✨ Condense", width=60, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_condense(target_idx))
+                            btn_cond = ctk.CTkButton(dir_frame, text="✨ Condense", width=60, fg_color="#3F51B5", hover_color="#303F9F", command=lambda idx=target_idx: self._trigger_condense(idx))
                             btn_cond.pack(side="left", padx=5)
                             Tooltip(btn_cond, "Condense the prose to be shorter and punchier.")
 
-                            btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(target_idx))
+                            btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda idx=target_idx: self._trigger_polish(idx))
                             btn_pol.pack(side="left", padx=5)
                             Tooltip(btn_pol, "Fix grammar/style.")
                         
@@ -1330,54 +1330,120 @@ class StoryTab(ctk.CTkFrame):
     def _trigger_fix(self, turn_idx=None, textbox=None):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Director Fix")
+        dialog.geometry("750x620") # Taller to fit 3 fields comfortably
         dialog.attributes("-topmost", True)
         dialog.grab_set()
-        
-        ctk.CTkLabel(dialog, text="Enter edit instruction (e.g., 'Make it raining'):", font=("Arial", 14)).pack(padx=20, pady=(20, 10))
-        entry = ctk.CTkEntry(dialog, width=350, font=("Arial", 14))
-        entry.pack(padx=20, pady=10)
-        
-        # Check if the user highlighted text in the prose box
-        prefill = ""
-        if textbox:
-            try:
-                if textbox.tag_ranges("sel"):
-                    selected = textbox.get("sel.first", "sel.last").replace('\n', ' ').strip()
-                    if selected: prefill = f"fix: '{selected}' => "
-            except Exception: pass
-            
-        if prefill:
-            entry.insert(0, prefill)
-            
-        entry.focus()
-        if prefill:
-            entry.icursor("end") # Move cursor to the very end so they can type immediately
         
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
         
+        # --- FIELD 1: REPLACE SOURCE ---
+        lbl_src = ctk.CTkLabel(dialog, text="1. Target Text (Optional - Highlight text in the story to auto-fill):", font=("Arial", 12, "bold"), text_color="#00BCD4")
+        lbl_src.pack(anchor="w", padx=20, pady=(20, 2))
+        Tooltip(lbl_src, "The exact text currently in the story that you want to target.")
+        source_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        source_box.pack(fill="x", padx=20)
+        
+        # --- FIELD 2: LITERAL REPLACEMENT ---
+        lbl_tgt = ctk.CTkLabel(dialog, text="2. Literal Replacement (Optional):", font=("Arial", 12, "bold"), text_color="#4CAF50")
+        lbl_tgt.pack(anchor="w", padx=20, pady=(15, 2))
+        Tooltip(lbl_tgt, "Use this to swap strings verbatim (e.g. Change 'Bob' to 'Jack'). The AI will copy-paste this exactly.")
+        target_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        target_box.pack(fill="x", padx=20)
+        
+        # --- FIELD 3: AI INSTRUCTION ---
+        lbl_inst = ctk.CTkLabel(dialog, text="3. AI Editor Instruction (Optional):", font=("Arial", 12, "bold"), text_color="#FF9800")
+        lbl_inst.pack(anchor="w", padx=20, pady=(15, 2))
+        Tooltip(lbl_inst, "Use this to tell the AI *how* to rewrite the scene (e.g. 'Make it raining', or 'Make her sound angry').")
+        inst_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        inst_box.pack(fill="x", padx=20)
+        
+        # --- TEMPERATURE DROPDOWN ---
+        bot_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        bot_frame.pack(fill="x", padx=20, pady=(15, 0))
+        
+        ctk.CTkLabel(bot_frame, text="AI Freedom:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
+        
+        # Load the saved preference or default to Balanced
+        saved_freedom = self.engine.setup_data.get("fix_freedom", "Balanced (0.4)")
+        freedom_var = ctk.StringVar(value=saved_freedom)
+        
+        freedom_menu = ctk.CTkOptionMenu(
+            bot_frame, variable=freedom_var, 
+            values=["Very Conservative (0.1)", "Conservative (0.2)", "Balanced (0.4)", "Creative (0.7)", "Very Creative (0.9)"],
+            width=180
+        )
+        freedom_menu.pack(side="left", padx=10)
+        Tooltip(freedom_menu, "Conservative = Exact literal swaps. Creative = The AI will rewrite surrounding sentences to make the edit flow better.")
+        
+        # Auto-fill from highlighted text
+        if textbox:
+            try:
+                if textbox.tag_ranges("sel"):
+                    selected = textbox.get("sel.first", "sel.last").replace('\n', ' ').strip()
+                    if selected: 
+                        source_box.insert("1.0", selected)
+            except Exception: pass
+            
+        inst_box.focus()
+        
         def on_submit(*args):
-            instruction = entry.get().strip()
-            if not instruction: return
+            src = source_box.get("1.0", "end").strip()
+            tgt = target_box.get("1.0", "end").strip()
+            inst = inst_box.get("1.0", "end").strip()
+            
+            if not tgt and not inst:
+                return # Must provide at least a replacement or an instruction!
+            
+            # Smart Formatter: Combines the 3 fields into strict editor syntax for the LLM
+            if src and tgt and inst:
+                instruction = f"Find the text '{src}' and replace it literally with '{tgt}'. Then, apply this editorial instruction to the surrounding scene: {inst}"
+                display_title = f"{tgt} (+ {inst})"
+            elif src and tgt:
+                instruction = f"Find the exact text '{src}' and swap it literally with '{tgt}'. Do not add narrative commentary about the change."
+                display_title = tgt
+            elif src and inst:
+                instruction = f"Locate the text '{src}' and rewrite it according to this instruction: {inst}"
+                display_title = inst
+            elif tgt and not src and not inst:
+                instruction = f"Insert or apply this exact text to the scene: '{tgt}'"
+                display_title = tgt
+            else:
+                instruction = f"Apply this editorial instruction to the scene: {inst}"
+                display_title = inst
+                
+            # Extract float from string (e.g. "Conservative (0.2)" -> 0.2)
+            freedom_str = freedom_var.get()
+            import re
+            match = re.search(r'\(([\d\.]+)\)', freedom_str)
+            target_temp = float(match.group(1)) if match else 0.4
+            
+            # Save preference to engine memory
+            self.engine.setup_data["fix_freedom"] = freedom_str
+            from config import save_json_atomically
+            save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
+                
             dialog.destroy()
             
-            self._lock_ui(f"Applying fix: {instruction[:15]}...")
+            self._lock_ui(f"Applying fix: {display_title[:15]}...")
             def worker():
-                draft = self.engine.request_fix(instruction, turn_idx)
-                self.after(0, lambda: self._show_draft_diff(draft, "fix", instruction))
+                draft = self.engine.request_fix(instruction, turn_idx, temp_override=target_temp)
+                # Pass 'tgt' to the diff window so the title bar displays the user's actual typed text
+                self.after(0, lambda: self._show_draft_diff(draft, "fix", display_title))
             import threading
             threading.Thread(target=worker, daemon=True).start()
             
-        entry.bind("<Return>", on_submit)
-        ctk.CTkButton(dialog, text="Apply Fix", font=("Arial", 14, "bold"), command=on_submit).pack(pady=20)
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Apply Fix", width=120, font=("Arial", 14, "bold"), fg_color="#009688", hover_color="#00796B", command=on_submit).pack(side="right", padx=10)
         
     def _execute_action(self, action_string):
         """Sends the user's action to the engine on a background thread to prevent UI freezing."""
         pc_exact = str(action_string).strip()
         
-        # Intercept Meta Actions so the Game Over buttons actually trigger the UI modals
         if pc_exact in ["Export Story", "Export Tragic Ending"]:
-            # Route to the workspace's built-in export dialog
             self.master.master._export_dialog() 
             return
         if pc_exact == "Quit":
@@ -1387,12 +1453,36 @@ class StoryTab(ctk.CTkFrame):
         self._lock_ui(f"Submitting: '{action_string[:20]}...'")
         def worker():
             result = self.engine.submit_action(action_string)
+            
             def update_ui():
-                # If it failed to generate (and wasn't a Restart/Undo), tell the user
                 if not result and pc_exact != "Restart Game" and not pc_exact.startswith("Undo"):
                     from tkinter import messagebox
                     messagebox.showerror("Generation Error", "The AI failed to generate the next turn.\nPlease check the Developer Console for details.")
-                self.refresh_timeline(retain_scroll=True)
+                    self.refresh_timeline(retain_scroll=True)
+                    return
+
+                # --- EXPLICIT RAG OVERLAY ---
+                # Check if this exact turn triggered a memory compilation
+                def on_progress(current, total):
+                    if current == "Seeding": msg = "Extracting Base Lore..."
+                    elif current == "Condensing": msg = f"{total}..."
+                    elif current == "Reconciling": msg = "Merging duplicates..."
+                    elif current == "Syncing": msg = "Recalculating Last Seen timestamps..."
+                    else: msg = f"Processing Chunk {current}/{total}..."
+                    self.after(0, lambda: self._lock_ui(f"UPDATING LONG-TERM MEMORY: {msg}"))
+                    
+                def on_complete(success, msg):
+                    self.after(0, lambda: self.refresh_timeline(retain_scroll=True))
+
+                did_trigger_rag = self.engine._trigger_memory_compilation(
+                    progress_callback=on_progress, 
+                    completion_callback=on_complete
+                )
+                
+                # If RAG didn't trigger, just refresh the timeline normally
+                if not did_trigger_rag:
+                    self.refresh_timeline(retain_scroll=True)
+                    
             self.after(0, update_ui)
             
         import threading
