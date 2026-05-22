@@ -11,31 +11,67 @@
             "title": "Awakening",
             "setting": "The pitch-black cryo-bay of the Leviathan",
             "pov": "Elara",
-            "goal": "Find a plasma cutter and restore auxiliary power to access ship schematics",
-            "obstacles": [
-                "Strange, skittering sounds coming from the vents and ductwork above",
-                "Depleting oxygen levels in her suit as she navigates by touch"
-            ]
+            "objectives": [
+                {
+                    "goal": "Find a plasma cutter",
+                    "obstacles": "Strange, skittering sounds coming from the vents and ductwork above",
+                    "setting": "",
+                    "pov": "",
+                    "status": "ACTIVE"
+                },
+                {
+                    "goal": "Restore auxiliary power to access ship schematics",
+                    "obstacles": "Depleting oxygen levels in her suit as she navigates by touch",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         },
         {
             "title": "The Hydroponics Lab",
             "setting": "A flooded zero-G hydroponics bay filled with mutated plants and debris",
             "pov": "Elara",
-            "goal": "Find the Captain's override keycard to gain access to restricted areas of the ship",
-            "obstacles": [
-                "The oxygen levels in her suit are dangerously low, and she must find a replacement tank quickly",
-                "The plants have grown monstrously large, their thorny vines capable of slashing at her if too close"
-            ]
+            "objectives": [
+                {
+                    "goal": "Find the Captain's override keycard",
+                    "obstacles": "The oxygen levels in her suit are dangerously low, and she must find a replacement tank quickly",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Use the Captain's override keycard to gain access to restricted areas of the ship",
+                    "obstacles": "The plants have grown monstrously large, their thorny vines capable of slashing at her if too close",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         },
         {
             "title": "Escape and Confrontation",
             "setting": "The escape pod bay, with the ship's self-destruct sequence ticking down around her",
             "pov": "Elara",
-            "goal": "Initiate the ship's self-destruct to destroy any remaining alien threats and escape on an escape pod",
-            "obstacles": [
-                "A final confrontation with a massive alien hunter that has been stalking her through the ship",
-                "She must choose between attempting to fight or evade the creature while navigating to the pods"
-            ]
+            "objectives": [
+                {
+                    "goal": "Initiate the ship's self-destruct to destroy any remaining alien threats",
+                    "obstacles": "A final confrontation with a massive alien hunter that has been stalking her through the ship",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Escape on an escape pod",
+                    "obstacles": "She must choose between attempting to fight or evade the creature while navigating to the pods",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         }
     ],
     "narrative": {

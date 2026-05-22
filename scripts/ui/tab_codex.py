@@ -25,7 +25,8 @@ class CodexTab(ctk.CTkFrame):
             "goal", "setting", "main_character", "starting_situation", 
             "starting_inventory", "inventory_dictionary", "inventory_and_state", 
             "lore_and_rules", "track_inventory", "can_die", "allow_cheats", 
-            "plot_outline", "narrative"
+            "plot_outline", "narrative",
+            "track_factions", "last_compile_mode", "auto_reconcile", "fix_freedom"
         ]
 
         self.tabs = ctk.CTkTabview(self)

@@ -592,7 +592,11 @@ class StoryTab(ctk.CTkFrame):
                         v_lbl.pack(side="left")
                         
                         # Hovering over the pill shows the Key AND the full, untruncated AI string
-                        Tooltip(p_frame, f"{key}:\n{val_str}")
+                        # FIX: Bind directly to the child labels because they block the transparent frame's hover events
+                        tip_text = f"{key}:\n{val_str}"
+                        Tooltip(p_frame, tip_text)
+                        Tooltip(i_lbl, tip_text)
+                        Tooltip(v_lbl, tip_text)
                         
                         # MAGIC: Embed the entire UI frame directly into the textbox
                         inv_box._textbox.window_create("end", window=p_frame)
@@ -1001,6 +1005,10 @@ class StoryTab(ctk.CTkFrame):
                     self.engine.history[turn_idx]["narrative_bridge"] = b_text
                 elif "narrative_bridge" in self.engine.history[turn_idx]:
                     del self.engine.history[turn_idx]["narrative_bridge"]
+            
+            # --- THE JANITOR HOOK ---
+            # Automatically un-archives newly mentioned entities, and re-archives deleted hallucinations
+            self.engine._resync_all_visibility()
             
             self.engine.save_state()
             self._render_visible_cards(retain_scroll=True) 
@@ -1498,6 +1506,7 @@ class StoryTab(ctk.CTkFrame):
         if messagebox.askyesno("Delete Bridge", "Are you sure you want to delete this narrative bridge?"):
             if "narrative_bridge" in self.engine.history[turn_idx]:
                 del self.engine.history[turn_idx]["narrative_bridge"]
+                self.engine._resync_all_visibility()
                 self.engine.save_state()
                 self._render_visible_cards()
 

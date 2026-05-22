@@ -411,7 +411,15 @@ def create_boilerplate_files(adv_dir, mode):
             
             # Add mode-specific structure
             if mode == "campaign":
-                template["plot_outline"] = [{"title": "Chapter 1", "goal": "Survive", "obstacles": "None"}]
+                template["plot_outline"] = [{
+                    "title": "Chapter 1", 
+                    "objectives": [{
+                        "goal": "Survive the night.", 
+                        "obstacles": "Hostile environment.",
+                        "setting": "",
+                        "pov": ""
+                    }]
+                }]
             else:
                 template["starting_situation"] = "Waking up in a cryo-pod with alarms blaring."
                 

@@ -114,9 +114,9 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
             else:
                 data["inventory_and_state"] = prev_str
 
-        if "chapter_goal_achieved" not in data and is_campaign:
-            # Safest assumption: Goal is not met unless AI says so
-            data["chapter_goal_achieved"] = False
+        if "objective_achieved" not in data and is_campaign:
+            # Safest assumption: Objective is not met unless AI says so
+            data["objective_achieved"] = False
 
     # Infer Input Type based on context
     if "input_type" not in data:
@@ -147,7 +147,7 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
     # --- SCHEMA DEFINITION (Final Check) ---
     required_keys = {"story_text", "pov_character", "location", "input_type", "choices"}
     if is_campaign: 
-        required_keys.add("chapter_goal_achieved")
+        required_keys.add("objective_achieved")
         required_keys.add("goal_progress")
     if track_inventory: required_keys.add("inventory_and_state")
     if can_die: required_keys.add("is_game_over")

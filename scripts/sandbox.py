@@ -166,7 +166,10 @@ class SandboxEngine(BaseEngine):
 
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         if active_chapter.get('setting'): system_content += f"Setting Override: {active_chapter['setting']}\n"
-        if active_chapter.get('pov'): system_content += f"POV Override: {active_chapter['pov']}\n"
+        if active_chapter.get('pov'): 
+            pov_val = active_chapter['pov']
+            system_content += f"POV Override: {pov_val}\n"
+            system_content += f"CRITICAL POV RULE: You must write strictly from {pov_val}'s perspective. Apply familial titles (Dad, Uncle, Aunt, etc.) ONLY as they relate to {pov_val}. Never use another character's relationship title by mistake.\n"
 
         # Inject the Master Rules & JSON Schema AFTER the memory so the AI doesn't forget it
         system_content += "\n\n" + active_prompt_text

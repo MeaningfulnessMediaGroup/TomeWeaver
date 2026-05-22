@@ -305,10 +305,18 @@ class TomeWeaverAPI:
                     outline = setup_data.get("plot_outline", [])
                     if outline:
                         first = outline[0]
+                        
+                        # Build initial objectives array with ACTIVE/LOCKED statuses
+                        objs = []
+                        for i, o in enumerate(first.get("objectives", [])):
+                            o_copy = o.copy()
+                            o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                            objs.append(o_copy)
+                            
                         initial = [{
                             "chapter_number": 1, "title": first.get("title", "Chapter 1"),
-                            "start_turn": 1, "end_turn": None, "goal": first.get("goal"), 
-                            "obstacles": first.get("obstacles"), "setting": first.get("setting"), "pov": first.get("pov")
+                            "start_turn": 1, "end_turn": None, 
+                            "objectives": objs
                         }]
                 else:
                     initial = [{
@@ -448,7 +456,7 @@ class TomeWeaverAPI:
             schema += '  "inventory_dictionary": {"Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"}, "Items": {"val": "Rusty Dagger", "icon": "🎒", "color": "#1F6AA5"}},\n'
             
         if mode == "campaign":
-            schema += '  "plot_outline": [\n    {"title": "Chapter 1", "setting": "Description", "pov": "Character Name", "goal": "Specific objective", "obstacles": "Specific threats"}\n  ],\n'
+            schema += '  "plot_outline": [\n    {\n      "title": "Chapter 1",\n      "setting": "Base chapter location",\n      "pov": "Main Character",\n      "objectives": [\n        {"goal": "Step 1 micro-objective", "obstacles": "Specific threats", "setting": "Specific location", "pov": "POV"},\n        {"goal": "Step 2 micro-objective", "obstacles": "Specific threats", "setting": "Next location", "pov": "POV"}\n      ]\n    }\n  ],\n'
             
         if gen_pro: schema += '  "prologue_text": "Write 3 to 4 paragraphs of rich, cinematic opening prose setting the scene",\n'
         if gen_epi and mode == "campaign": schema += '  "epilogue_text": "Write 2 to 3 paragraphs of satisfying concluding prose"\n'
@@ -579,14 +587,19 @@ class TomeWeaverAPI:
             if mode == "campaign" and "plot_outline" in data:
                 chapters_file = target_dir / "chapters.json"
                 first_chap = data["plot_outline"][0] if data["plot_outline"] else {}
+                
+                # Build initial objectives array with ACTIVE/LOCKED statuses
+                objs = []
+                for i, o in enumerate(first_chap.get("objectives", [])):
+                    o_copy = o.copy()
+                    o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                    objs.append(o_copy)
+                
                 initial_chapters = [{
                     "chapter_number": 1,
                     "title": first_chap.get("title", "Chapter 1"),
                     "start_turn": 1, "end_turn": None,
-                    "setting": first_chap.get("setting"),
-                    "pov": first_chap.get("pov"),
-                    "goal": first_chap.get("goal"),
-                    "obstacles": first_chap.get("obstacles")
+                    "objectives": objs
                 }]
                 with open(chapters_file, "w", encoding="utf-8") as f:
                     json.dump(initial_chapters, f, indent=4)
@@ -797,10 +810,13 @@ class TomeWeaverAPI:
         prev_str = ""
         if prev_chapter:
             prev_str = "PREVIOUS CHAPTER CONTEXT:\n"
-            for k in ["title", "setting", "goal", "obstacles"]:
+            for k in ["title", "setting", "objectives"]:
                 if prev_chapter.get(k): prev_str += f"{k.title()}: {prev_chapter[k]}\n"
 
         sys_prompt = PROMPTS.get("SYS_CHAP_GEN", "You are an expert campaign writer. Output ONLY a flat JSON Dictionary matching the chapter schema.")
+        # Explicitly mandate the Sequential Array format so it generates 2 to 4 micro-objectives
+        sys_prompt += '\n\nREQUIRED FORMAT:\n{\n  "title": "Chapter Title",\n  "setting": "Base Location",\n  "pov": "POV",\n  "time": "Time jump",\n  "objectives": [\n    {"goal": "Step 1 micro-objective", "obstacles": "Threats", "setting": "Location", "pov": "POV"},\n    {"goal": "Step 2 micro-objective", "obstacles": "Threats", "setting": "Location", "pov": "POV"}\n  ]\n}\nNOTE: You MUST provide 2 to 4 sequential micro-objectives.'
+        
         shorthand_str = shorthand.strip() if shorthand else "Advance the plot naturally based on the previous chapter."
         
         user_prompt = PROMPTS.get("USER_CHAP_GEN", "")
@@ -873,7 +889,7 @@ class TomeWeaverAPI:
             schema += '  "inventory_dictionary": {"Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"}, "Items": {"val": "Rusty Dagger", "icon": "🎒", "color": "#1F6AA5"}},\n'
             
         if mode == "campaign":
-            schema += '  "plot_outline": [\n    {"title": "Chapter 1", "setting": "Description", "pov": "Character Name", "goal": "Specific objective", "obstacles": "Specific threats"}\n  ],\n'
+            schema += '  "plot_outline": [\n    {\n      "title": "Chapter 1",\n      "setting": "Base chapter location",\n      "pov": "Main Character",\n      "objectives": [\n        {"goal": "Step 1 micro-objective", "obstacles": "Specific threats", "setting": "Specific location", "pov": "POV"},\n        {"goal": "Step 2 micro-objective", "obstacles": "Specific threats", "setting": "Next location", "pov": "POV"}\n      ]\n    }\n  ],\n'
             
         if gen_pro: schema += '  "prologue_text": "Write 3 to 4 paragraphs of rich, cinematic opening prose setting the scene",\n'
         if gen_epi and mode == "campaign": schema += '  "epilogue_text": "Write 2 to 3 paragraphs of satisfying concluding prose"\n'
@@ -968,14 +984,19 @@ class TomeWeaverAPI:
             if mode == "campaign" and "plot_outline" in data:
                 chapters_file = engine.adv_dir / "chapters.json"
                 first_chap = data["plot_outline"][0] if data["plot_outline"] else {}
+                
+                # Build initial objectives array with ACTIVE/LOCKED statuses
+                objs = []
+                for i, o in enumerate(first_chap.get("objectives", [])):
+                    o_copy = o.copy()
+                    o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                    objs.append(o_copy)
+                    
                 engine.chapters = [{
                     "chapter_number": 1,
                     "title": first_chap.get("title", "Chapter 1"),
                     "start_turn": 1, "end_turn": None,
-                    "setting": first_chap.get("setting"),
-                    "pov": first_chap.get("pov"),
-                    "goal": first_chap.get("goal"),
-                    "obstacles": first_chap.get("obstacles")
+                    "objectives": objs
                 }]
                 save_json_atomically(engine.chapters, chapters_file)
                     

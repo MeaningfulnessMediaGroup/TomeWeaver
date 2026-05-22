@@ -65,6 +65,7 @@ class CampaignEngine(BaseEngine):
             
         return load_json_safely(chapters_file, "chapters.json")
 
+
     # ---------------------------------------------------------
     # PROMPT CONSTRUCTION
     # ---------------------------------------------------------
@@ -75,18 +76,11 @@ class CampaignEngine(BaseEngine):
         This function acts as the "Director", dynamically assembling the world state, 
         current chapter goals, recent history, and strict formatting rules.
         """
-        # Retrieve the context window limit (how many past turns the AI is allowed to remember)
         context_window = ENGINE_CONFIG.get("context_window", 6)
         
-        # Identify the active chapter by searching backward through the chapters array.
-        # We look for the most recent chapter that has actually started.
         active_chapter = next((c for c in reversed(self.chapters) if c["start_turn"] is not None and c["start_turn"] <= target_turn), self.chapters[0])
-        
-        # Clone the setup data so we can destructively modify it for the prompt without altering active memory
         active_setup = self.setup_data.copy()
         
-        # Filter history to only include turns where the player took an action.
-        # CRITICAL: Exclude the turn currently being edited so the LLM doesn't feed on its own unpolished text.
         edit_idx = getattr(self, 'backup_turn_idx', -1)
         completed_history = [
             t for i, t in enumerate(self.history) 
@@ -96,16 +90,13 @@ class CampaignEngine(BaseEngine):
         # ==========================================
         # 0. MEMORY & TOKEN OPTIMIZATION
         # ==========================================
-        # Once the player has made their first choice (Turn 1 completed), we stop sending 
-        # the raw introduction and setting blocks. The AI's context window will naturally 
-        # retain the setting, and dropping these static strings saves hundreds of tokens per turn.
         if len(completed_history) > 0:
             active_setup.pop("setting", None)
             active_setup.pop("introduction", None)
             active_setup.pop("starting_situation", None)
             
-        # Strip backend/mechanical keys from the world lore. The AI only needs narrative 
-        # information, so we hide the engine's internal configuration flags from it.
+        # Hide internal mechanics and the Global Goal from the AI so it doesn't get distracted
+        active_setup.pop("goal", None) 
         active_setup.pop("plot_outline", None)         
         active_setup.pop("mode", None) 
         active_setup.pop("track_inventory", None)
@@ -114,20 +105,15 @@ class CampaignEngine(BaseEngine):
         active_setup.pop("prologue_style", None)
         active_setup.pop("epilogue_style", None)
         active_setup.pop("inventory_dictionary", None)
-        # Note: We keep "title", "tone", and "main_character" forever to maintain narrative consistency.
         
         # ==========================================
-        # 1. CONSTRUCT THE SYSTEM PROMPT (The "God Rules")
+        # 1. CONSTRUCT THE SYSTEM PROMPT
         # ==========================================
-        # This forms the absolute baseline instructions for the LLM.
-        
-        # --- FETCH CURRENT STATE ---
         current_inv_state = ""
         if self.track_inventory:
             if completed_history:
                 current_inv_state = completed_history[-1].get("inventory_and_state", "")
             
-            # Fallback to Turn 0 setup if history is empty or string is missing
             if not current_inv_state:
                 inv_schema = self.setup_data.get("inventory_dictionary", {})
                 if isinstance(inv_schema, dict) and inv_schema:
@@ -135,7 +121,6 @@ class CampaignEngine(BaseEngine):
                 else:
                     current_inv_state = str(inv_schema)
 
-        # Dynamically inject the EXACT CURRENT STATE into the JSON template example
         active_prompt_text = self.system_prompt_text
         if self.track_inventory and current_inv_state:
             inv_template_str = f'"inventory_and_state": "{current_inv_state}",\n'
@@ -143,104 +128,106 @@ class CampaignEngine(BaseEngine):
         else:
             active_prompt_text = active_prompt_text.replace("{inv_template}", "")
             
-        # The Context Sandwich (Top Bread): Brief identity + World Lore
         system_content = "You are an expert Game Master running a text-based interactive campaign.\n\nCORE WORLD:\n" + json.dumps(active_setup, indent=2)
         
         # --- INJECT LONG-TERM MEMORY (RAG) ---
         memory_str = ""
         
-        # 1. High-Level Chapter Summaries (Past)
         chapter_ledger = self.memory.get("chapter_ledger", [])
         if chapter_ledger:
             memory_str += "COMPLETED CHAPTERS (The Story So Far):\n"
             for c in chapter_ledger: 
                 memory_str += f"- Chapter {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}\n"
                 
-        # 2. Granular Part Summaries (Current/Active)
         plot_ledger = self.memory.get("plot_ledger", [])
         condensed_chap_nums = [c.get('chapter_number') for c in chapter_ledger]
-        
-        # Filter out parts that belong to older chapters which have already been condensed
         active_plot_ledger = [p for p in plot_ledger if p.get('chapter_number') not in condensed_chap_nums]
         
         if active_plot_ledger:
-            # Failsafe: Hard cap to the last 15 parts to physically prevent context overflow if a single chapter goes on forever
             if len(active_plot_ledger) > 15: active_plot_ledger = active_plot_ledger[-15:]
             memory_str += "\nRECENT EVENTS (Granular):\n"
             for p in active_plot_ledger: 
                 memory_str += f"- {p.get('summary', '')}\n"
                 
-        char_ledger = self.memory.get("character_ledger", {})
-        if char_ledger:
-            memory_str += "\nACTIVE CHARACTERS & LORE BIBLE:\n"
-            for k, data in char_ledger.items():
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
-            
-        loc_ledger = self.memory.get("location_ledger", {})
-        if loc_ledger:
-            memory_str += "\nACTIVE LOCATIONS & LORE BIBLE:\n"
-            for k, data in loc_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
-                    
-        art_ledger = self.memory.get("artifact_ledger", {})
-        if art_ledger:
-            memory_str += "\nACTIVE ARTIFACTS / KEY ITEMS:\n"
-            for k, data in art_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
-                    
-        fac_ledger = self.memory.get("faction_ledger", {})
-        if self.setup_data.get("track_factions", False) and fac_ledger:
-            memory_str += "\nACTIVE FACTIONS & ORGANIZATIONS:\n"
-            for k, data in fac_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+        # Helper to format lore safely
+        def append_lore(ledger_key, title):
+            res = ""
+            ledger = self.memory.get(ledger_key, {})
+            if ledger:
+                res += f"\nACTIVE {title}:\n"
+                for k, data in ledger.items():
+                    if isinstance(data, list): res += f"- {k}: {' '.join(data)}\n"
+                    else:
+                        if data.get("state", "active") == "archived": continue
+                        traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                        events = " ".join(data.get("ledger", []))
+                        notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                        res += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+            return res
+
+        memory_str += append_lore("character_ledger", "CHARACTERS & LORE BIBLE")
+        memory_str += append_lore("location_ledger", "LOCATIONS")
+        memory_str += append_lore("artifact_ledger", "ARTIFACTS / KEY ITEMS")
+        if self.setup_data.get("track_factions", False):
+            memory_str += append_lore("faction_ledger", "FACTIONS & ORGANIZATIONS")
                 
         if memory_str:
             system_content += "\n\nLONG-TERM MEMORY:\n" + memory_str
             
-        # --- RESUME STANDARD INJECTION ---
+        # --- THE QUEST TRACKER (Objectives Array Logic) ---
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         
-        goal_text = active_chapter.get('goal', 'Survive')
-        system_content += f"\n--- ACTIVE OBJECTIVE ---\n"
+        objectives = active_chapter.get("objectives", [])
+        completed_objs = []
+        active_obj = None
+        
+        # Parse the array to find the current state
+        for obj in objectives:
+            if obj.get("status") == "COMPLETED":
+                completed_objs.append(obj.get("goal", ""))
+            elif obj.get("status") == "ACTIVE" and not active_obj:
+                active_obj = obj
+                
+        # Failsafe: If no active objective is found (e.g. legacy save), fall back to the first one
+        if not active_obj and objectives:
+            active_obj = objectives[0]
+            
+        # 1. Show past accomplishments so the AI knows what is already done
+        if completed_objs:
+            system_content += "\n--- PREVIOUSLY ACCOMPLISHED ---\n"
+            for past_goal in completed_objs[-3:]: # Only show the last 3 to save tokens
+                system_content += f"- [DONE] {past_goal}\n"
+                
+        # 2. Inject the single, isolated Active Objective
+        goal_text = active_obj.get('goal', 'Survive') if active_obj else "Survive"
+        system_content += f"\n--- CURRENT ACTIVE OBJECTIVE ---\n"
         system_content += f"GOAL: {goal_text}\n"
-        system_content += f"OBSTACLES: {active_chapter.get('obstacles', 'None')}\n"
-        system_content += "CRITICAL INSTRUCTION: You must actively steer the narrative to allow the player to confront and achieve this goal.\n"
+        system_content += f"OBSTACLES: {active_obj.get('obstacles', 'None') if active_obj else 'None'}\n"
+        
+        if active_obj and active_obj.get("setting"):
+            system_content += f"SETTING SHIFT: {active_obj['setting']}\n"
+            
+        pov_raw = active_obj.get("pov") if active_obj and active_obj.get("pov") else active_chapter.get("pov", "Protagonist")
+        if pov_raw:
+            system_content += f"POV: {pov_raw}\n"
+            system_content += f"CRITICAL POV RULE: You must write strictly from {pov_raw}'s perspective. Apply familial titles (Dad, Uncle, Aunt, etc.) ONLY as they relate to {pov_raw}. Never use another character's relationship title by mistake.\n"
+            
+        system_content += "CRITICAL INSTRUCTION: You must actively steer the narrative to allow the player to confront and achieve this CURRENT goal.\n"
         
         outline = self.setup_data.get("plot_outline", [])
         is_final_chapter = (active_chapter['chapter_number'] == len(outline))
+        is_final_objective = True
         
-        # Dynamically append rule fragments based on engine configurations
-        if is_final_chapter:
+        if objectives:
+            # Check if there are any LOCKED objectives waiting after this one
+            is_final_objective = not any(o.get("status") == "LOCKED" for o in objectives)
+        
+        if is_final_chapter and is_final_objective:
             system_content += "\n\n" + PROMPTS.get("FRAG_FINAL_CHAPTER", "")
 
         system_content += "\n\n" + PROMPTS.get("FRAG_STATE_RULE", "")
 
         if self.track_inventory:
-            # FIX: Force the rule fragment to use the CURRENT state, not the setup schema
             frag = PROMPTS.get("FRAG_INVENTORY", "").replace("{inv_format}", current_inv_state)
             system_content += "\n\n" + frag
 
@@ -252,11 +239,9 @@ class CampaignEngine(BaseEngine):
         # ==========================================
         # 2. EVALUATE STATE & REQUIRED KEYS
         # ==========================================
-        # Determine exactly which JSON keys the AI must output this turn to prevent engine crashes.
         is_epilogue = completed_history and completed_history[-1].get("player_choice") == "Conclude the Story"
         
-        req_keys = ["'goal_progress' (string)"]
-        # FIX: The AI does not need to output inventory on the Epilogue turn
+        req_keys = ["'goal_progress' (string)", "'objective_achieved' (boolean)"]
         if self.track_inventory and not is_epilogue: 
             req_keys.append("'inventory_and_state' (string)")
             
@@ -267,54 +252,48 @@ class CampaignEngine(BaseEngine):
         if req_keys:
             req_str = "\n" + PROMPTS.get("FRAG_REQ_KEYS", "").replace("{keys}", ", ".join(req_keys))
 
-        # Inject Golden Path logic if Developer Test Mode is active
         test_rule = ""
         if getattr(self, 'is_test_mode', False) and not is_epilogue:
             test_rule = "\n\n" + PROMPTS.get("FRAG_TEST_MODE", "")
 
         # ==========================================
-        # 3. DEFINE THE INSTRUCTION BLOCK (The Immediate Task)
+        # 3. DEFINE THE INSTRUCTION BLOCK
         # ==========================================
-        # Here we determine what exactly we want the AI to do right now (Start, Play, Edit, or End).
-        
         if is_epilogue:
-            # --- EPILOGUE HANDLING ---
             system_content += "\n\n" + PROMPTS.get("FRAG_EPILOGUE_MODE", "")
-            
             if getattr(self, 'epilogue_content', ''):
-                # Epilogue Expansion Mode: Embellish author's notes into prose
                 base_instruction = PROMPTS.get("FRAG_EPILOGUE_EXPAND", "")
                 base_instruction = base_instruction.replace("{epilogue_content}", self.epilogue_content)
                 base_instruction = base_instruction.replace("{req_str}", req_str)
             else:
-                # Epilogue Pure Generation Mode: Let AI imagine the ending entirely
                 base_instruction = PROMPTS.get("FRAG_EPILOGUE_GENERATE", "").replace("{req_str}", req_str)
         else:
-            # --- NORMAL TURN HANDLING ---
-            win_choice = "Conclude the Story" if is_final_chapter else "Complete the Chapter"
+            # Determine what the "Win" button should say
+            if is_final_chapter and is_final_objective:
+                win_choice = "Conclude the Story"
+            elif is_final_objective:
+                win_choice = "Complete the Chapter"
+            else:
+                win_choice = "Proceed to the next objective"
+                
             last_action = completed_history[-1]['player_choice'] if completed_history else ""
             
             if last_action.startswith("EXPAND:"):
-                # The user used the Director's Expand tool
                 expand_txt = last_action[7:].strip()
                 base_instruction = PROMPTS.get("FRAG_CAMPAIGN_EXPAND", "")
                 base_instruction = base_instruction.replace("{expand_txt}", expand_txt)
-                base_instruction = base_instruction.replace("{test_rule}", test_rule)
-                base_instruction = base_instruction.replace("{req_str}", req_str)
-                base_instruction = base_instruction.replace("{goal_text}", goal_text)
-                base_instruction = base_instruction.replace("{win_choice}", win_choice)
             else:
-                # Standard gameplay response
                 base_instruction = PROMPTS.get("FRAG_CAMPAIGN_TURN", "")
-                base_instruction = base_instruction.replace("{test_rule}", test_rule)
-                base_instruction = base_instruction.replace("{req_str}", req_str)
-                base_instruction = base_instruction.replace("{goal_text}", goal_text)
-                base_instruction = base_instruction.replace("{win_choice}", win_choice)
+                
+            base_instruction = base_instruction.replace("{test_rule}", test_rule)
+            base_instruction = base_instruction.replace("{req_str}", req_str)
+            base_instruction = base_instruction.replace("{objective_text}", goal_text)
+            base_instruction = base_instruction.replace("{win_choice}", win_choice)
 
-            # --- COLD OPEN OVERRIDE (Chapter Transitions) ---
-            # If the timeline target matches a new chapter's start, force the AI to write an establishing scene.
             p_style = self.setup_data.get("narrative", {}).get("prologue", "expand").lower()
-            if active_chapter.get("start_turn") == target_turn and (target_turn > 1 or p_style == "none"):
+            
+            # Cold Open hook for Chapters OR Mid-Chapter Scene Shifts
+            if (active_chapter.get("start_turn") == target_turn and (target_turn > 1 or p_style == "none")) or last_action == "Proceed to the next objective":
                 base_instruction = PROMPTS.get("FRAG_CAMPAIGN_COLD_OPEN", "")
                 base_instruction = base_instruction.replace("{chapter_number}", str(active_chapter['chapter_number']))
                 base_instruction = base_instruction.replace("{chapter_title}", active_chapter['title'])
@@ -327,7 +306,6 @@ class CampaignEngine(BaseEngine):
         is_prologue = (len(self.history) == 0) and (p_style != "none")
 
         if is_prologue:
-            # --- PROLOGUE HANDLING (Turn 0) ---
             first_chap_title = active_chapter.get('title', 'Chapter 1')
             if getattr(self, 'prologue_content', ''):
                 start_instruction = PROMPTS.get("FRAG_PROLOGUE_EXPAND", "")
@@ -336,19 +314,17 @@ class CampaignEngine(BaseEngine):
             else:
                 start_instruction = PROMPTS.get("FRAG_PROLOGUE_GENERATE", "").replace("{chapter_title}", first_chap_title)
             
-            system_content += f"\n\nINITIAL SETTING: {active_chapter.get('setting', '')}\n"
+            # Use objective setting if available
+            init_set = active_obj.get("setting") if active_obj and active_obj.get("setting") else active_chapter.get('setting', '')
+            system_content += f"\n\nINITIAL SETTING: {init_set}\n"
             messages = [{"role": "system", "content": system_content}]
-            
-            # Use self.active_fix if the user triggered an Editor override (Polish/Fix)
             messages.append({"role": "user", "content": self.active_fix if self.active_fix else start_instruction})
 
         else:
-            # --- NORMAL GAMEPLAY (Context Window Splicing) ---
             messages = [{"role": "system", "content": system_content}]
             if completed_history:
                 history_text = "RECENT HISTORY:\n"
                 for turn in completed_history[-context_window:]:
-                    # Clearly separate state fields on their own lines to prevent hallucination bleeding
                     history_text += f"Turn {turn['turn']}:\n"
                     history_text += f"Location: {turn.get('location', 'Unknown')}\n"
                     
@@ -357,7 +333,6 @@ class CampaignEngine(BaseEngine):
                         
                     goal_prog = turn.get('goal_progress', '')
                     if goal_prog:
-                        # Replace newlines in the checklist with slashes to keep the prompt block tight
                         history_text += f"Goal Progress: {goal_prog.replace(chr(10), ' / ')}\n"
                     
                     bridge = turn.get('narrative_bridge', '')
@@ -369,12 +344,7 @@ class CampaignEngine(BaseEngine):
             else:
                 messages.append({"role": "user", "content": self.active_fix if self.active_fix else base_instruction})
 
-        # ==========================================
-        # 5. THE CONTEXT SANDWICH (Bottom Bread)
-        # ==========================================
-        # If the local model's KV Context Window (e.g. 8192 tokens) is exceeded, the server will truncate the prompt.
-        # By forcing the massive System Prompt (which contains the JSON template and rules) into the absolute bottom 
-        # of the User Message, we guarantee it is the very last thing the AI reads and can NEVER be truncated!
+        # The Context Sandwich Fix
         messages[-1]["content"] += "\n\n" + ("=" * 40) + "\n\n" + active_prompt_text + "\n\n" + PROMPTS.get("FRAG_DIRECTOR_NOTE", "")
         
         return messages
@@ -387,7 +357,7 @@ class CampaignEngine(BaseEngine):
     def post_generation_hook(self, turn_data):
         """
         Intercepts the AI's response to check for objective completion.
-        If the goal is met, it orchestrates the transition to the next chapter.
+        Manages the Quest Tracker array and orchestrates transitions.
         """
         target_turn = turn_data["turn"]
         active_chap = next((c for c in reversed(self.chapters) if c.get("start_turn") is not None and c["start_turn"] <= target_turn), self.chapters[0])
@@ -395,6 +365,7 @@ class CampaignEngine(BaseEngine):
         # --- VICTORY EPILOGUE LOGIC ---
         is_epilogue = len(self.history) > 0 and self.history[-1].get("player_choice") == "Conclude the Story"
         if is_epilogue:
+            turn_data["objective_achieved"] = True
             turn_data["chapter_goal_achieved"] = True
             turn_data["is_game_over"] = True
             turn_data["input_type"] = "choice"  
@@ -403,46 +374,81 @@ class CampaignEngine(BaseEngine):
                 turn_data["story_text"] += "\n\n*** THE END. ***"
             return 
         
-        raw_goal = turn_data.get("chapter_goal_achieved", False)
-        goal_achieved = str(raw_goal).strip().lower() == "true"
+        # 1. Did the AI achieve the Micro-Objective?
+        raw_goal = turn_data.get("objective_achieved", False)
+        objective_achieved = str(raw_goal).strip().lower() == "true"
         
-        # --- HARD SPEEDRUN BLOCK ---
-        # Prevent the AI from accidentally completing the goal on the exact turn the chapter starts
+        # Speedrun Block: Cannot finish objective on the very first turn of a chapter
         if active_chap.get("start_turn") == target_turn:
-            goal_achieved = False
+            objective_achieved = False
             
-        turn_data["chapter_goal_achieved"] = goal_achieved
+        turn_data["objective_achieved"] = objective_achieved
 
-        # --- CHAPTER TRANSITION LOGIC ---
-        if goal_achieved:
-            outline = self.setup_data.get("plot_outline", [])
-            current_num = active_chap["chapter_number"]
+        # 2. Advance the Quest Tracker
+        if objective_achieved:
+            objectives = active_chap.get("objectives", [])
             
-            if current_num < len(outline):
-                # Prepare the next chapter
-                if not any("Start Chapter:" in str(c) for c in turn_data.get("choices", [])):
-                    print(f"\n{Fore.GREEN}[System: Chapter Goal Achieved! Preparing transition...]{Style.RESET_ALL}")
+            # Find the currently active objective
+            active_idx = -1
+            for i, obj in enumerate(objectives):
+                if obj.get("status") == "ACTIVE":
+                    active_idx = i
+                    break
+                    
+            if active_idx != -1:
+                # Mark it done
+                objectives[active_idx]["status"] = "COMPLETED"
                 
-                next_chap_data = outline[current_num] 
-                
-                # Check if we already staged the pending chapter object
-                pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
-                if not pending_chap:
-                    new_chap = {
-                        "chapter_number": current_num + 1,
-                        "title": next_chap_data.get("title", f"Chapter {current_num + 1}"),
-                        "start_turn": None, "end_turn": None,
-                        "setting": next_chap_data.get("setting"), "pov": next_chap_data.get("pov"),
-                        "time": next_chap_data.get("time"), "goal": next_chap_data.get("goal"),
-                        "obstacles": next_chap_data.get("obstacles")
-                    }
-                    self.chapters.append(new_chap)
-                    pending_chap = new_chap
-                
-                # Force the choices to only offer the transition
-                turn_data["input_type"] = "choice" 
-                turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
-            else:
-                # This IS the last chapter; trigger the finale
-                turn_data["input_type"] = "choice"
-                turn_data["choices"] = ["Conclude the Story"]
+                # Are there more objectives in this chapter?
+                if active_idx + 1 < len(objectives):
+                    # Yes! Unlock the next micro-objective
+                    objectives[active_idx + 1]["status"] = "ACTIVE"
+                    
+                    print(f"\n{Fore.GREEN}[System: Objective Complete! Unlocking next stage...]{Style.RESET_ALL}")
+                    turn_data["input_type"] = "choice" 
+                    turn_data["choices"] = ["Proceed to the next objective"]
+                    
+                    # Do NOT end the chapter
+                    turn_data["chapter_goal_achieved"] = False
+                    
+                else:
+                    # No more objectives! The entire Chapter is complete.
+                    turn_data["chapter_goal_achieved"] = True
+                    
+                    outline = self.setup_data.get("plot_outline", [])
+                    current_num = active_chap["chapter_number"]
+                    
+                    if current_num < len(outline):
+                        # Prepare the next chapter
+                        print(f"\n{Fore.GREEN}[System: Chapter Complete! Preparing transition...]{Style.RESET_ALL}")
+                        
+                        next_chap_data = outline[current_num] 
+                        pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
+                        if not pending_chap:
+                            
+                            # Build the new locked array
+                            new_objs = []
+                            for i, o in enumerate(next_chap_data.get("objectives", [])):
+                                o_copy = o.copy()
+                                o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                                new_objs.append(o_copy)
+                                
+                            new_chap = {
+                                "chapter_number": current_num + 1,
+                                "title": next_chap_data.get("title", f"Chapter {current_num + 1}"),
+                                "start_turn": None, "end_turn": None,
+                                "objectives": new_objs
+                            }
+                            self.chapters.append(new_chap)
+                            pending_chap = new_chap
+                        
+                        turn_data["input_type"] = "choice" 
+                        turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
+                    else:
+                        # This IS the last chapter; trigger the finale
+                        turn_data["input_type"] = "choice"
+                        turn_data["choices"] = ["Conclude the Story"]
+
+        else:
+            # Objective not met. Proceed normally.
+            turn_data["chapter_goal_achieved"] = False

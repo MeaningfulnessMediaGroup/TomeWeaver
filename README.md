@@ -1,14 +1,123 @@
 # TomeWeaver
 
-A Stateful Narrative Orchestration Engine for LLMs. TomeWeaver bridges the gap between generative AI and structured game design, transforming player adventures into seamless, exportable storybooks.
-
 ![License](https://img.shields.io/badge/license-Polyform--NonCommercial-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
 ![LLM](https://img.shields.io/badge/LLM-Agnostic-orange)
 
+
+### AI stories that remember.
+
+TomeWeaver is a world-binding infrastructure for AI narrative. A continuity-first narrative engine for long-form AI storytelling.
+
+Not your typical disposable chatbot session.  
+Not a prompt toy.  
+Not a chaos simulator.
+
+TomeWeaver was built to sustain coherent campaigns, persistent worlds, evolving characters, and exportable storybooks across hundreds or thousands of turns.
+
+**Play the game. Export the novel.**
+
+---
+
+# 📖 Overview
+
+Most AI storytelling tools eventually collapse under narrative entropy.
+
+They forget characters.  
+Lose inventory.  
+Contradict earlier events.  
+Skip transitions.  
+Drift off-tone.  
+Break under long campaigns.  
+
+These are not merely prompting problems.  
+They are **state-management problems**.
+
+**TomeWeaver** approaches AI storytelling differently.
+
+Instead of treating a story as a disposable chat log, TomeWeaver treats it as a structured, evolving narrative system with persistent memory, campaign-aware progression, continuity auditing, non-destructive editing, and long-term archival compression.
+
+The engine combines:
+- Stateful campaign orchestration
+- Structured world lore and schema management
+- Long-term RAG memory ledgers
+- Narrative bridge generation
+- Non-destructive AI-assisted editing
+- Timeline branching and time-travel
+- Exportable storybook compilation
+- Resilient JSON repair and recovery systems
+
+The result is an AI storytelling experience designed not merely for novelty, but for **long-form narrative continuity**.
+
+Whether you want:
+- a persistent solo RPG,
+- a living world simulator,
+- an AI game master,
+- a branching interactive novel,
+- or a story-to-book creative pipeline,
+
+TomeWeaver provides the infrastructure to make long-form AI storytelling coherent, editable, replayable, and durable.
+
+---
+
+# ⚔️ How TomeWeaver Compares
+
+Most AI storytelling tools optimize for fast generation.
+
+TomeWeaver optimizes for **long-term narrative continuity**.
+
+| Platform | Primary Focus | Strengths | Common Limitations | TomeWeaver Difference |
+|---|---|---|---|---|
+| **AI Dungeon** | Open-ended AI roleplay | Fast improvisation, accessible gameplay | Narrative drift, weak long-term continuity, limited editing control | TomeWeaver is designed around persistent state, continuity repair, campaign structure, and exportable storybooks |
+| **NovelAI** | AI-assisted prose generation | Strong prose quality, author-oriented tooling | Primarily session-centric writing workflows, limited systemic campaign orchestration | TomeWeaver behaves more like a narrative operating system than a writing assistant |
+| **SillyTavern** | Character chat orchestration | Highly customizable model front-end, character roleplay | Primarily chat-oriented, continuity heavily dependent on manual prompt engineering | TomeWeaver externalizes memory and narrative state into structured ledgers and progression systems |
+| **KoboldCPP / Tavern Ecosystem** | Local LLM storytelling infrastructure | Local/private inference flexibility | Tooling fragmentation, inconsistent long-form continuity, technical setup burden | TomeWeaver provides a cohesive continuity-first narrative engine on top of local models |
+| **Traditional Interactive Fiction Tools** *(Twine, Ink, ChoiceScript)* | Deterministic branching narratives | Authorial control, handcrafted pacing | Static authored content, no emergent AI generation | TomeWeaver combines structured progression with dynamic AI-driven narrative evolution |
+
+## 🧠 The Core Difference
+
+Most systems treat storytelling as:
+> "Generate the next paragraph."
+
+TomeWeaver treats storytelling as:
+> "Maintain a coherent evolving narrative state over time."
+
+That architectural difference changes everything.
+
+Instead of relying purely on prompt context windows, TomeWeaver introduces systems for:
+- Persistent campaign memory
+- Entity tracking and archival
+- Structured world lore
+- Narrative bridging
+- Non-destructive revision workflows
+- Continuity auditing
+- Timeline branching
+- Long-term compression via RAG ledgers
+
+The result is an experience designed not just for momentary generation, but for **sustained narrative integrity across long-form adventures**.
+
+---
+
+## Full Runtime Transparency
+
+TomeWeaver has a verbose setting that when enabled, can expose:
+- the full composite prompt,
+- injected memory state,
+- active runtime fragments,
+- continuity directives,
+- and raw LLM output.
+
+No black boxes.
+No hidden orchestration.
+No opaque prompt engineering.
+
+Inspect, debug, modify, and optimize the narrative runtime yourself.
+
 ---
 
 ## 🚀 The Vision
+
+A Stateful Narrative Orchestration Engine for LLMs. TomeWeaver bridges the gap between generative AI and structured game design, transforming player adventures into seamless, exportable storybooks.
 
 Most AI storytelling tools are "chaos simulators"—they struggle with context drift, lose track of goals, and produce "jumpy" prose. **TomeWeaver** is a narrative pipeline that treats a story as a structured database. 
 

@@ -11,23 +11,81 @@
             "title": "The Overgrown Gates",
             "setting": "The humid, vine-choked ruins outside the Tomb. Twilight.",
             "pov": "Kaelen",
-            "goal": "Find the 'Moonstone Key' hidden in the outer ruins, and use it to unlock the heavy stone doors to enter the Tomb.",
-            "obstacles": "A territorial shadow-panther prowls the ruins. Pit traps are hidden under the leaves. The door mechanism is heavily rusted."
+            "objectives": [
+                {
+                    "goal": "Find the 'Moonstone Key' hidden in the outer ruins",
+                    "obstacles": "A territorial shadow-panther prowls the ruins. Pit traps are hidden under the leaves.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "ACTIVE"
+                },
+                {
+                    "goal": "Use the 'Moonstone Key' to unlock the heavy stone doors to enter the Tomb.",
+                    "obstacles": "The door mechanism is heavily rusted.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         },
         {
             "title": "The Hall of Whispers",
             "setting": "Inside the Tomb. A dark, echoing stone corridor. The floor is covered in crunchy bone debris.",
             "pov": "Kaelen",
-            "time": "Immediately after entering the Tomb",
-            "goal": "Sneak past the blind Spectral Guardian, retrieve the 'Sun Shield' from the central pedestal, and reach the stairs leading down.",
-            "obstacles": "The Spectral Guardian is blind but has incredible hearing. Stepping on the bone debris makes loud noises. The room is pitch black."
+            "objectives": [
+                {
+                    "goal": "Sneak past the blind Spectral Guardian",
+                    "obstacles": "The Spectral Guardian is blind but has incredible hearing.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Retrieve the 'Sun Shield' from the central pedestal",
+                    "obstacles": "Stepping on the bone debris makes loud noises.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Reach the stairs leading down.",
+                    "obstacles": "The room is pitch black.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         },
         {
             "title": "The Flooded Throne",
             "setting": "The flooded throne room of the Sunken King. Water is waist-deep.",
             "pov": "Kaelen",
-            "goal": "Use the Sun Shield to deflect the King's magic, steal the 'Golden Crown' from his skeletal head, and escape back up the stairs.",
-            "obstacles": "The Sunken King awakens and casts necrotic spells. The freezing water slows movement. The exit stairs begin to collapse during the escape."
+            "objectives": [
+                {
+                    "goal": "Use the Sun Shield to deflect the King's magic",
+                    "obstacles": "The Sunken King awakens and casts necrotic spells.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Steal the 'Golden Crown' from the King's skeletal head",
+                    "obstacles": "The freezing water slows movement.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Escape back up the stairs.",
+                    "obstacles": "The exit stairs begin to collapse during the escape.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         }
     ],
     "narrative": {
@@ -48,7 +106,7 @@
             "color": "#B71C1C"
         },
         "Items": {
-            "val": "Backpack (empty), Rope (30ft)",
+            "val": "Rope (30ft)",
             "icon": "\ud83c\udf92",
             "color": "#1F6AA5"
         },
@@ -57,30 +115,18 @@
             "icon": "\ud83e\udde0",
             "color": "#7B1FA2"
         },
-		"Stamina": {
-			"val": "Steady",
-			"icon": "⚡",
-			"color": "#F9A825"
-		},
-		"Weapon": {
-			"val": "Rusty Dagger",
-			"icon": "🗡️",
-			"color": "#455A64"
-		},
-		"Light": {
-			"val": "Torch (unlit)",
-			"icon": "🔥",
-			"color": "#EF6C00"
-		},
-		"Gold": {
-			"val": "0 coins",
-			"icon": "🪙",
-			"color": "#D4A017"
-		},
-		"Hunger": {
-			"val": "Sated",
-			"icon": "🍖",
-			"color": "#8D6E63"
-		}
-    }
+        "Weapon": {
+            "val": "Rusty Dagger",
+            "icon": "\ud83d\udde1\ufe0f",
+            "color": "#455A64"
+        },
+        "Light": {
+            "val": "Torch (unlit)",
+            "icon": "\ud83d\udd25",
+            "color": "#EF6C00"
+        }
+    },
+    "last_compile_mode": "force",
+    "auto_reconcile": true,
+    "track_factions": false
 }

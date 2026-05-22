@@ -63,33 +63,12 @@ class BaseEngine:
         if self.memory_file.exists():
             self.memory = load_json_safely(self.memory_file, "memory.json")
             
-            # --- AUTO MIGRATION: V1 to V1.1 Split Ledgers ---
-            if "entity_ledger" in self.memory:
-                self.memory["character_ledger"] = self.memory.pop("entity_ledger")
-                self.memory["location_ledger"] = {}
-                self.save_state()
-                
-            # Ensure alias dictionary exists
+            # Robustness Check: Ensure all expected ledgers exist to prevent KeyErrors
+            for ledger in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger", "chapter_ledger", "plot_ledger"]:
+                if ledger not in self.memory:
+                    self.memory[ledger] = [] if "plot" in ledger or "chapter" in ledger else {}
             if "aliases" not in self.memory:
-                self.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}}
-                self.save_state()
-                
-            # Auto-migrate v1.2 Artifact Ledger
-            if "artifact_ledger" not in self.memory:
-                self.memory["artifact_ledger"] = {}
-                self.memory["aliases"]["artifact_ledger"] = {}
-                self.save_state()
-                
-            # Auto-migrate v1.3 Faction Ledger
-            if "faction_ledger" not in self.memory:
-                self.memory["faction_ledger"] = {}
-                self.memory["aliases"]["faction_ledger"] = {}
-                self.save_state()
-                
-            # Auto-migrate v1.4 Chapter Ledger
-            if "chapter_ledger" not in self.memory:
-                self.memory["chapter_ledger"] = []
-                self.save_state()
+                self.memory["aliases"] = {k: {} for k in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]}
         else:
             self.memory = {
                 "plot_ledger": [], 
@@ -100,31 +79,8 @@ class BaseEngine:
                 "chapter_ledger": [],
                 "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
             }
-        # --- AUTO-MIGRATION & REPAIR ---
-        needs_save = False
         
-        if "starting_inventory" in self.setup_data:
-            raw_inv = str(self.setup_data.pop("starting_inventory"))
-            self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(raw_inv)
-            needs_save = True
-            
-        # Fix the ambiguous key if it was created during the buggy generation
-        if "inventory_and_state" in self.setup_data:
-            inv_data = self.setup_data.pop("inventory_and_state")
-            if isinstance(inv_data, dict):
-                if len(inv_data) == 1 and "Status" in inv_data and ":" in str(inv_data["Status"].get("val", "")):
-                    self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(str(inv_data["Status"].get("val", "")))
-                else:
-                    self.setup_data["inventory_dictionary"] = inv_data
-            else:
-                self.setup_data["inventory_dictionary"] = self._parse_legacy_inventory(str(inv_data))
-            needs_save = True
-                    
-        if needs_save:
-            from config import save_json_atomically
-            save_json_atomically(self.setup_data, self.adv_dir / "setup.json")
-        
-        # 3. Protect ledger integrity from manual file edits
+        # 4. Protect ledger integrity from manual file edits
         if self.history:
             self.resync_master_clock()
         
@@ -146,35 +102,6 @@ class BaseEngine:
             # We spawn this in a thread so it doesn't freeze the GUI while loading 10,000 old turns
             import threading
             threading.Thread(target=self.novelize_history, kwargs={"silent": False}, daemon=True).start()
-
-    def _parse_legacy_inventory(self, raw_str):
-        """Converts an old v1.0 inventory string into a v1.1 Schema Dictionary."""
-        import re
-        raw_str = raw_str.replace("[Status]", "").strip()
-        new_schema = {}
-        
-        # Hunt for Key: Value patterns
-        patterns = re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', raw_str)
-        
-        if patterns:
-            for k, v in patterns:
-                clean_k = k.strip()
-                clean_v = v.strip(' .,;')
-                if not clean_v or clean_v.lower() == "none": clean_v = "None"
-                
-                # Apply smart coloring
-                icon = "🎒"; color = "#1F6AA5"
-                k_lower = clean_k.lower()
-                if "health" in k_lower or "hp" in k_lower: icon = "❤️"; color = "#B71C1C"
-                elif "state" in k_lower or "status" in k_lower: icon = "🧠"; color = "#7B1FA2"
-                elif "gold" in k_lower or "money" in k_lower: icon = "🪙"; color = "#E65100"
-                
-                new_schema[clean_k] = {"val": clean_v, "icon": icon, "color": color}
-        else:
-            # Absolute fallback if it was a plain sentence
-            new_schema["Inventory"] = {"val": raw_str, "icon": "🎒", "color": "#1F6AA5"}
-            
-        return new_schema
 
     # ---------------------------------------------------------
     # STATE & FILE MANAGEMENT
@@ -315,8 +242,9 @@ class BaseEngine:
             }
             if self.is_campaign:
                 turn_data["goal_progress"] = "Setting the scene."
+                turn_data["objective_achieved"] = False
                 turn_data["chapter_goal_achieved"] = False
-            if self.track_inventory: 
+            if self.track_inventory:
                 inv_setup = self.setup_data.get("inventory_dictionary", "")
                 if isinstance(inv_setup, dict):
                     turn_data["inventory_and_state"] = " ".join([f"{k}: {v.get('val', '')}." for k, v in inv_setup.items()]).strip()
@@ -341,8 +269,10 @@ class BaseEngine:
             }
             if self.is_campaign:
                 turn_data["goal_progress"] = "Journey Complete."
+                turn_data["objective_achieved"] = True
                 turn_data["chapter_goal_achieved"] = True
                 
+               
             # FIX: Explicitly omit inventory data from the Epilogue
             turn_data["is_game_over"] = True
             return turn_data
@@ -365,6 +295,8 @@ class BaseEngine:
                 turn_data["player_choice"] = None
                 # FIX: Protect against "dirty" seeds that were saved during a Game Over state
                 turn_data["is_game_over"] = False
+                if "objective_achieved" in turn_data:
+                    turn_data["objective_achieved"] = False
                 if "chapter_goal_achieved" in turn_data:
                     turn_data["chapter_goal_achieved"] = False
                 return turn_data
@@ -645,6 +577,11 @@ class BaseEngine:
         
         # Overwrite in place
         self.history[idx] = draft_turn
+        
+        # --- THE JANITOR HOOK ---
+        # Ensures user-accepted revisions correctly update the RAG visibility states
+        self._resync_all_visibility()
+        
         self.save_state()
         
         self.active_fix = None
@@ -855,7 +792,7 @@ class BaseEngine:
             current_choices = turn_data.get("choices", [])
             if len(current_choices) < 2:
                 is_override = False
-                if self.is_campaign and turn_data.get("chapter_goal_achieved"): is_override = True
+                if self.is_campaign and turn_data.get("objective_achieved"): is_override = True
                 if not self.is_campaign and next((c for c in self.chapters if c.get("start_turn") is None), None): is_override = True
                     
                 if not is_override:

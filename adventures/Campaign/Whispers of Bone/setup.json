@@ -11,30 +11,66 @@
             "title": "The City Gates",
             "setting": "The slums outside the walls of Oakhaven. Midnight.",
             "pov": "Kaelen",
-            "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
-            "obstacles": "The guards are highly alert. Kaelen has no money for a bribe."
+            "objectives": [
+                {
+                    "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
+                    "obstacles": "The guards are highly alert. Kaelen has no money for a bribe.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "ACTIVE"
+                }
+            ]
         },
         {
             "title": "The Noble's Estate",
             "setting": "The courtyard of Lord Vane's massive estate.",
             "pov": "Kaelen",
             "time": "Later that night",
-            "goal": "Break into the manor and locate the safe holding the Ruby Skull.",
-            "obstacles": "Locked doors, patrolling guard dogs, trap runes on the windows."
+            "objectives": [
+                {
+                    "goal": "Break into the manor",
+                    "obstacles": "Locked doors, patrolling guard dogs",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Locate the safe holding the Ruby Skull.",
+                    "obstacles": "Trap runes on the windows.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ]
         },
         {
             "title": "The Escape",
             "setting": "The rooftops of Oakhaven.",
             "pov": "Kaelen",
-            "goal": "Escape the city with the Ruby Skull before the guards catch you.",
-            "obstacles": "Slippery shingles, guards shooting crossbows, a rival thief trying to steal the skull."
+            "objectives": [
+                {
+                    "goal": "Reach the city gates with the Ruby Skull before the guards catch you.",
+                    "obstacles": "Slippery shingles, guards shooting crossbows",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                },
+                {
+                    "goal": "Escape the city entirely out of the gates with the Ruby Skull.",
+                    "obstacles": "A rival thief trying to steal the skull.",
+                    "setting": "",
+                    "pov": "",
+                    "status": "LOCKED"
+                }
+            ],
+            "time": ""
         }
     ],
     "narrative": {
         "prologue": "as_is",
         "epilogue": "as_is"
     },
-    "allow_cheats": false,
+    "allow_cheats": true,
     "author": "Anonymous",
     "version": "1.0",
     "creation_date": "2026-05-19",
