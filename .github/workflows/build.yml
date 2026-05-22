@@ -2,8 +2,6 @@ name: Build TomeWeaver Multi-Platform
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -49,12 +47,14 @@ jobs:
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        pyinstaller --noconsole --onefile --name TomeWeaver --collect-all customtkinter --add-data "configs;configs" gui.py
+        # Point to scripts/gui.py and tell PyInstaller to look in scripts/ for imports
+        pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs;configs" scripts/gui.py
 
     - name: Build Executable (MacOS/Linux)
       if: matrix.os != 'windows-latest'
       run: |
-        pyinstaller --noconsole --onefile --name TomeWeaver --collect-all customtkinter --add-data "configs:configs" gui.py
+        # Point to scripts/gui.py and tell PyInstaller to look in scripts/ for imports
+        pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs:configs" scripts/gui.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
