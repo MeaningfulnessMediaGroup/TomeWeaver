@@ -1,23 +1,23 @@
 """
     TomeWeaver: Story Timeline UI
     -----------------------------
-    The core gameplay interface. Displays the adventure as a series of cards.
-    Implements UI Virtualization (re-using 3 cards) to maintain high performance 
-    even if the story grows to 500+ turns. Handles user input, Non-Destructive 
-    Editing (Visual Diffs), and asynchronous engine communication.
+    The core gameplay interface. Displays the adventure in a Single-Page 
+    Card architecture, guaranteeing 60fps performance and zero resizing bugs.
+    Features a Unified Textbox, Director's Control Panel, and Time-Travel Timeline.
 """
 import threading
+import re
+import difflib
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
 
-        
-        
+
 def get_darker_shade(hex_color, factor=0.4):
     """Generates a deep-background pill color from a bright hex code."""
     try:
         hex_color = hex_color.lstrip('#')
-        if len(hex_color) != 6: return "#1A1A1B" # Default dark grey
+        if len(hex_color) != 6: return "#1A1A1B" 
         rgb = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
         dark = [max(0, int(c * factor)) for c in rgb]
         return f"#{dark[0]:02x}{dark[1]:02x}{dark[2]:02x}"
@@ -26,16 +26,13 @@ def get_darker_shade(hex_color, factor=0.4):
 
 
 class CTkFlowFrame(ctk.CTkFrame):
-    """A custom frame that uses native packing to simulate a flow layout."""
+    """A custom frame that uses native packing to simulate a horizontal flow layout."""
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
         self.rows = []
 
     def flow(self, pill_widgets):
-        """Packs a list of widgets into horizontal rows, wrapping as needed."""
-        # 1. Clear existing rows
-        for row in self.rows:
-            row.destroy()
+        for row in self.rows: row.destroy()
         self.rows.clear()
         
         if not pill_widgets: return
@@ -44,7 +41,6 @@ class CTkFlowFrame(ctk.CTkFrame):
         max_width = self.winfo_width()
         if max_width <= 10: max_width = 800
         
-        # 2. Start the first row
         current_row = ctk.CTkFrame(self, fg_color="transparent")
         current_row.pack(fill="x", anchor="w", pady=(0, 5))
         self.rows.append(current_row)
@@ -52,7 +48,6 @@ class CTkFlowFrame(ctk.CTkFrame):
         current_width = 0
         pad_x = 8
         
-        # 3. Pack widgets into the row until full, then spawn a new row
         for pill in pill_widgets:
             pill.update_idletasks()
             w = pill.winfo_reqwidth()
@@ -63,1082 +58,774 @@ class CTkFlowFrame(ctk.CTkFrame):
                 self.rows.append(current_row)
                 current_width = 0
                 
-            # Reparent the pill into the row and pack it natively
             pill.master = current_row
             pill.pack(side="left", padx=(0, pad_x))
             current_width += w + pad_x
 
 
-        
-class StoryTab(ctk.CTkFrame):
+def clean_prose(text):
+    """Aggressively formats text for professional e-reader line spacing."""
+    if not text: return ""
+    # 1. Convert all literal newlines to spaces to completely flatten the AI's artificial wrapping
+    text = text.replace("\\n", "\n").replace("\r", "")
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    # 2. Convert 3+ newlines to exactly 2 (standard paragraph break)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # 3. Clean up double spaces
+    return re.sub(r' {2,}', ' ', text).strip()
 
+
+class StoryTab(ctk.CTkFrame):
     """
-    Story Timeline UI
+    Single-Page Story UI
     """
     def __init__(self, parent, engine, workspace):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         self.workspace = workspace
 
-        # --- FONT & STYLE SETTINGS ---
+        # --- FONT SETTINGS ---
         from config import ENGINE_CONFIG
         f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
         f_size = ENGINE_CONFIG.get("prose_font_size", 15)
         
         self.prose_font = (f_family, int(f_size))
+        self.bridge_font = (f_family, int(f_size), "italic")
         self.header_font = ("Arial", 12)
         self.action_font = ("Arial", 14, "bold")
-        self.bridge_font = (f_family, int(f_size))
         
-        # --- VIRTUALIZATION & RESIZE STATE ---
-        self.MAX_CARDS = 3
-        self.current_top_idx = 0
-        self.recycled_cards = []
-        self._resize_timer = None
-        self._last_width = 0
+        # --- STATE VARIABLES ---
+        self.current_turn_idx = 0
+        self.has_inventory = False
 
-        # --- LAYOUT: Timeline & Virtual Scrollbar ---
-        top_area = ctk.CTkFrame(self, fg_color="transparent")
-        top_area.pack(fill="both", expand=True, padx=10, pady=10)
+        # ==========================================
+        # 1. THE MAIN CARD (Fills remaining space)
+        # ==========================================
+        self.card_frame = ctk.CTkFrame(self, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
         
-        self.timeline = ctk.CTkScrollableFrame(top_area, fg_color="transparent")
-        self.timeline.pack(side="left", fill="both", expand=True)
-
-        slider_frame = ctk.CTkFrame(top_area, fg_color="transparent", width=40)
-        slider_frame.pack(side="right", fill="y", padx=(5, 0))
+        # Internal Card Widgets
+        self.hdr_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
+        self.lbl_chapter = ctk.CTkLabel(self.hdr_frame, text="", font=("Georgia", 22, "bold", "italic"), text_color="#00ACC1")
+        self.btn_edit_card = ctk.CTkButton(self.hdr_frame, text="✎ Edit Scene", width=90, fg_color="#4A4A4A", hover_color="#333333")
         
-        ctk.CTkLabel(slider_frame, text="Time\nTravel", font=("Arial", 10, "bold"), text_color="gray").pack(pady=(0, 5))
-        self.history_slider = ctk.CTkSlider(slider_frame, orientation="vertical", command=self._on_slider_move)
-        self.history_slider.pack(fill="y", expand=True)
+        self.lbl_meta = ctk.CTkLabel(self.card_frame, text="", text_color="gray", font=self.header_font)
+        
+        # Action Frame (Holds the label and the "..." button side-by-side)
+        self.action_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
+        self.lbl_action = ctk.CTkLabel(self.action_frame, text="", font=self.action_font, text_color="#4CAF50")
+        self.btn_action_more = ctk.CTkButton(self.action_frame, text="...", width=30, height=20, font=("Arial", 14, "bold"), fg_color="#333333", hover_color="#555555")
+        
+        self.inv_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
+        
+        # Unified Textbox with Professional Spacing
+        self.prose_box = ctk.CTkTextbox(self.card_frame, wrap="word", font=self.prose_font, fg_color="transparent")
+        self.prose_box._textbox.configure(spacing2=6, font=self.prose_font) # Adds 6px between wrapped lines
+        
+        # Register Native Tags safely
+        self.prose_box._textbox.tag_config("bridge", font=self.bridge_font, foreground="#90CAF9") 
+        self.prose_box._textbox.tag_config("story", font=self.prose_font)
+        self.prose_box._textbox.tag_config("lore_dump", font=("Arial", 12, "italic"), foreground="gray")
+        
+        self.tools_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
+        self.bridge_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
+        self.story_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
+        self.choices_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
 
-        # --- LAYOUT: Bottom Input Bar ---
-        # 1. We remove the outer background frame to keep the UI flat
-        input_frame = ctk.CTkFrame(self, fg_color="transparent")
-        # 2. We align the frame's padding to match the left margin of the cards (10 + internal canvas padding)
-        # and the right margin to account for the width of the Time Travel slider (40px + 5px gap + 10px scrollbar)
-        input_frame.pack(fill="x", padx=(25, 75), pady=(0, 10))
+       # ==========================================
+        # 2. THE TIMELINE BAR (Bottom, Fixed)
+        # ==========================================
+        self.timeline_frame = ctk.CTkFrame(self, fg_color="transparent")
+        
+        # Center the slider vertically within its frame by adding matching top/bottom padding
+        self.btn_first = ctk.CTkButton(self.timeline_frame, text="|<<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("first"))
+        self.btn_first.pack(side="left", padx=2, pady=5)
+        
+        self.btn_prev = ctk.CTkButton(self.timeline_frame, text="<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("prev"))
+        self.btn_prev.pack(side="left", padx=(2, 10), pady=5)
+        
+        self.slider = ctk.CTkSlider(self.timeline_frame, command=self._on_slider_move)
+        self.slider.pack(side="left", fill="x", expand=True, padx=10, pady=5)
+        
+        self.btn_next = ctk.CTkButton(self.timeline_frame, text=">", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("next"))
+        self.btn_next.pack(side="left", padx=(10, 2), pady=5)
+        
+        self.btn_last = ctk.CTkButton(self.timeline_frame, text=">>|", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("last"))
+        self.btn_last.pack(side="left", padx=2, pady=5)
+
+        # ==========================================
+        # 3. THE INPUT BAR (Bottom, Fixed)
+        # ==========================================
+        self.input_frame = ctk.CTkFrame(self, fg_color="transparent")
 
         self.cmd_dropdown = ctk.CTkOptionMenu(
-            input_frame, 
+            self.input_frame, 
             values=["Standard Action", "Expand Notes", "Force Setting", "Force Time", "Force POV"],
             width=140
         )
-        
-        # Only show Director Overrides in Sandbox Mode
         if not self.engine.is_campaign:
-            self.cmd_dropdown.pack(side="left", padx=(0, 10), pady=10)
+            self.cmd_dropdown.pack(side="left", padx=(0, 10))
 
-        self.text_input = ctk.CTkEntry(input_frame, placeholder_text="Type a custom action or dialogue...", font=("Arial", 14))
-        # 3. Text input packed tightly to the left
-        self.text_input.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=10)
+        self.text_input = ctk.CTkEntry(self.input_frame, placeholder_text="Type a custom action or dialogue...", font=("Arial", 14))
+        self.text_input.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.text_input.bind("<Return>", lambda e: self.on_submit())
 
-        self.btn_submit = ctk.CTkButton(input_frame, text="Submit", command=self.on_submit, width=100)
-        # 4. Submit button packed tightly to the right
-        self.btn_submit.pack(side="right", padx=0, pady=10)
+        self.btn_submit = ctk.CTkButton(self.input_frame, text="Submit", command=self.on_submit, width=100)
+        self.btn_submit.pack(side="right")
 
         self.status_var = ctk.StringVar(value="Ready.")
-        ctk.CTkLabel(self, textvariable=self.status_var, font=("Arial", 12, "italic"), text_color="gray").pack(side="bottom", anchor="w", padx=15, pady=(0, 5))
+        ctk.CTkLabel(self, textvariable=self.status_var, font=("Arial", 12, "italic"), text_color="gray").pack(side="bottom", anchor="w", padx=20, pady=(0, 5))
 
-        # --- INITIALIZATION & VIRTUALIZATION ---
-        self._initialize_recycled_cards()
-        
-        # --- STARTUP FRAME (Deferred Generation) ---
-        self.startup_frame = ctk.CTkFrame(self.timeline, fg_color="transparent")
+        # --- STARTUP SCREEN ---
+        self.startup_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.btn_start_adv = ctk.CTkButton(
             self.startup_frame, 
             text="✨ Start Adventure (Generate Opening Scene) ✨", 
-            font=("Arial", 18, "bold"), 
-            height=60, 
-            fg_color="#2E7D32", 
-            hover_color="#1B5E20",
+            font=("Arial", 18, "bold"), height=60, 
+            fg_color="#2E7D32", hover_color="#1B5E20",
             command=self._trigger_startup
         )
         self.btn_start_adv.pack(expand=True)
 
-        self.refresh_timeline()
-        # Start the silent heartbeat to manage text wrapping
-        self._wrap_heartbeat()
+        self.refresh_timeline(go_to_last=True)
 
 
     # ---------------------------------------------------------
-    # GEOMETRY WRAPPING & SMART SCROLLING
+    # TIMELINE & NAVIGATION LOGIC
     # ---------------------------------------------------------
 
-    def _apply_wrapping(self, width):
-        """Forces the Tkinter text labels to wrap cleanly based on canvas width."""
-        from config import ENGINE_CONFIG
-        wrap_margin = ENGINE_CONFIG.get("ui_wrap_margin", 150)
+    def refresh_timeline(self, go_to_last=False):
+        """Syncs the slider boundaries to the history array and perfectly resets layout order."""
+        history_len = len(self.engine.history)
         
-        safe_width = width - wrap_margin 
-        scale = self._get_widget_scaling()
-        adjusted_wrap = int(safe_width / scale)
+        # 1. Strip everything safely
+        self.startup_frame.pack_forget()
+        self.card_frame.pack_forget()
+        self.timeline_frame.pack_forget()
+        self.input_frame.pack_forget()
         
-        for refs in self.recycled_cards:
-            refs["hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
-            refs["choice"].configure(wraplength=adjusted_wrap)
-            if "br_hdr" in refs: refs["br_hdr"].configure(wraplength=max(50, adjusted_wrap - 80))
-
-    def _wrap_heartbeat(self):
-        """
-        An infinitely repeating background loop. 
-        Recalculates text wrap margins if the window resizes, and dynamically
-        resizes the Textbox heights to perfectly fit the prose without scrollbars.
-        """
-        current_width = self.timeline._parent_canvas.winfo_width()
-        if current_width > 100 and current_width != self._last_width:
-            self._last_width = current_width
-            self._apply_wrapping(current_width)
-            
-        for refs in self.recycled_cards:
-            # 1. Main Prose
-            if "prose" in refs and refs["prose"].winfo_exists():
-                tb = refs["prose"]._textbox
-                # CRITICAL: Use 'end-1c' so we don't count Tkinter's invisible trailing newline
-                lines = tb.count("1.0", "end-1c", "displaylines")
-                num_lines = lines[0] if lines else 1
-                
-                # Add a dynamic buffer (one full line height + 10px padding) to prevent bottom truncation
-                calc_h = int(num_lines * (self.prose_font[1] * 1.35)) + self.prose_font[1] + 10
-                if refs["prose"].cget("height") != calc_h: refs["prose"].configure(height=calc_h)
-                
-            # 2. Bridge Prose
-            if "br_prose" in refs and refs["br_prose"].winfo_exists():
-                tb = refs["br_prose"]._textbox
-                lines = tb.count("1.0", "end-1c", "displaylines")
-                num_lines = lines[0] if lines else 1
-                
-                # Apply the exact same flawless padding logic as the main prose
-                calc_h = int(num_lines * (self.bridge_font[1] * 1.35)) + self.bridge_font[1] + 10
-                if refs["br_prose"].cget("height") != calc_h: refs["br_prose"].configure(height=calc_h)
-
-            # 3. Inventory
-            if "inv_box" in refs and refs["inv_box"].winfo_exists():
-                tb = refs["inv_box"]._textbox
-                lines = tb.count("1.0", "end", "displaylines")
-                num_lines = lines[0] if lines else 1
-                calc_h = (num_lines * 32) + 10
-                if refs["inv_box"].cget("height") != calc_h: refs["inv_box"].configure(height=calc_h)
-
-        self.after(200, self._wrap_heartbeat)
-
-    def _maintain_scroll_position(self, target_y=None):
-        """
-        Forces the Canvas to update its bounding box and then snaps the viewport 
-        to a specific coordinate, preventing the screen from jumping after an edit.
-        """
-        self.timeline.update_idletasks()
-        
-        bbox = self.timeline._parent_canvas.bbox("all")
-        if bbox:
-            self.timeline._parent_canvas.configure(scrollregion=bbox)
-            
-        if target_y is not None:
-            self.timeline._parent_canvas.yview_moveto(target_y)
-
-    # ---------------------------------------------------------
-    # WIDGET VIRTUALIZATION (The 3-Card Engine)
-    # ---------------------------------------------------------
-
-    def _initialize_recycled_cards(self):
-        """
-        Creates exactly 3 empty Card templates and 3 Bridge templates in memory.
-        Instead of destroying and recreating UI elements (which causes memory leaks),
-        we simply slide data in and out of these permanent widget shells.
-        """
-        from ui.tooltip import Tooltip
-        
-        for _ in range(self.MAX_CARDS):
-            # --- 0. THE CHAPTER MARKER CARD ---
-            chap_card = ctk.CTkFrame(self.timeline, fg_color="transparent")
-            chap_lbl = ctk.CTkLabel(chap_card, text="", font=("Georgia", 22, "bold", "italic"), text_color="#00ACC1")
-            chap_lbl.pack(pady=(40, 10))
-            
-            # --- 1. THE BRIDGE CARD ---
-            br_card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
-            
-            br_hdr_frame = ctk.CTkFrame(br_card, fg_color="transparent")
-            br_hdr_frame.pack(fill="x", padx=15, pady=(10, 5))
-            
-            br_btn_del = ctk.CTkButton(br_hdr_frame, text="X", width=28, height=24, fg_color="#B71C1C", hover_color="#7F0000")
-            Tooltip(br_btn_del, "Delete this narrative bridge.")
-            
-            br_btn_gen = ctk.CTkButton(br_hdr_frame, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
-            Tooltip(br_btn_gen, "Ask AI to generate a brand new bridge from scratch.")
-            
-            br_btn_pol = ctk.CTkButton(br_hdr_frame, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2")
-            Tooltip(br_btn_pol, "AI Copy-Edit: Fix grammar/flow of this bridge.")
-            
-            br_btn_exp = ctk.CTkButton(br_hdr_frame, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
-            Tooltip(br_btn_exp, "AI Expansion: Make this bridge slightly longer and more descriptive.")
-            
-            br_btn_edit = ctk.CTkButton(br_hdr_frame, text="✎ Edit", width=50, height=24, font=("Arial", 11), fg_color="#4A4A4A", hover_color="#333333")
-            Tooltip(br_btn_edit, "Open the Narrative Editor to manually type changes.")
-            
-            br_hdr_lbl = ctk.CTkLabel(br_hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
-            br_hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
-            
-            # CRITICAL FIX: Use API-safe cloaking instead of deleting the internal _scrollbar attribute
-            br_prose_lbl = ctk.CTkTextbox(
-                br_card, font=self.bridge_font, wrap="word", height=30, fg_color="transparent", 
-                scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
-            )
-            br_prose_lbl.pack(fill="x", padx=20, pady=(5, 25))
-
-            # --- 2. THE STORY CARD ---
-            card = ctk.CTkFrame(self.timeline, corner_radius=10, fg_color=("#EBEBEB", "#22252A"), border_width=1, border_color=("#D3D3D3", "#343638"))
-            
-            hdr_frame = ctk.CTkFrame(card, fg_color="transparent")
-            hdr_frame.pack(fill="x", padx=15, pady=(10, 0))
-            
-            btn_edit = ctk.CTkButton(hdr_frame, text="✎ Edit", width=50, height=24, fg_color="#4A4A4A", hover_color="#333333")
-            btn_bridge = ctk.CTkButton(hdr_frame, text="✨ Bridge", width=60, height=24, fg_color="#00ACC1", hover_color="#00838F")
-            
-            hdr_lbl = ctk.CTkLabel(hdr_frame, text="", text_color="gray", font=self.header_font, justify="left", anchor="w")
-            hdr_lbl.pack(side="left", fill="x", expand=True, padx=(0, 10))
-            
-            # Native horizontal row container for inventory pills
-            inv_frame = ctk.CTkFrame(card, fg_color="transparent")
-            inv_frame.pack(fill="x", padx=15, pady=(0, 5))
-            
-            # CRITICAL FIX: Use API-safe cloaking here as well
-            prose_lbl = ctk.CTkTextbox(
-                card, font=self.prose_font, wrap="word", height=100, fg_color="transparent", 
-                scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
-            )
-            prose_lbl.pack(fill="x", padx=20, pady=5)
-            
-            # FIX: Anchor North-West for the choice label as well
-            c_lbl = ctk.CTkLabel(card, text="", font=self.action_font, text_color="#4CAF50", justify="left", anchor="nw")
-            btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-            
-            self.recycled_cards.append({
-                "chap_card": chap_card, "chap_lbl": chap_lbl,
-                "br_card": br_card, "br_hdr": br_hdr_lbl, "br_prose": br_prose_lbl, 
-                "br_btn_edit": br_btn_edit, "br_btn_gen": br_btn_gen, "br_btn_del": br_btn_del,
-                "br_btn_pol": br_btn_pol, "br_btn_exp": br_btn_exp,
-                "card": card, "hdr": hdr_lbl, "inv_frame": inv_frame,
-                "prose": prose_lbl, "btn_edit": btn_edit, "btn_bridge": btn_bridge,
-                "choice": c_lbl, "btn_frame": btn_frame
-            })
-
-    def refresh_timeline(self, retain_scroll=False):
-        """
-        Master Update Endpoint. Syncs the slider scale to the history length, 
-        evaluates UI configurations, and triggers a visual render of the cards.
-        """
-        from config import ENGINE_CONFIG
-        f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
-        f_size = ENGINE_CONFIG.get("prose_font_size", 15)
-        
-        # 1:1 Exact Match. The bridge should be indistinguishable from the main story prose.
-        self.prose_font = (f_family, int(f_size))
-        self.bridge_font = (f_family, int(f_size))
-        
-        for refs in self.recycled_cards:
-            refs["prose"].configure(font=self.prose_font)
-            if "br_prose" in refs: refs["br_prose"].configure(font=self.bridge_font)
-        
-        # Preserve the new tight packing alignment when the UI redraws
-        self.btn_submit.pack_forget()
-        self.btn_submit.pack(side="right", padx=0, pady=10)
-
-        if not self.engine.history:
-            self._unlock_ui("Waiting for Director to start the adventure...")
-            
-            # Lock the input tools explicitly so they can't type before the game starts
-            self.btn_submit.configure(state="disabled")
-            self.text_input.configure(state="disabled")
-            self.cmd_dropdown.configure(state="disabled")
-            self.history_slider.configure(state="disabled")
-            
-            # Hide recycled cards and show the giant Start button
-            for refs in self.recycled_cards:
-                if "chap_card" in refs: refs["chap_card"].pack_forget()
-                refs["br_card"].pack_forget()
-                refs["card"].pack_forget()
-                
+        if history_len == 0:
             self.startup_frame.pack(fill="both", expand=True, pady=(100, 0))
-            
-            self.timeline.update_idletasks()
-            if hasattr(self.timeline, "_parent_canvas"):
-                self.timeline._parent_canvas.yview_moveto(0.0)
-                
+            self._unlock_ui("Waiting for Director to start the adventure...")
             return
             
-        self.startup_frame.pack_forget()
-
-        # 1. Calculate boundaries and update slider
-        max_start = max(0, len(self.engine.history) - self.MAX_CARDS)
-        if max_start > 0:
-            self.history_slider.configure(state="normal", from_=max_start, to=0, number_of_steps=max_start)
-            self.history_slider.set(max_start)
+        # 2. Strict Layout Stacking (Guarantees layout won't crush)
+        self.card_frame.pack(fill="both", expand=True, padx=20, pady=(15, 10))
+        # Equalize the padding surrounding the timeline slider (10px top, 10px bottom)
+        self.timeline_frame.pack(fill="x", padx=20, pady=10)
+        self.input_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        if go_to_last:
+            self.current_turn_idx = history_len - 1
+            
+        if history_len > 1:
+            self.slider.configure(state="normal", from_=0, to=history_len - 1, number_of_steps=history_len - 1)
+            self.slider.set(self.current_turn_idx)
+            
+            self.btn_first.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
+            self.btn_prev.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
+            self.btn_next.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
+            self.btn_last.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
         else:
-            self.history_slider.configure(from_=1, to=0, number_of_steps=1) 
-            self.history_slider.set(0)
-            self.history_slider.configure(state="disabled")
+            self.slider.configure(from_=0, to=0, number_of_steps=1)
+            self.slider.set(0)
+            self.slider.configure(state="disabled")
+            for btn in [self.btn_first, self.btn_prev, self.btn_next, self.btn_last]:
+                btn.configure(state="disabled")
+                
+        self._render_turn()
 
-        self.current_top_idx = max_start
+    def _on_slider_move(self, value):
+        idx = int(value)
+        if idx != self.current_turn_idx:
+            self.current_turn_idx = idx
+            self.refresh_timeline(go_to_last=False)
+
+    def _navigate_timeline(self, direction):
+        if direction == "first": self.current_turn_idx = 0
+        elif direction == "prev" and self.current_turn_idx > 0: self.current_turn_idx -= 1
+        elif direction == "next" and self.current_turn_idx < len(self.engine.history) - 1: self.current_turn_idx += 1
+        elif direction == "last": self.current_turn_idx = len(self.engine.history) - 1
+        self.refresh_timeline(go_to_last=False)
+
+
+    # ---------------------------------------------------------
+    # RENDER ACTIVE TURN (STRICT BOTTOM-UP PACKING)
+    # ---------------------------------------------------------
+
+    def _render_turn(self):
+        """Draws all elements using a strict Bottom-Up packing order to guarantee the layout never breaks."""
         
-        # 2. Draw the cards to the screen
-        self._render_visible_cards(retain_scroll=retain_scroll)
+        # 1. PURGE THE CARD STACK
+        self.hdr_frame.pack_forget()
+        self.lbl_chapter.pack_forget()
+        self.btn_edit_card.pack_forget()
+        self.lbl_meta.pack_forget()
+        self.action_frame.pack_forget()
+        self.inv_frame.pack_forget()
+        self.prose_box.pack_forget()
+        self.tools_frame.pack_forget()
+        self.choices_frame.pack_forget()  # CRITICAL: Fixes the vertical gap bug
+
+        idx = self.current_turn_idx
+        turn = self.engine.history[idx]
+        history_len = len(self.engine.history)
+        cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
         
-        # 3. Unlock the UI explicitly (Resets all states)
+        try: actual_turn = int(turn.get("turn", 0))
+        except: actual_turn = 0
+        
+        # --- DATA PREPARATION ---
+        active_chap = self.engine.chapters[0]
+        for c in reversed(self.engine.chapters):
+            s_turn = c.get("start_turn")
+            if s_turn is not None and s_turn <= actual_turn:
+                active_chap = c
+                break
+                
+        is_epilogue = str(turn.get("is_game_over", False)).lower() == "true" and str(turn.get("objective_achieved", False)).lower() == "true"
+        
+        if actual_turn == 0: chap_title = "~ Prologue ~"
+        elif is_epilogue: chap_title = "~ Epilogue ~"
+        else:
+            c_name = f"Chapter {active_chap.get('chapter_number', 1)}"
+            c_title = active_chap.get('title', c_name)
+            chap_title = f"~ {c_name}: {c_title} ~" if c_title.lower() != c_name.lower() else f"~ {c_name} ~"
+            
+        self.lbl_chapter.configure(text=chap_title)
+        
+        loc_raw = turn.get("location", "Unknown").strip()
+        pov_raw = turn.get("pov_character", "Unknown").strip()
+        
+        loc_hdr = loc_raw if len(loc_raw) <= 100 else "Current Location"
+        pov_hdr = pov_raw if len(pov_raw) <= 100 else "Main Character"
+        self.lbl_meta.configure(text=f"[Turn {actual_turn}] • [Loc: {loc_hdr}] • [POV: {pov_hdr}]")
+        
+        has_action = False
+        if idx > 0 and self.engine.history[idx-1].get("player_choice"):
+            raw_action = self.engine.history[idx-1].get("player_choice", "").strip()
+            flat_action = raw_action.replace("\n", " ").replace("\r", " ")
+            
+            self.lbl_action.pack(side="left")
+            
+            if len(flat_action) > 85:
+                # Do not include the '...' in the string, let the button act as the ellipsis
+                self.lbl_action.configure(text=f"❯ {flat_action[:82]}")
+                self.btn_action_more.pack(side="left", padx=(5, 0))
+                self.btn_action_more.configure(command=lambda a=raw_action: self._show_full_action(a))
+            else:
+                self.lbl_action.configure(text=f"❯ {flat_action}")
+                self.btn_action_more.pack_forget()
+                
+            has_action = True
+
+        self._render_inventory(turn)
+
+        # Build Textbox Content
+        self.prose_box.configure(state="normal")
+        self.prose_box.delete("1.0", "end")
+        
+        if len(loc_raw) > 100 or len(pov_raw) > 100:
+            lore_dump = ""
+            if len(loc_raw) > 100: lore_dump += f"[Location]: {loc_raw}\n\n"
+            if len(pov_raw) > 100: lore_dump += f"[POV]: {pov_raw}\n\n"
+            self.prose_box.insert("end", f"{lore_dump.strip()}\n\n***\n\n", "lore_dump")
+
+        bridge = turn.get("narrative_bridge")
+        is_valid_bridge = bridge and bridge not in ["[OK]", "[FAILED]", ""]
+        if idx > 0 and is_valid_bridge:
+            clean_br = clean_prose(bridge)
+            self.prose_box.insert("end", f"{clean_br}\n\n", "bridge")
+
+        story = clean_prose(turn.get("story_text", ""))
+        self.prose_box.insert("end", story, "story")
+        self.prose_box.configure(state="disabled")
+
+        # Build Director's Control Panel
+        for w in self.bridge_tools.winfo_children(): w.destroy()
+        for w in self.story_tools.winfo_children(): w.destroy()
+        self.bridge_tools.pack_forget()
+        self.story_tools.pack_forget()
+        
+        is_game_over = str(turn.get("is_game_over", False)).lower() == "true"
+        show_controls = not is_game_over and not self.engine.is_test_mode
+        
+        if show_controls:
+            if idx > 0:
+                self.bridge_tools.pack(fill="x", pady=(5, 0))
+                ctk.CTkLabel(self.bridge_tools, text="Bridge:", font=("Arial", 11, "bold"), text_color="#90CAF9", width=40).pack(side="left")
+
+                
+                if is_valid_bridge:
+                
+                    btn_gen = ctk.CTkButton(self.bridge_tools, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=lambda: self._generate_bridge(idx))
+                    btn_gen.pack(side="left", padx=2)
+                    Tooltip(btn_gen, "Ask AI to regenerate a new version of the transition.")
+                    
+                    btn_exp = ctk.CTkButton(self.bridge_tools, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_bridge_edit(idx, "expand"))
+                    btn_exp.pack(side="left", padx=2)
+                    Tooltip(btn_exp, "AI Expansion: Make this bridge slightly longer and more descriptive.")
+                    
+                    btn_cond = ctk.CTkButton(self.bridge_tools, text="✨ Condense", width=60, height=24, font=("Arial", 11), fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_bridge_edit(idx, "condense"))
+                    btn_cond.pack(side="left", padx=2)
+                    Tooltip(btn_cond, "AI Edit: Make this bridge shorter and punchier.")
+                    
+                    btn_pol = ctk.CTkButton(self.bridge_tools, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_bridge_edit(idx, "polish"))
+                    btn_pol.pack(side="left", padx=2)
+                    Tooltip(btn_pol, "AI Copy-Edit: Fix grammar/flow of this bridge.")
+                    
+                    btn_edit_br = ctk.CTkButton(self.bridge_tools, text="✎ Edit", width=50, height=24, font=("Arial", 11), fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_edit_dialog(idx))
+                    btn_edit_br.pack(side="left", padx=2)
+                    Tooltip(btn_edit_br, "Manually edit this bridge.")
+                    
+                    btn_del = ctk.CTkButton(self.bridge_tools, text="X", width=28, height=24, font=("Arial", 11), fg_color="#B71C1C", hover_color="#7F0000", command=lambda: self._delete_bridge(idx))
+                    btn_del.pack(side="left", padx=2)
+                    Tooltip(btn_del, "Delete this transition.")
+                    
+                else:
+                
+                    btn_gen = ctk.CTkButton(self.bridge_tools, text="✨ Generate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#E65100", command=lambda: self._generate_bridge(idx))
+                    btn_gen.pack(side="left", padx=2)
+                    Tooltip(btn_gen, "Ask AI to generate a narrative transition from the previous turn into this turn based on the selected choice.")
+                
+
+            self.story_tools.pack(fill="x", pady=(5, 5))
+            ctk.CTkLabel(self.story_tools, text="Story:", font=("Arial", 11, "bold"), text_color="white", width=40).pack(side="left")
+            
+            if idx == history_len - 1:
+                btn_redo = ctk.CTkButton(self.story_tools, text="⟳ Redo Turn", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
+                btn_redo.pack(side="left", padx=2)
+                Tooltip(btn_redo, "Reroll this entire scene from scratch.")
+                
+            btn_rc = ctk.CTkButton(self.story_tools, text="⟳ Choices", width=60, height=24, font=("Arial", 11), fg_color="#0288D1", hover_color="#01579B", command=lambda: self._trigger_redo_choices(idx))
+            btn_rc.pack(side="left", padx=2)
+            Tooltip(btn_rc, "Keep text, but get new choices.")
+            
+            btn_exp = ctk.CTkButton(self.story_tools, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_expansion(idx))
+            btn_exp.pack(side="left", padx=2)
+            Tooltip(btn_exp, "AI Expansion: Add sensory depth to this scene.")
+
+            btn_cond = ctk.CTkButton(self.story_tools, text="✨ Condense", width=60, height=24, font=("Arial", 11), fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_condense(idx))
+            btn_cond.pack(side="left", padx=2)
+            Tooltip(btn_cond, "AI Edit: Make this prose shorter and punchier.")
+            
+            btn_pol = ctk.CTkButton(self.story_tools, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(idx))
+            btn_pol.pack(side="left", padx=2)
+            Tooltip(btn_pol, "AI Copy-Edit: Fix grammar/flow of this scene.")
+            
+            if cheats_allowed:
+                btn_fix = ctk.CTkButton(self.story_tools, text="✨ Fix...", width=60, height=24, font=("Arial", 11), fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(idx))
+                btn_fix.pack(side="left", padx=2)
+                Tooltip(btn_fix, "Instruct AI to change a specific detail.")
+                
+            # Right-aligned buttons (Packed in reverse order: Undo on the far right, Edit next to it)
+            if cheats_allowed and idx == history_len - 1 and history_len > 1:
+                btn_undo = ctk.CTkButton(self.story_tools, text="↶ Undo Turn", width=100, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=self.on_undo)
+                btn_undo.pack(side="right", padx=2)
+                Tooltip(btn_undo, "Revert the game state to the previous turn.")
+                
+            if cheats_allowed:
+                btn_edit_card = ctk.CTkButton(self.story_tools, text="✎ Edit Scene", width=90, height=24, fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_edit_dialog(idx))
+                btn_edit_card.pack(side="right", padx=2)
+                Tooltip(btn_edit_card, "Open the Narrative Editor to manually type changes.")
+
+        # Build Choices Area
+        for w in self.choices_frame.winfo_children(): w.destroy()
+        
+        if idx == history_len - 1 and not is_game_over and turn.get("player_choice") is not None:
+            c_text = turn.get("player_choice")
+            btn_retry = ctk.CTkButton(self.choices_frame, text=f"⟳ Retry Action: {c_text}", fg_color="#F57C00", hover_color="#E65100", command=lambda: self._execute_action(c_text))
+            btn_retry.pack(side="left", padx=5)
+            
+            def cancel_pending():
+                self.engine.history[-1]["player_choice"] = None
+                self.engine.save_state()
+                self.refresh_timeline(go_to_last=True)
+                
+            btn_cancel = ctk.CTkButton(self.choices_frame, text="X Cancel Action", fg_color="#D32F2F", hover_color="#9A0007", command=cancel_pending)
+            btn_cancel.pack(side="left", padx=5)
+            
+            self.btn_submit.configure(state="disabled")
+            self.text_input.configure(state="disabled")
+            
+        elif idx == history_len - 1:
+            for c in turn.get("choices", []):
+                if not cheats_allowed and "Cheat Death" in c: continue
+                color = "#1F6AA5"; hover = "#144870"
+                if "Restart Game" in c: color = "#D32F2F"; hover = "#9A0007"
+                elif "Quit" in c: color = "#4A4A4A"; hover = "#333333"
+                elif "Export" in c: color = "#388E3C"; hover = "#1B5E20"
+                elif "Undo (Cheat Death" in c: color = "#D32F2F"; hover = "#9A0007"
+                elif "Start Chapter:" in c or "Conclude the Story" in c or "Proceed to the next" in c: color = "#7B1FA2"; hover = "#4A148C"
+                
+                btn = ctk.CTkButton(self.choices_frame, text=c, fg_color=color, hover_color=hover, anchor="w", command=lambda action=c: self._execute_action(action))
+                btn.pack(fill="x", pady=2, padx=5)
+                
+        if idx == history_len - 1 and not is_game_over and turn.get("player_choice") is None:
+            self.text_input.configure(state="normal")
+            self.btn_submit.configure(state="normal")
+            self.cmd_dropdown.configure(state="normal")
+        else:
+            self.text_input.configure(state="disabled")
+            self.btn_submit.configure(state="disabled")
+            self.cmd_dropdown.configure(state="disabled")
+
+        # =================================================================
+        # 99. STRICT BOTTOM-UP PACKING
+        # =================================================================
+        has_choices = len(self.choices_frame.winfo_children()) > 0
+        if has_choices:
+            self.choices_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 15))
+            
+        if show_controls:
+            self.tools_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 10))
+            
+        self.hdr_frame.pack(side="top", fill="x", padx=20, pady=(15, 5))
+        self.lbl_chapter.pack(side="top", anchor="center")
+        
+        self.lbl_meta.pack(side="top", fill="x", padx=20, pady=(0, 5))
+        
+        if has_action:
+            self.action_frame.pack(side="top", fill="x", padx=20, pady=(0, 10))
+            
+        if self.has_inventory:
+            self.inv_frame.pack(side="top", fill="x", padx=20, pady=(0, 10))
+            
+        self.prose_box.pack(side="top", fill="both", expand=True, padx=20, pady=5)
+
         self._unlock_ui("Ready.")
 
-
-    def _trigger_startup(self):
-        """Fires when the user clicks the giant Start Adventure button on an empty timeline."""
-        self.startup_frame.pack_forget()
-        self._lock_ui("Generating opening scene...")
-        import threading
-        threading.Thread(target=self._async_init, daemon=True).start()
-
-    def _calculate_inventory_state(self, up_to_idx):
-        """Rebuilds the current inventory state by parsing history up to the target index."""
-        base_schema = self.engine.setup_data.get("inventory_and_state", {})
-        if not isinstance(base_schema, dict): base_schema = {}
+    def _render_inventory(self, turn):
+        """Builds the inventory pills safely using CTkFlowFrame."""
+        for w in self.inv_frame.winfo_children(): w.destroy()
         
-        # Start with the baseline values from setup.json
-        state = {k: v.get("val", "") for k, v in base_schema.items()}
+        schema = self.engine.setup_data.get("inventory_dictionary", {})
+        is_game_over = str(turn.get("is_game_over", False)).lower() == "true"
         
-        import re
-        for i in range(up_to_idx + 1):
-            if i >= len(self.engine.history) or i < 0: break
-            inv_str = self.engine.history[i].get("inventory_and_state", "")
-            if inv_str:
-                inv_str = inv_str.replace("[Status]", "").strip()
-                patterns = re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str)
-                for k, v in patterns:
-                    clean_k = k.strip()
-                    # Persistence Check: Only update keys that exist in our schema
-                    if clean_k in state:
-                        state[clean_k] = v.strip(' .,;')
-        return state
-        
-    def _on_slider_move(self, value):
-        """Callback for the 'Time Travel' scroll bar."""
-        new_idx = int(value)
-        if new_idx != self.current_top_idx:
-            self.current_top_idx = new_idx
-            self._render_visible_cards(auto_scroll=False)
-            # When manually browsing history, always snap to the top of the slice
-            self.timeline._parent_canvas.yview_moveto(0.0)
-
-    def _render_visible_cards(self, retain_scroll=False):
-        """
-        Draws the actual history data into the 3 empty widget shells.
-        If retain_scroll is True, it memorizes the exact pixel position of the viewport
-        before redrawing, and restores it afterward to prevent UI jumping.
-        """
-        # Capture exactly where the user is looking before we destroy the layout
-        current_scroll_y = None
-        if retain_scroll and hasattr(self.timeline, "_parent_canvas"):
-            current_scroll_y = self.timeline._parent_canvas.yview()[0]
+        if not self.engine.track_inventory or not schema or is_game_over:
+            self.has_inventory = False
+            return
             
-        history = self.engine.history
-        cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
-        from ui.tooltip import Tooltip
-
-        # 0. Unpack EVERYTHING first to guarantee correct visual rendering order
-        for refs in self.recycled_cards:
-            if "chap_card" in refs: refs["chap_card"].pack_forget()
-            refs["br_card"].pack_forget()
-            refs["card"].pack_forget()
-
-        for i in range(self.MAX_CARDS):
-            target_idx = self.current_top_idx + i
-            refs = self.recycled_cards[i]
+        self.has_inventory = True
+        inv_str = turn.get("inventory_and_state", "").replace("[Status]", "").strip()
+        current_state = {}
+        for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str):
+            current_state[k.strip()] = v.strip(' .,;')
             
-            if target_idx < len(history):
-                turn = history[target_idx]
-                
-                try: actual_turn = int(turn.get("turn", 0))
-                except (ValueError, TypeError): actual_turn = 0
-                
-                # --- CHAPTER IDENTIFICATION LOGIC ---
-                active_chap = self.engine.chapters[0]
-                for c in reversed(self.engine.chapters):
-                    s_turn = c.get("start_turn")
-                    if s_turn is not None and s_turn <= actual_turn:
-                        active_chap = c
-                        break
-                        
-                is_epilogue = str(turn.get("is_game_over", False)).lower() == "true" and str(turn.get("chapter_goal_achieved", False)).lower() == "true"
-                is_chap_start = False
-                chap_title_for_card = ""
-                chap_name_for_header = ""
-                
-                if actual_turn == 0:
-                    chap_name_for_header = "Prologue"
-                    if target_idx == 0:
-                        is_chap_start = True
-                        chap_title_for_card = "Prologue"
-                elif is_epilogue:
-                    chap_name_for_header = "Epilogue"
-                    prev_over = str(history[target_idx-1].get("is_game_over", False)).lower() == "true" if target_idx > 0 else False
-                    if not prev_over:
-                        is_chap_start = True
-                        chap_title_for_card = "Epilogue"
-                else:
-                    chap_name_for_header = f"Chapter {active_chap.get('chapter_number', 1)}"
-                    if active_chap.get("start_turn") == actual_turn:
-                        is_chap_start = True
-                        c_title = active_chap.get('title', chap_name_for_header)
-                        if c_title.lower() == chap_name_for_header.lower():
-                            chap_title_for_card = chap_name_for_header
-                        else:
-                            chap_title_for_card = f"{chap_name_for_header}: {c_title}"
-                            
-                # 1. RENDER CHAPTER MARKER (Packed FIRST so it sits above everything)
-                if is_chap_start and "chap_card" in refs:
-                    refs["chap_card"].pack(fill="x")
-                    refs["chap_lbl"].configure(text=f"~ {chap_title_for_card} ~")
-                
-                # 2. RENDER BRIDGE CARD (Packed SECOND)
-                bridge = turn.get("narrative_bridge")
-                is_valid_bridge = bridge and bridge not in ["[OK]", "[FAILED]", ""]
-                
-                if target_idx > 0 and is_valid_bridge:
-                    refs["br_card"].pack(fill="x", padx=20, pady=(5, 0))
-                    refs["br_hdr"].configure(text=f"Narrative Bridge between Turn {target_idx-1} and Turn {target_idx}")
-                    
-                    # Update Textbox safely
-                    refs["br_prose"].configure(state="normal")
-                    refs["br_prose"].delete("1.0", "end")
-                    refs["br_prose"].insert("1.0", bridge)
-                    refs["br_prose"].configure(state="disabled")
-                    
-                    # Bridges are post-production polish, so they are ALWAYS editable regardless of 'allow_cheats'
-                    refs["br_btn_del"].pack(side="right", padx=(5, 0))
-                    refs["br_btn_edit"].pack(side="right", padx=(5, 0))
-                    refs["br_btn_pol"].pack(side="right", padx=(5, 0))
-                    refs["br_btn_exp"].pack(side="right", padx=(5, 0))
-                    refs["br_btn_gen"].pack(side="right", padx=(5, 0))
-                    
-                    refs["br_btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                    refs["br_btn_del"].configure(command=lambda idx=target_idx: self._delete_bridge_timeline(idx))
-                    refs["br_btn_pol"].configure(command=lambda idx=target_idx: self._trigger_bridge_edit(idx, "polish"))
-                    refs["br_btn_exp"].configure(command=lambda idx=target_idx: self._trigger_bridge_edit(idx, "expand"))
-                    refs["br_btn_gen"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
-
-
-                # 3. RENDER STORY CARD (Packed THIRD)
-                refs["card"].pack(fill="x", padx=20, pady=10) 
-                
-                loc_raw = turn.get("location", "Unknown").strip()
-                pov_raw = turn.get("pov_character", "Unknown").strip()
-                
-                # Smart Header formatting: Prevent massive lore dumps from breaking the single-line UI
-                loc_hdr = loc_raw if len(loc_raw) <= 100 else "Current Location"
-                pov_hdr = pov_raw if len(pov_raw) <= 100 else "Main Character"
-                
-                refs["hdr"].configure(text=f"{chap_name_for_header} - Turn {actual_turn} • [{loc_hdr}] • POV: {pov_hdr}")
-                
-                
-                # 4. RENDER RPG INVENTORY PILLS
-                refs["inv_frame"].pack_forget()
-                for w in refs["inv_frame"].winfo_children(): 
-                    w.destroy()
-                
-                schema = self.engine.setup_data.get("inventory_dictionary", {})
-                is_game_over = str(turn.get("is_game_over", False)).lower() == "true"
-                
-                if self.engine.track_inventory and schema and isinstance(schema, dict) and not is_game_over:
-                    inv_str = turn.get("inventory_and_state", "").replace("[Status]", "").strip()
-                    import re
-                    current_state = {}
-                    for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str):
-                        current_state[k.strip()] = v.strip(' .,;')
-                    
-                    refs["inv_frame"].pack(fill="x", padx=20, pady=(15, 0))
-                    
-                    # THE ULTIMATE TKINTER HACK: Textbox Window Embedding.
-                    inv_box = ctk.CTkTextbox(
-                        refs["inv_frame"], 
-                        wrap="word", 
-                        height=42, # Start tightly collapsed for 1 line
-                        fg_color="transparent",
-                        font=("Arial", 13, "bold"),
-                        # API-Safe scrollbar cloaking (matches the card background exactly)
-                        scrollbar_button_color=("#EBEBEB", "#22252A"),
-                        scrollbar_button_hover_color=("#EBEBEB", "#22252A")
-                    )
-                    inv_box.pack(fill="x")
-                    
-                    # Save reference so the heartbeat can dynamically adjust the height
-                    refs["inv_box"] = inv_box
-                    
-                    schema_items = list(schema.items())
-                    for idx, (key, info) in enumerate(schema_items):
-                        val = current_state.get(key, "None")
-                        if not val or str(val).strip() == "": val = "None"
-                        
-                        icon = info.get("icon", "🎒")
-                        base_color = info.get("color", "#1F6AA5")
-                        is_last = (idx == len(schema_items) - 1)
-                        
-                        # Create a flat, transparent container for the icon + text
-                        p_frame = ctk.CTkFrame(inv_box, fg_color="transparent")
-                        
-                        i_lbl = ctk.CTkLabel(p_frame, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color, width=0)
-                        i_lbl.pack(side="left", padx=(0, 4))
-                        
-                        # VISUAL TRUNCATION: Prevent AI novellas from breaking the pill UI wrapping
-                        val_str = str(val)
-                        display_val = val_str if len(val_str) <= 45 else val_str[:42] + "..."
-                        
-                        v_lbl = ctk.CTkLabel(p_frame, text=display_val, font=("Arial", 12, "bold"), text_color="#B3E5FC", width=0)
-                        v_lbl.pack(side="left")
-                        
-                        # Hovering over the pill shows the Key AND the full, untruncated AI string
-                        # FIX: Bind directly to the child labels because they block the transparent frame's hover events
-                        tip_text = f"{key}:\n{val_str}"
-                        Tooltip(p_frame, tip_text)
-                        Tooltip(i_lbl, tip_text)
-                        Tooltip(v_lbl, tip_text)
-                        
-                        # MAGIC: Embed the entire UI frame directly into the textbox
-                        inv_box._textbox.window_create("end", window=p_frame)
-                        
-                        if not is_last:
-                            inv_box.insert("end", "   |   ", "sep")
-                            
-                    inv_box.configure(state="disabled")
-                            
-                
-                # 5. RENDER EDIT BUTTONS & TEXT
-                refs["btn_edit"].pack_forget()
-                refs["btn_bridge"].pack_forget()
-                
-                # Manual turn editing is a cheat, but Bridge generation is always allowed
-                if cheats_allowed:
-                    refs["btn_edit"].pack(side="right")
-                    refs["btn_edit"].configure(command=lambda idx=target_idx: self._open_edit_dialog(idx))
-                    
-                if target_idx > 0 and not is_valid_bridge and bridge != "[OK]":
-                    refs["btn_bridge"].pack(side="right", padx=(0, 5))
-                    refs["btn_bridge"].configure(command=lambda idx=target_idx: self._generate_bridge_timeline(idx))
-                    Tooltip(refs["btn_bridge"], "Generate a narrative transition from the previous turn.")
-                        
-                # FIX: Aggressively strip trailing newlines to prevent phantom vertical space
-                prose_text = turn.get("story_text", "").replace("\\n", "\n").strip()
-                
-                # Inject massive lore dumps into the main prose body so they are readable
-                injected_lore = ""
-                if len(loc_raw) > 100: injected_lore += f"[Location]: {loc_raw}\n\n"
-                if len(pov_raw) > 100: injected_lore += f"[POV]: {pov_raw}\n\n"
-                
-                if injected_lore:
-                    prose_text = f"{injected_lore.strip()}\n\n***\n\n{prose_text}"
-                    
-                refs["prose"].configure(state="normal")
-                refs["prose"].delete("1.0", "end")
-                refs["prose"].insert("1.0", prose_text)
-                refs["prose"].configure(state="disabled")
-                refs["prose"].pack(fill="x", padx=20, pady=(5, 0)) # Snap to top
-                
-                # 6. RENDER FOOTER & CHOICES
-                refs["choice"].pack_forget()
-                refs["btn_frame"].pack_forget()
-                for w in refs["btn_frame"].winfo_children(): w.destroy()
-                
-                choice = turn.get("player_choice")
-                if choice is not None:
-                    refs["choice"].configure(text=f"❯ {choice}")
-                    refs["choice"].pack(fill="x", padx=20, pady=(10, 15))
-                    
-                    # NEW FIX: If generation failed, this card is stuck holding your action.
-                    # We dynamically add 'Retry' and 'Cancel' buttons so you aren't trapped!
-                    is_over = str(turn.get("is_game_over", False)).lower() == "true"
-                    if target_idx == len(history) - 1 and not is_over:
-                        refs["btn_frame"].pack(fill="x", padx=15, pady=(0, 20))
-                        
-                        btn_retry = ctk.CTkButton(refs["btn_frame"], text="⟳ Retry Generation", fg_color="#F57C00", hover_color="#E65100", command=lambda a=choice: self._execute_action(a))
-                        btn_retry.pack(side="left", padx=5)
-                        Tooltip(btn_retry, "Attempt to send this exact action to the AI again.")
-                        
-                        def cancel_pending():
-                            self.engine.history[-1]["player_choice"] = None
-                            self.engine.save_state()
-                            self.refresh_timeline(retain_scroll=True)
-                            
-                        btn_cancel = ctk.CTkButton(refs["btn_frame"], text="X Cancel Action", fg_color="#D32F2F", hover_color="#9A0007", command=cancel_pending)
-                        btn_cancel.pack(side="left", padx=5)
-                        Tooltip(btn_cancel, "Erase this pending action so you can choose a different one.")
-                        
-                        # Add to refs dictionary so _lock_ui can find them
-                        refs["btn_retry"] = btn_retry
-                        refs["btn_cancel"] = btn_cancel
-                else:
-                    # FIX: Explicitly clear the string to force Tkinter to drop the cached height
-                    refs["choice"].configure(text="")
-                    refs["btn_frame"].pack(fill="x", padx=15, pady=(0, 20))
-                    is_over = str(turn.get("is_game_over", False)).lower() == "true"
-                    is_victory = turn.get("chapter_goal_achieved", False)
-                    
-                    show_redo = True
-                    if is_over and is_victory:
-                        e_style = self.engine.setup_data.get("narrative", {}).get("epilogue", "expand").lower()
-                        if e_style in ["as_is", "none"]: show_redo = False
-
-                    show_qol = not is_over
-                    show_fix = cheats_allowed and not is_over
-
-                    if not self.engine.is_test_mode:
-                        dir_frame = ctk.CTkFrame(refs["btn_frame"], fg_color="transparent")
-                        dir_frame.pack(fill="x", pady=(20, 15), padx=5)
-                        
-                        if show_redo:
-                            btn_rt = ctk.CTkButton(dir_frame, text="⟳ Redo Turn", width=60, fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
-                            btn_rt.pack(side="left", padx=(0, 5))
-                            Tooltip(btn_rt, "Reroll this entire scene.")
-
-                        if show_qol:
-                            btn_rc = ctk.CTkButton(dir_frame, text="⟳ Choices", width=60, fg_color="#0288D1", hover_color="#01579B", command=lambda idx=target_idx: self._trigger_redo_choices(idx))
-                            btn_rc.pack(side="left", padx=5)
-                            Tooltip(btn_rc, "Keep text, but get new choices.")
-                            
-                            btn_exp = ctk.CTkButton(dir_frame, text="✨ Expand", width=60, fg_color="#00ACC1", hover_color="#00838F", command=lambda idx=target_idx: self._trigger_expansion(idx))
-                            btn_exp.pack(side="left", padx=5)
-                            Tooltip(btn_exp, "Add sensory depth to this scene.")
-
-                            btn_cond = ctk.CTkButton(dir_frame, text="✨ Condense", width=60, fg_color="#3F51B5", hover_color="#303F9F", command=lambda idx=target_idx: self._trigger_condense(idx))
-                            btn_cond.pack(side="left", padx=5)
-                            Tooltip(btn_cond, "Condense the prose to be shorter and punchier.")
-
-                            btn_pol = ctk.CTkButton(dir_frame, text="✨ Polish", width=60, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda idx=target_idx: self._trigger_polish(idx))
-                            btn_pol.pack(side="left", padx=5)
-                            Tooltip(btn_pol, "Fix grammar/style.")
-                        
-                        if show_fix:
-                            btn_fix = ctk.CTkButton(dir_frame, text="🔧 Fix...", width=60, fg_color="#009688", hover_color="#00796B", command=lambda idx=target_idx, tb=refs["prose"]: self._trigger_fix(idx, tb))
-                            btn_fix.pack(side="left", padx=5)
-                            Tooltip(btn_fix, "Instruct AI to change a specific detail.")
-                            
-                        if cheats_allowed and len(history) > 1:
-                            btn_undo = ctk.CTkButton(dir_frame, text="↶ Undo Last Turn", width=120, fg_color="#FF9800", hover_color="#F57C00", command=self.on_undo)
-                            btn_undo.pack(side="right", padx=(5, 0))
-                            Tooltip(btn_undo, "Revert the game state to the previous turn.")
-
-                    for c in turn.get("choices", []):
-                        if not cheats_allowed and "Cheat Death" in c: continue
-                        color = "#1F6AA5"; hover = "#144870"
-                        if "Restart Game" in c: color = "#D32F2F"; hover = "#9A0007"
-                        elif "Quit" in c: color = "#4A4A4A"; hover = "#333333"
-                        elif "Export" in c: color = "#388E3C"; hover = "#1B5E20"
-                        elif "Undo (Cheat Death" in c: color = "#D32F2F"; hover = "#9A0007"
-                        elif "Start Chapter:" in c or "Conclude the Story" in c: color = "#7B1FA2"; hover = "#4A148C"
-                        
-                        btn = ctk.CTkButton(refs["btn_frame"], text=c, fg_color=color, hover_color=hover, anchor="w", command=lambda action=c: self._execute_action(action))
-                        btn.pack(fill="x", pady=2, padx=5)
-
-        current_width = self.timeline._parent_canvas.winfo_width()
-        if current_width > 100:
-            self._apply_wrapping(current_width)
-            self._last_width = current_width
+        # Dynamically size the box height based on amount of items
+        inv_height = 50 if len(schema) <= 4 else 85
             
-        # Apply the layout and restore the camera
-        target_y = current_scroll_y if retain_scroll else 1.0
+        inv_box = ctk.CTkTextbox(
+            self.inv_frame, wrap="word", height=inv_height,
+            fg_color="transparent", scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
+        )
+        inv_box.pack(fill="x")
         
-        self._maintain_scroll_position(target_y) 
-        # Multi-pass ensures it sticks even if images/text wrap late
-        for ms in [50, 150, 300]:
-            self.after(ms, lambda y=target_y: self._maintain_scroll_position(y))
+        schema_items = list(schema.items())
+        for idx, (key, info) in enumerate(schema_items):
+            val = current_state.get(key, "None")
+            if not val or str(val).strip() == "": val = "None"
+            
+            icon = info.get("icon", "🎒")
+            base_color = info.get("color", "#1F6AA5")
+            dark_bg = get_darker_shade(base_color)
+            is_last = (idx == len(schema_items) - 1)
+            
+            pill = ctk.CTkFrame(inv_box, fg_color=dark_bg, corner_radius=15, border_width=1, border_color=base_color)
+            
+            lbl_i = ctk.CTkLabel(pill, text=icon, font=("Segoe UI Emoji", 14), text_color=base_color)
+            lbl_i.pack(side="left", padx=(8, 4), pady=2)
+            
+            val_str = str(val)
+            display_val = val_str if len(val_str) <= 35 else val_str[:32] + "..."
+            lbl_v = ctk.CTkLabel(pill, text=f"{key}: {display_val}", font=("Arial", 12, "bold"), text_color="white")
+            lbl_v.pack(side="left", padx=(0, 10), pady=2)
+            
+            tip_text = f"{key}:\n{val_str}"
+            Tooltip(pill, tip_text)
+            Tooltip(lbl_i, tip_text)
+            Tooltip(lbl_v, tip_text)
+            
+            inv_box._textbox.window_create("end", window=pill)
+            if not is_last:
+                inv_box.insert("end", "   ", "sep")
                 
-                
-    # ---------------------------------------------------------
-    # UI CARD EDITOR (The "Magic Pencil")
-    # ---------------------------------------------------------
+        inv_box.configure(state="disabled")
 
-    def _open_edit_dialog(self, turn_idx):
-        """Opens the Full Narrative IDE for a specific turn."""
-        if turn_idx < 0 or turn_idx >= len(self.engine.history): return
-        turn = self.engine.history[turn_idx]
-        
-        # Re-poll config to ensure the editor uses the correct font
-        from config import ENGINE_CONFIG
-        f_family = ENGINE_CONFIG.get("prose_font_family", "Georgia")
-        f_size = ENGINE_CONFIG.get("prose_font_size", 15)
-        self.prose_font = (f_family, int(f_size))
-        self.bridge_font = (f_family, max(10, int(f_size)-1), "italic")
-        
+    def _show_full_action(self, full_text):
+        """Spawns a clean, scrollable window to read the unabridged player action."""
         dialog = ctk.CTkToplevel(self)
-        dialog.title(f"Narrative Editor: Turn {turn.get('turn', '?')}")
-        dialog.geometry("900x850")
+        dialog.title("Player Action")
+        dialog.geometry("500x350")
         dialog.attributes("-topmost", True)
-        dialog.grab_set() 
+        dialog.grab_set()
         
-        from ui.tooltip import Tooltip, center_window_on_parent
+        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
-
-        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # --- METADATA SECTION ---
-        meta_grid = ctk.CTkFrame(scroll, fg_color="transparent")
-        meta_grid.pack(fill="x", pady=(0, 20))
+        ctk.CTkLabel(dialog, text="Action Taken:", font=("Arial", 16, "bold"), text_color="#4CAF50").pack(anchor="w", padx=20, pady=(20, 5))
         
-        ctk.CTkLabel(meta_grid, text="Location:", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
-        loc_var = ctk.StringVar(value=turn.get("location", ""))
-        ctk.CTkEntry(meta_grid, textvariable=loc_var, width=350, font=("Arial", 13)).grid(row=1, column=0, padx=(0, 20), sticky="w")
+        box = ctk.CTkTextbox(dialog, wrap="word", font=("Arial", 14))
+        box.insert("1.0", full_text)
+        box.configure(state="disabled")
+        box.pack(fill="both", expand=True, padx=20, pady=5)
         
-        ctk.CTkLabel(meta_grid, text="POV:", font=("Arial", 12, "bold")).grid(row=0, column=1, sticky="w")
-        pov_var = ctk.StringVar(value=turn.get("pov_character", ""))
-        ctk.CTkEntry(meta_grid, textvariable=pov_var, width=250, font=("Arial", 13)).grid(row=1, column=1, sticky="w")
+        ctk.CTkButton(dialog, text="Close", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(pady=15)
+        
+    # ---------------------------------------------------------
+    # ACTION SUBMISSION & THREADING
+    # ---------------------------------------------------------
 
-        # --- NARRATIVE BRIDGE (Transition INTO this turn) ---
-        if turn_idx > 0:
-            br_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
-            br_hdr.pack(fill="x", pady=(0, 5))
-            ctk.CTkLabel(br_hdr, text="Narrative Bridge (Transition from previous turn):", font=("Arial", 12, "bold")).pack(side="left")
-            
-            # Action Buttons
-            btn_clear_br = ctk.CTkButton(br_hdr, text="X Clear", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000")
-            btn_clear_br.pack(side="right", padx=2)
-            Tooltip(btn_clear_br, "Wipe the textbox below.")
+    def on_submit(self):
+        if self.text_input.cget("state") == "disabled": return
+        raw_text = self.text_input.get().strip()
+        if not raw_text: return
+        
+        cmd_type = self.cmd_dropdown.get() if not self.engine.is_campaign else "Standard Action"
+        self.text_input.delete(0, 'end') 
+        
+        if cmd_type == "Expand Notes": final_action = f"EXPAND: {raw_text}"
+        elif cmd_type == "Force Setting": final_action = f"setting: {raw_text}"
+        elif cmd_type == "Force Time": final_action = f"time: {raw_text}"
+        elif cmd_type == "Force POV": final_action = f"pov: {raw_text}"
+        else: final_action = raw_text
 
-            btn_gen_br = ctk.CTkButton(br_hdr, text="⟳ Reroll", width=70, height=24, fg_color="#F57C00", hover_color="#E65100")
-            btn_gen_br.pack(side="right", padx=2)
-            Tooltip(btn_gen_br, "Ask AI to generate a brand new bridge connecting the previous action to this prose.")
+        self._execute_action(final_action)
+        
+    def _execute_action(self, action_string):
+        pc_exact = str(action_string).strip()
+        
+        if pc_exact in ["Export Story", "Export Tragic Ending"]:
+            self.workspace._export_dialog() 
+            return
+        if pc_exact == "Quit":
+            self.workspace.close_workspace()
+            return
             
-            btn_pol_br = ctk.CTkButton(br_hdr, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2")
-            btn_pol_br.pack(side="right", padx=2)
-            Tooltip(btn_pol_br, "AI Copy-Edit: Fix grammar/flow of this bridge.")
-            
-            btn_exp_br = ctk.CTkButton(br_hdr, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F")
-            btn_exp_br.pack(side="right", padx=2)
-            Tooltip(btn_exp_br, "AI Expansion: Make this bridge slightly longer and more descriptive.")
-            
-            bridge_box = ctk.CTkTextbox(scroll, height=100, wrap="word", font=self.prose_font)
-            bridge_box.insert("1.0", turn.get("narrative_bridge", "").replace("\\n", "\n"))
-            bridge_box.pack(fill="x", pady=(0, 20))
-            
-            # Enable OS standard shortcuts
-            from ui.tooltip import apply_global_text_bindings
-            try: bind_modern_text_shortcuts(bridge_box._textbox) # Fallback if global fails
-            except: pass
-            
-            btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
-            
-            # Async Generation Logic
-            def generate_bridge_async():
-                btn_gen_br.configure(state="disabled", text="Generating...")
-                def worker():
-                    b_text = self.engine.request_bridge_generation(turn_idx)
-                    def update_ui():
-                        if b_text and b_text not in ["[OK]", "[FAILED]"]:
-                            bridge_box.delete("1.0", "end")
-                            bridge_box.insert("1.0", b_text)
-                        elif b_text == "[OK]":
-                            from tkinter import messagebox
-                            messagebox.showinfo("Bridge", "The AI determined the transition is already seamless [OK].")
-                        else:
-                            from tkinter import messagebox
-                            messagebox.showerror("Error", "Failed to generate bridge.")
-                        btn_gen_br.configure(state="normal", text="⟳ Reroll")
-                    self.after(0, update_ui)
-                import threading
-                threading.Thread(target=worker, daemon=True).start()
-                
-            def edit_bridge_async(edit_type, btn_ref):
-                current_bridge = bridge_box.get("1.0", "end").strip()
-                if not current_bridge: return
-                
-                orig_text = btn_ref.cget("text")
-                btn_ref.configure(state="disabled", text="Working...")
-                
-                def worker():
-                    from api import TomeWeaverAPI
-                    if edit_type == "polish":
-                        shorthand = f"Proofread and elevate the prose of this transition sentence: '{current_bridge}'"
-                    else:
-                        shorthand = f"Slightly expand this transition sentence by adding sensory detail: '{current_bridge}'"
-                        
-                    success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, "tone", shorthand)
+        self._lock_ui(f"Submitting: '{action_string[:20]}...'")
+        def worker():
+            result = self.engine.submit_action(action_string)
+            def update_ui():
+                if not result and pc_exact != "Restart Game" and not pc_exact.startswith("Undo"):
+                    messagebox.showerror("Generation Error", "The AI failed to generate the next turn.")
+                    self.refresh_timeline(go_to_last=True)
+                    return
+
+                # 1. INSTANT UI UNLOCK: Redraw the UI immediately so the user can read the story!
+                self.refresh_timeline(go_to_last=True)
+
+                # 2. BACKGROUND RAG: Run memory compilation silently while the user reads.
+                def on_progress(current, total):
+                    if current == "Seeding": msg = "Extracting Base Lore..."
+                    elif current == "Condensing": msg = f"{total}..."
+                    elif current == "Reconciling": msg = "Merging duplicates..."
+                    elif current == "Syncing": msg = "Recalculating Timestamps..."
+                    else: msg = f"Processing Chunk {current}/{total}..."
+                    # Just update the status bar gently, do NOT lock the UI
+                    self.after(0, lambda: self.status_var.set(f"Background Task: {msg}"))
                     
-                    def update_ui():
-                        btn_ref.configure(state="normal", text=orig_text)
-                        if success and result:
-                            clean_res = result.strip('"\'')
-                            bridge_box.delete("1.0", "end")
-                            bridge_box.insert("1.0", clean_res)
-                        else:
-                            from tkinter import messagebox
-                            messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
-                            
-                    self.after(0, update_ui)
-                import threading
-                threading.Thread(target=worker, daemon=True).start()
-                
-            btn_gen_br.configure(command=generate_bridge_async)
-            btn_pol_br.configure(command=lambda: edit_bridge_async("polish", btn_pol_br))
-            btn_exp_br.configure(command=lambda: edit_bridge_async("expand", btn_exp_br))
-        else:
-            bridge_box = None
+                def on_complete(success, msg):
+                    self.after(0, lambda: self.status_var.set("Ready."))
 
-        # --- PROSE SECTION ---
-        header_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        header_frame.pack(fill="x", pady=(0, 5))
-        ctk.CTkLabel(header_frame, text="Story Prose:", font=("Arial", 16, "bold")).pack(side="left")
-        
-        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=80, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: [dialog.destroy(), self._trigger_polish(turn_idx)])
-        btn_p.pack(side="right", padx=5)
-        Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow in this specific card.")
-
-        btn_c = ctk.CTkButton(header_frame, text="✨ Condense", width=80, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: [dialog.destroy(), self._trigger_condense(turn_idx)])
-        btn_c.pack(side="right", padx=5)
-        Tooltip(btn_c, "AI Edit: Make this prose shorter and punchier.")
-        
-        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=80, fg_color="#00ACC1", hover_color="#00838F", command=lambda: [dialog.destroy(), self._trigger_expansion(turn_idx)])
-        btn_e.pack(side="right", padx=5)
-        Tooltip(btn_e, "AI Expansion: Add sensory depth to this specific card.")
-
-        story_box = ctk.CTkTextbox(scroll, height=250, wrap="word", font=self.prose_font)
-        story_box.insert("1.0", turn.get("story_text", "").replace("\\n", "\n"))
-        story_box.pack(fill="x", pady=(0, 20))
-
-        # --- CHOICES SECTION ---
-        ctk.CTkLabel(scroll, text="Action Choices:", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
-        
-        self.choice_rows = []
-        choices_container = ctk.CTkFrame(scroll, fg_color="transparent")
-        choices_container.pack(fill="x")
-
-        def render_choice_list():
-            for w in choices_container.winfo_children(): w.destroy()
-            self.choice_rows.clear()
-            
-            curr_choices = turn.get("choices", [])
-            for i, c_text in enumerate(curr_choices):
-                row = ctk.CTkFrame(choices_container, fg_color="transparent")
-                row.pack(fill="x", pady=2)
-                
-                var = ctk.StringVar(value=c_text)
-                ctk.CTkLabel(row, text=f"{i+1}.").pack(side="left", padx=5)
-                entry = ctk.CTkEntry(row, textvariable=var, font=("Arial", 13))
-                entry.pack(side="left", fill="x", expand=True)
-                
-                if not self.engine.is_campaign:
-                    # --- INDIVIDUAL REROLL BUTTON ---
-                    btn_reroll = ctk.CTkButton(row, text="⟳", width=25, fg_color="#F57C00", hover_color="#E65100")
-                    btn_reroll.pack(side="left", padx=2)
-                    Tooltip(btn_reroll, "Generate a new action to replace this one.")
+                self.engine._trigger_memory_compilation(progress_callback=on_progress, completion_callback=on_complete)
                     
-                    def do_reroll(target_var=var, target_btn=btn_reroll):
-                        target_btn.configure(state="disabled", text="...")
-                        
-                        # Extract UI strings on the main thread safely before spawning the worker
-                        current_story = story_box.get("1.0", "end").strip()
-                        
-                        # Gather choices to avoid, stripping out empty strings and the UI placeholder
-                        existing_choices = [
-                            v.get().strip() for v in self.choice_rows 
-                            if v.get().strip() and v.get().strip() != "New action..."
-                        ]
-                        
-                        def worker():
-                            from llm import generate_single_choice
-                            new_choice = generate_single_choice(current_story, existing_choices)
-                            
-                            def update_ui():
-                                if new_choice:
-                                    target_var.set(new_choice)
-                                else:
-                                    from tkinter import messagebox
-                                    messagebox.showerror("Error", "Failed to generate a new choice. Check developer console.")
-                                target_btn.configure(state="normal", text="⟳")
-                            
-                            # Push UI update back to main thread
-                            self.after(0, update_ui)
-                            
-                        import threading
-                        threading.Thread(target=worker, daemon=True).start()
-                        
-                    btn_reroll.configure(command=do_reroll)
-                    
-                    # --- INDIVIDUAL DELETE BUTTON ---
-                    btn_del = ctk.CTkButton(row, text="X", width=25, fg_color="#B71C1C", hover_color="#7F0000", 
-                                            command=lambda idx=i: [turn["choices"].pop(idx), render_choice_list()])
-                    btn_del.pack(side="left", padx=2)
-                    Tooltip(btn_del, "Remove this choice.")
-                
-                self.choice_rows.append(var)
-
-            if not self.engine.is_campaign:
-                btn_row = ctk.CTkFrame(choices_container, fg_color="transparent")
-                btn_row.pack(fill="x", pady=(10, 0))
-                
-                btn_add = ctk.CTkButton(btn_row, text="+ Add Choice", width=100, fg_color="#4A4A4A", hover_color="#333333",
-                                        command=lambda: [turn["choices"].append("New action..."), render_choice_list()])
-                btn_add.pack(side="left", padx=(0, 10))
-                
-                btn_reroll_ch = ctk.CTkButton(btn_row, text="⟳ Reroll Choices", width=120, fg_color="#0288D1", hover_color="#01579B",
-                                        command=lambda: [dialog.destroy(), self._trigger_redo_choices(turn_idx)])
-                btn_reroll_ch.pack(side="left")
-                Tooltip(btn_reroll_ch, "Ask AI to generate a fresh set of choices for this exact card.")
-
-        render_choice_list()
-
-        # --- HISTORICAL PLAYER ACTION (Leaves this turn) ---
-        pc_var = None
-        if turn.get("player_choice") is not None:
-            ctk.CTkLabel(scroll, text="Player Action Taken:", font=("Arial", 14, "bold")).pack(anchor="w", pady=(20, 0))
-            pc_var = ctk.StringVar(value=turn.get("player_choice", ""))
-            ctk.CTkEntry(scroll, textvariable=pc_var, font=("Arial", 14), text_color="#4CAF50").pack(fill="x", pady=(0, 15))
-
-        # --- SAVE ACTIONS ---
-        def on_save():
-            self.engine.history[turn_idx]["location"] = loc_var.get().strip()
-            self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
-            self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip().replace("\n", "\\n")
-            if "choices" in turn: 
-                self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in self.choice_rows if v.get().strip()]
-            
-            if pc_var: 
-                self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
-                
-            # Bridge handling
-            if bridge_box is not None:
-                b_text = bridge_box.get("1.0", "end").strip().replace("\n", "\\n")
-                if b_text:
-                    self.engine.history[turn_idx]["narrative_bridge"] = b_text
-                elif "narrative_bridge" in self.engine.history[turn_idx]:
-                    del self.engine.history[turn_idx]["narrative_bridge"]
-            
-            # --- THE JANITOR HOOK ---
-            # Automatically un-archives newly mentioned entities, and re-archives deleted hallucinations
-            self.engine._resync_all_visibility()
-            
-            self.engine.save_state()
-            self._render_visible_cards(retain_scroll=True) 
-            dialog.destroy()
-
-        def on_seed_save():
-            seed_file = self.engine.adv_dir / "start_turn.json"
-            import json
-            with open(seed_file, "w", encoding="utf-8") as f:
-                json.dump(turn, f, indent=4)
-            from tkinter import messagebox
-            messagebox.showinfo("Seed Created", "This turn has been saved as the official Story Seed!\nAny new game will begin exactly here.")
-
-        # --- FOOTER BUTTON ROW ---
-        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_row.pack(side="bottom", fill="x", pady=20, padx=20)
-        
-        ctk.CTkButton(btn_row, text="Commit All Changes", font=("Arial", 14, "bold"), height=40,
-                      fg_color="#2E7D32", hover_color="#1B5E20", command=on_save).pack(side="right", padx=10)
-        
-        if turn.get("turn", 0) <= 1:
-            btn_s = ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=40,
-                                  fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save)
-            btn_s.pack(side="left", padx=10)
-            Tooltip(btn_s, "Lock this prose and choices as the permanent starting point for new games.")
-
-            
-    def _open_edit_dialog_(self, turn_idx):
-        """(Legacy) Opens a modal dialog allowing the user to directly edit JSON history data."""
-        if turn_idx < 0 or turn_idx >= len(self.engine.history): return
-        turn = self.engine.history[turn_idx]
-        
-        dialog = ctk.CTkToplevel(self)
-        dialog.title(f"Editing Turn {turn.get('turn', '?')}")
-        dialog.geometry("800x800")
-        dialog.attributes("-topmost", True)
-        dialog.grab_set() 
-        
-        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        ctk.CTkLabel(scroll, text="Location:", font=("Arial", 14, "bold")).pack(anchor="w")
-        loc_var = ctk.StringVar(value=turn.get("location", ""))
-        ctk.CTkEntry(scroll, textvariable=loc_var, font=("Arial", 14)).pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(scroll, text="POV Character:", font=("Arial", 14, "bold")).pack(anchor="w")
-        pov_var = ctk.StringVar(value=turn.get("pov_character", ""))
-        ctk.CTkEntry(scroll, textvariable=pov_var, font=("Arial", 14)).pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(scroll, text="Story Text (Use exact line breaks):", font=("Arial", 14, "bold")).pack(anchor="w")
-        story_box = ctk.CTkTextbox(scroll, height=250, wrap="word", font=self.prose_font)
-        story_box.insert("1.0", turn.get("story_text", "").replace("\\n", "\n"))
-        story_box.pack(fill="x", pady=(0, 15))
-        
-        choice_vars = []
-        if "choices" in turn:
-            ctk.CTkLabel(scroll, text="Available Choices:", font=("Arial", 14, "bold")).pack(anchor="w")
-            for i, c in enumerate(turn["choices"], 1):
-                c_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-                c_frame.pack(fill="x", pady=2)
-                ctk.CTkLabel(c_frame, text=f"{i}.").pack(side="left", padx=(0, 5))
-                var = ctk.StringVar(value=c)
-                ctk.CTkEntry(c_frame, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-                choice_vars.append(var)
-                
-        pc_var = None
-        if turn.get("player_choice") is not None:
-            ctk.CTkLabel(scroll, text="Player Action Taken:", font=("Arial", 14, "bold")).pack(anchor="w", pady=(15, 0))
-            pc_var = ctk.StringVar(value=turn.get("player_choice", ""))
-            ctk.CTkEntry(scroll, textvariable=pc_var, font=("Arial", 14), text_color="#4CAF50").pack(fill="x", pady=(0, 15))
-            
-            # Allow editing the Narrative Bridge
-            ctk.CTkLabel(scroll, text="Narrative Bridge (Prose transition):", font=("Arial", 14, "bold")).pack(anchor="w", pady=(15, 0))
-            bridge_var = ctk.StringVar(value=turn.get("narrative_bridge", ""))
-            ctk.CTkEntry(scroll, textvariable=bridge_var, font=self.bridge_font, text_color="#82B1FF").pack(fill="x", pady=(0, 15))
-
-        def on_save():
-            # Update the exact dictionary using the guaranteed absolute index
-            self.engine.history[turn_idx]["location"] = loc_var.get().strip()
-            self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
-            self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip().replace("\n", "\\n")
-            
-            if "choices" in turn: 
-                self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in choice_vars if v.get().strip()]
-            
-            if pc_var: 
-                self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
-                # Bridge variable only exists if player_choice exists
-                if bridge_var.get().strip():
-                    self.engine.history[turn_idx]["narrative_bridge"] = bridge_var.get().strip()
-                elif "narrative_bridge" in self.engine.history[turn_idx]:
-                    # If they cleared the box, delete the key so it doesn't show an empty string
-                    del self.engine.history[turn_idx]["narrative_bridge"]
-            
-            self.engine.save_state()
-            self._render_visible_cards() # Visually refresh the timeline
-            dialog.destroy()
-            
-        def on_seed_save():
-            """Exports this exact turn as the start_turn.json seed."""
-            seed_file = self.engine.adv_dir / "start_turn.json"
-            import json
-            with open(seed_file, "w", encoding="utf-8") as f:
-                json.dump(turn, f, indent=4)
-            messagebox.showinfo("Seed Created", "This turn has been saved as the official Story Seed!\nAny new game will begin exactly here.")
-
-        btn_row = ctk.CTkFrame(scroll, fg_color="transparent")
-        btn_row.pack(pady=20)
-        
-        ctk.CTkButton(btn_row, text="Save Changes", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=on_save).pack(side="left", padx=10)
-        
-        # Only show the Seed generator option for Turn 0 or Turn 1
-        if turn.get("turn", 0) <= 1:
-            ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save).pack(side="left", padx=10)
+            self.after(0, update_ui)
+        threading.Thread(target=worker, daemon=True).start()
 
     # ---------------------------------------------------------
-    # NON-DESTRUCTIVE EDITING (DIFF UI)
+    # NON-DESTRUCTIVE EDITORS
+    # ---------------------------------------------------------
+
+    def _delete_bridge(self, turn_idx):
+        if messagebox.askyesno("Delete Bridge", "Are you sure you want to delete this transition?"):
+            if "narrative_bridge" in self.engine.history[turn_idx]:
+                del self.engine.history[turn_idx]["narrative_bridge"]
+                self.engine._resync_all_visibility()
+                self.engine.save_state()
+                self._render_turn()
+
+    def _generate_bridge(self, turn_idx):
+        self._lock_ui("Regenerating transition...")
+        def worker():
+            b_text = self.engine.request_bridge_generation(turn_idx)
+            def update_ui():
+                if b_text and b_text not in ["[OK]", "[FAILED]"]:
+                    self.engine.history[turn_idx]["narrative_bridge"] = b_text
+                    self.engine.save_state()
+                self._unlock_ui("Ready.")
+                self._render_turn() 
+            self.after(0, update_ui)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_bridge_edit(self, turn_idx, edit_type):
+        current_bridge = self.engine.history[turn_idx].get("narrative_bridge", "").strip()
+        if not current_bridge: return
+            
+        self._lock_ui(f"Applying {edit_type} to bridge...")
+        self.engine.backup_turn = self.engine.history[turn_idx].copy()
+        self.engine.backup_turn["story_text"] = current_bridge 
+        self.engine.backup_turn_idx = turn_idx
+        
+        def worker():
+            from api import TomeWeaverAPI
+            # Pass the Engine so the API can construct the full Narrative Sandwich + RAG Lore
+            success, result = TomeWeaverAPI.edit_narrative_bridge(self.engine, turn_idx, current_bridge, edit_type)
+            
+            def update_ui():
+                if success and result:
+                    clean_result = result.replace('"', '').replace('*', '').strip()
+                    draft = self.engine.backup_turn.copy()
+                    draft["story_text"] = clean_result
+                    self._show_draft_diff(draft, f"{edit_type} (Bridge)")
+                else:
+                    messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
+                    self.engine.cancel_draft()
+                    self._unlock_ui("Ready.")
+            self.after(0, update_ui)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_undo(self):
+        self._lock_ui("Undoing last choice...")
+        def worker():
+            self.engine.undo()
+            self.after(0, lambda: self.refresh_timeline(go_to_last=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_redo(self):
+        self._lock_ui("Generating alternative version...")
+        def worker():
+            self.engine.redo_turn()
+            self.after(0, lambda: self.refresh_timeline(go_to_last=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_redo_choices(self, turn_idx):
+        self._lock_ui("Generating new choices...")
+        def worker():
+            self.engine.redo_choices(turn_idx)
+            self.after(0, self._render_turn)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_polish(self, turn_idx):
+        self._lock_ui("Generating polished prose...")
+        def worker():
+            draft = self.engine.request_polish(turn_idx)
+            self.after(0, lambda: self._show_draft_diff(draft, "polish"))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_expansion(self, turn_idx):
+        self._lock_ui("Expanding turn prose...")
+        def worker():
+            draft = self.engine.request_expansion(turn_idx)
+            self.after(0, lambda: self._show_draft_diff(draft, "expansion"))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_condense(self, turn_idx):
+        self._lock_ui("Condensing turn prose...")
+        def worker():
+            draft = self.engine.request_condense(turn_idx)
+            self.after(0, lambda: self._show_draft_diff(draft, "condense"))
+        threading.Thread(target=worker, daemon=True).start()
+        
+    def _trigger_fix(self, turn_idx):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Director Fix")
+        dialog.geometry("750x620") 
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+        
+        lbl_src = ctk.CTkLabel(dialog, text="1. Target Text (Optional - Highlight text in the story to auto-fill):", font=("Arial", 12, "bold"), text_color="#00BCD4")
+        lbl_src.pack(anchor="w", padx=20, pady=(20, 2))
+        source_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        source_box.pack(fill="x", padx=20)
+        
+        lbl_tgt = ctk.CTkLabel(dialog, text="2. Literal Replacement (Optional):", font=("Arial", 12, "bold"), text_color="#4CAF50")
+        lbl_tgt.pack(anchor="w", padx=20, pady=(15, 2))
+        target_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        target_box.pack(fill="x", padx=20)
+        
+        lbl_inst = ctk.CTkLabel(dialog, text="3. AI Editor Instruction (Optional):", font=("Arial", 12, "bold"), text_color="#FF9800")
+        lbl_inst.pack(anchor="w", padx=20, pady=(15, 2))
+        inst_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
+        inst_box.pack(fill="x", padx=20)
+        
+        bot_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        bot_frame.pack(fill="x", padx=20, pady=(15, 0))
+        
+        ctk.CTkLabel(bot_frame, text="AI Freedom:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
+        saved_freedom = self.engine.setup_data.get("fix_freedom", "Balanced (0.4)")
+        freedom_var = ctk.StringVar(value=saved_freedom)
+        
+        freedom_menu = ctk.CTkOptionMenu(
+            bot_frame, variable=freedom_var, 
+            values=["Very Conservative (0.1)", "Conservative (0.2)", "Balanced (0.4)", "Creative (0.7)", "Very Creative (0.9)"],
+            width=180
+        )
+        freedom_menu.pack(side="left", padx=10)
+        
+        try:
+            if self.prose_box.tag_ranges("sel"):
+                selected = self.prose_box.get("sel.first", "sel.last").replace('\n', ' ').strip()
+                if selected: source_box.insert("1.0", selected)
+        except Exception: pass
+            
+        inst_box.focus()
+        
+        def on_submit(*args):
+            src = source_box.get("1.0", "end").strip()
+            tgt = target_box.get("1.0", "end").strip()
+            inst = inst_box.get("1.0", "end").strip()
+            
+            if not tgt and not inst: return 
+            
+            if src and tgt and inst:
+                instruction = f"Find the text '{src}' and replace it literally with '{tgt}'. Then, apply this editorial instruction to the surrounding scene: {inst}"
+                display_title = f"{tgt} (+ {inst})"
+            elif src and tgt:
+                instruction = f"Find the exact text '{src}' and swap it literally with '{tgt}'. Do not add narrative commentary about the change."
+                display_title = tgt
+            elif src and inst:
+                instruction = f"Locate the text '{src}' and rewrite it according to this instruction: {inst}"
+                display_title = inst
+            elif tgt and not src and not inst:
+                instruction = f"Insert or apply this exact text to the scene: '{tgt}'"
+                display_title = tgt
+            else:
+                instruction = f"Apply this editorial instruction to the scene: {inst}"
+                display_title = inst
+                
+            freedom_str = freedom_var.get()
+            match = re.search(r'\(([\d\.]+)\)', freedom_str)
+            target_temp = float(match.group(1)) if match else 0.4
+            
+            self.engine.setup_data["fix_freedom"] = freedom_str
+            from config import save_json_atomically
+            save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
+                
+            dialog.destroy()
+            
+            self._lock_ui(f"Applying fix: {display_title[:15]}...")
+            def worker():
+                draft = self.engine.request_fix(instruction, turn_idx, temp_override=target_temp)
+                self.after(0, lambda: self._show_draft_diff(draft, "fix", display_title))
+            threading.Thread(target=worker, daemon=True).start()
+            
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Apply Fix", width=120, font=("Arial", 14, "bold"), fg_color="#009688", hover_color="#00796B", command=on_submit).pack(side="right", padx=10)
+
+    # ---------------------------------------------------------
+    # DIFF UI & MANUAL EDIT
     # ---------------------------------------------------------
 
     def _show_draft_diff(self, draft_turn, action_type, instruction=None):
-        """
-        Displays a side-by-side modal comparing the original text with the AI's new draft.
-        Uses Python's difflib to highlight inserted/deleted words like a Git commit.
-        The player can Accept, Reroll, or Cancel the proposed draft.
-        """
         if not draft_turn:
             self._unlock_ui("Ready.")
             messagebox.showerror("Error", "The engine failed to generate a draft. Check the Developer Console.")
             self.engine.cancel_draft()
-            self.refresh_timeline()
+            self._render_turn()
             return
             
         dialog = ctk.CTkToplevel(self)
@@ -1152,58 +839,40 @@ class StoryTab(ctk.CTkFrame):
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
-        # --- EXTRACT AND COMPARE TEXT ---
         orig_text = self.engine.backup_turn.get("story_text", "").replace("\\n", "\n").strip()
         new_text = draft_turn.get("story_text", "").replace("\\n", "\n").strip()
         is_identical = (orig_text == new_text)
 
-        # --- THE "IN YOUR FACE" IDENTICAL ALERT ---
         if is_identical:
             warn_frame = ctk.CTkFrame(dialog, fg_color="#FBC02D", corner_radius=8)
             warn_frame.pack(fill="x", padx=20, pady=(20, 0))
-            ctk.CTkLabel(
-                warn_frame, 
-                text="⚠️ NO CHANGES DETECTED: The AI returned the exact same text! Hit 'Reroll' to try again. ⚠️", 
-                font=("Arial", 16, "bold"), text_color="black"
-            ).pack(pady=10)
+            ctk.CTkLabel(warn_frame, text="⚠️ NO CHANGES DETECTED: The AI returned the exact same text! Hit 'Reroll' to try again. ⚠️", font=("Arial", 16, "bold"), text_color="black").pack(pady=10)
 
-        # Split screen container
         grid = ctk.CTkFrame(dialog, fg_color="transparent")
         grid.pack(fill="both", expand=True, padx=20, pady=20)
         grid.columnconfigure(0, weight=1, uniform="group1")
         grid.columnconfigure(1, weight=1, uniform="group1")
         grid.rowconfigure(1, weight=1)
 
-        # Headers
         ctk.CTkLabel(grid, text="Original Text", font=("Arial", 16, "bold"), text_color="#F44336").grid(row=0, column=0, pady=(0, 10))
-        
         new_hdr_color = "#FBC02D" if is_identical else "#4CAF50"
         new_hdr_text = "Proposed Revision (IDENTICAL)" if is_identical else "Proposed Revision"
         ctk.CTkLabel(grid, text=new_hdr_text, font=("Arial", 16, "bold"), text_color=new_hdr_color).grid(row=0, column=1, pady=(0, 10))
 
-        # Text Boxes
         orig_box = ctk.CTkTextbox(grid, wrap="word", font=self.prose_font)
         orig_box.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
         
         new_box = ctk.CTkTextbox(grid, wrap="word", font=self.prose_font)
         new_box.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
 
-        # --- VISUAL DIFF HIGHLIGHTING ---
-        import difflib
-        import re
+        orig_box.tag_config("delete", background="#5C1B1B") 
+        orig_box.tag_config("replace", background="#7A4B00") 
+        new_box.tag_config("insert", background="#1B4B1B") 
+        new_box.tag_config("replace", background="#7A4B00") 
 
-        # Configure color tags for highlighting
-        orig_box.tag_config("delete", background="#5C1B1B") # Dark Red
-        orig_box.tag_config("replace", background="#7A4B00") # Dark Orange
-        
-        new_box.tag_config("insert", background="#1B4B1B") # Dark Green
-        new_box.tag_config("replace", background="#7A4B00") # Dark Orange
-
-        # Split text while preserving whitespace so the formatting remains perfect
         orig_tokens = re.split(r'(\s+)', orig_text)
         new_tokens = re.split(r'(\s+)', new_text)
 
-        # Compare the tokens using difflib
         matcher = difflib.SequenceMatcher(None, orig_tokens, new_tokens)
         
         for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -1221,42 +890,34 @@ class StoryTab(ctk.CTkFrame):
             elif opcode == 'insert':
                 new_box.insert("end", new_slice, "insert")
 
-        # Disable editing after inserting text
         orig_box.configure(state="disabled")
         new_box.configure(state="disabled")
 
-        # Button Bar
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
 
         def on_accept():
-            # Intercept special bridge edits
             if "(Bridge)" in action_type:
                 idx = self.engine.backup_turn_idx
-                # The edited text is stored in the mock draft's story_text field
                 self.engine.history[idx]["narrative_bridge"] = draft_turn["story_text"]
+                self.engine._resync_all_visibility()
                 self.engine.save_state()
-                self.engine.cancel_draft() # Cleans up the mock backup variables
+                self.engine.cancel_draft()
             else:
                 self.engine.commit_draft(draft_turn)
                 
             dialog.destroy()
-            self.refresh_timeline(retain_scroll=True)
+            self._render_turn()
 
         def on_cancel():
             self.engine.cancel_draft()
             dialog.destroy()
-            self.refresh_timeline()
+            self._render_turn()
 
         def on_retry():
-            # Trash this draft, lock the UI, and ask the LLM for a new one using the SAFE endpoint
             dialog.destroy()
-            
-            # Special handling for retry loops
-            if action_type == "expansion":
-                self._trigger_expansion()
-            elif action_type == "condense":
-                self._trigger_condense()
+            if action_type == "expansion": self._trigger_expansion(self.current_turn_idx)
+            elif action_type == "condense": self._trigger_condense(self.current_turn_idx)
             else:
                 self._lock_ui(f"Rerolling {action_type} draft...")
                 def worker():
@@ -1264,448 +925,361 @@ class StoryTab(ctk.CTkFrame):
                     self.after(0, lambda: self._show_draft_diff(new_draft, action_type, instruction))
                 threading.Thread(target=worker, daemon=True).start()
                 
-
         ctk.CTkButton(btn_frame, text="Cancel (Discard)", fg_color="#D32F2F", hover_color="#9A0007", width=120, command=on_cancel).pack(side="left")
         
-        # Center the Retry button
         center_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
         center_frame.pack(side="left", expand=True)
         ctk.CTkButton(center_frame, text="⟳ Reroll Draft", fg_color="#FF9800", hover_color="#F57C00", width=120, command=on_retry).pack()
         
         ctk.CTkButton(btn_frame, text="Accept Revision", fg_color="#388E3C", hover_color="#1B5E20", width=120, command=on_accept).pack(side="right") 
         
-    # ---------------------------------------------------------
-    # ACTION SUBMISSION & ASYNC THREADING
-    # ---------------------------------------------------------
-
-    def on_submit(self):
-        """Gathers text from the input bar and passes it to the engine."""
-        raw_text = self.text_input.get().strip()
-        if not raw_text: return
+    def _open_edit_dialog(self, turn_idx):
+        if turn_idx < 0 or turn_idx >= len(self.engine.history): return
+        turn = self.engine.history[turn_idx]
         
-        # Force Standard Action if Campaign mode hides the dropdown
-        cmd_type = self.cmd_dropdown.get() if not self.engine.is_campaign else "Standard Action"
-        self.text_input.delete(0, 'end') 
-        
-        if cmd_type == "Expand Notes": final_action = f"EXPAND: {raw_text}"
-        elif cmd_type == "Force Setting": final_action = f"setting: {raw_text}"
-        elif cmd_type == "Force Time": final_action = f"time: {raw_text}"
-        elif cmd_type == "Force POV": final_action = f"pov: {raw_text}"
-        else: final_action = raw_text
-
-        self._execute_action(final_action)
-        
-    def on_undo(self):
-        """Destructively pops the last action from history."""
-        self._lock_ui("Undoing last choice...")
-        def worker():
-            self.engine.undo()
-            self.after(0, self.refresh_timeline)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_redo(self):
-        """Destructively rerolls the entire current turn."""
-        self._lock_ui("Generating alternative version...")
-        def worker():
-            # Directly call the destructive redo endpoint and refresh the screen
-            self.engine.redo_turn()
-            self.after(0, self.refresh_timeline)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_redo_choices(self, turn_idx=None):
-        self._lock_ui("Generating new choices...")
-        def worker():
-            self.engine.redo_choices(turn_idx)
-            self.after(0, self.refresh_timeline)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_polish(self, turn_idx=None):
-        self._lock_ui("Generating polished prose...")
-        def worker():
-            draft = self.engine.request_polish(turn_idx)
-            self.after(0, lambda: self._show_draft_diff(draft, "polish"))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_expansion(self, turn_idx=None):
-        self._lock_ui("Expanding turn prose...")
-        def worker():
-            draft = self.engine.request_expansion(turn_idx)
-            self.after(0, lambda: self._show_draft_diff(draft, "expansion"))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_condense(self, turn_idx=None):
-        self._lock_ui("Condensing turn prose...")
-        def worker():
-            draft = self.engine.request_condense(turn_idx)
-            self.after(0, lambda: self._show_draft_diff(draft, "condense"))
-        threading.Thread(target=worker, daemon=True).start()
-        
-    def _trigger_fix(self, turn_idx=None, textbox=None):
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Director Fix")
-        dialog.geometry("750x620") # Taller to fit 3 fields comfortably
+        dialog.title(f"Narrative Editor: Turn {turn.get('turn', '?')}")
+        dialog.geometry("900x850")
         dialog.attributes("-topmost", True)
-        dialog.grab_set()
+        dialog.grab_set() 
         
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
+
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # --- FIELD 1: REPLACE SOURCE ---
-        lbl_src = ctk.CTkLabel(dialog, text="1. Target Text (Optional - Highlight text in the story to auto-fill):", font=("Arial", 12, "bold"), text_color="#00BCD4")
-        lbl_src.pack(anchor="w", padx=20, pady=(20, 2))
-        Tooltip(lbl_src, "The exact text currently in the story that you want to target.")
-        source_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
-        source_box.pack(fill="x", padx=20)
+        meta_grid = ctk.CTkFrame(scroll, fg_color="transparent")
+        meta_grid.pack(fill="x", pady=(0, 20))
         
-        # --- FIELD 2: LITERAL REPLACEMENT ---
-        lbl_tgt = ctk.CTkLabel(dialog, text="2. Literal Replacement (Optional):", font=("Arial", 12, "bold"), text_color="#4CAF50")
-        lbl_tgt.pack(anchor="w", padx=20, pady=(15, 2))
-        Tooltip(lbl_tgt, "Use this to swap strings verbatim (e.g. Change 'Bob' to 'Jack'). The AI will copy-paste this exactly.")
-        target_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
-        target_box.pack(fill="x", padx=20)
+        ctk.CTkLabel(meta_grid, text="Location:", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
+        loc_var = ctk.StringVar(value=turn.get("location", ""))
+        ctk.CTkEntry(meta_grid, textvariable=loc_var, width=350, font=("Arial", 13)).grid(row=1, column=0, padx=(0, 20), sticky="w")
         
-        # --- FIELD 3: AI INSTRUCTION ---
-        lbl_inst = ctk.CTkLabel(dialog, text="3. AI Editor Instruction (Optional):", font=("Arial", 12, "bold"), text_color="#FF9800")
-        lbl_inst.pack(anchor="w", padx=20, pady=(15, 2))
-        Tooltip(lbl_inst, "Use this to tell the AI *how* to rewrite the scene (e.g. 'Make it raining', or 'Make her sound angry').")
-        inst_box = ctk.CTkTextbox(dialog, height=80, font=("Arial", 14), wrap="word")
-        inst_box.pack(fill="x", padx=20)
-        
-        # --- TEMPERATURE DROPDOWN ---
-        bot_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        bot_frame.pack(fill="x", padx=20, pady=(15, 0))
-        
-        ctk.CTkLabel(bot_frame, text="AI Freedom:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
-        
-        # Load the saved preference or default to Balanced
-        saved_freedom = self.engine.setup_data.get("fix_freedom", "Balanced (0.4)")
-        freedom_var = ctk.StringVar(value=saved_freedom)
-        
-        freedom_menu = ctk.CTkOptionMenu(
-            bot_frame, variable=freedom_var, 
-            values=["Very Conservative (0.1)", "Conservative (0.2)", "Balanced (0.4)", "Creative (0.7)", "Very Creative (0.9)"],
-            width=180
-        )
-        freedom_menu.pack(side="left", padx=10)
-        Tooltip(freedom_menu, "Conservative = Exact literal swaps. Creative = The AI will rewrite surrounding sentences to make the edit flow better.")
-        
-        # Auto-fill from highlighted text
-        if textbox:
-            try:
-                if textbox.tag_ranges("sel"):
-                    selected = textbox.get("sel.first", "sel.last").replace('\n', ' ').strip()
-                    if selected: 
-                        source_box.insert("1.0", selected)
-            except Exception: pass
+        ctk.CTkLabel(meta_grid, text="POV:", font=("Arial", 12, "bold")).grid(row=0, column=1, sticky="w")
+        pov_var = ctk.StringVar(value=turn.get("pov_character", ""))
+        ctk.CTkEntry(meta_grid, textvariable=pov_var, width=250, font=("Arial", 13)).grid(row=1, column=1, sticky="w")
+
+        if turn_idx > 0:
+            br_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+            br_hdr.pack(fill="x", pady=(0, 5))
+            ctk.CTkLabel(br_hdr, text="Narrative Bridge (Transition):", font=("Arial", 12, "bold")).pack(side="left")
             
-        inst_box.focus()
-        
-        def on_submit(*args):
-            src = source_box.get("1.0", "end").strip()
-            tgt = target_box.get("1.0", "end").strip()
-            inst = inst_box.get("1.0", "end").strip()
+            # --- RESTORED BRIDGE TOOLS ---
+            btn_clear_br = ctk.CTkButton(br_hdr, text="X Clear", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000")
+            btn_clear_br.pack(side="right", padx=2)
+            Tooltip(btn_clear_br, "Wipe the textbox below.")
+
+            btn_pol_br = ctk.CTkButton(br_hdr, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2")
+            btn_pol_br.pack(side="right", padx=2)
+            Tooltip(btn_pol_br, "AI Copy-Edit: Fix grammar/flow of this bridge.")
             
-            if not tgt and not inst:
-                return # Must provide at least a replacement or an instruction!
+            btn_cond_br = ctk.CTkButton(br_hdr, text="✨ Condense", width=70, height=24, fg_color="#3F51B5", hover_color="#303F9F")
+            btn_cond_br.pack(side="right", padx=2)
+            Tooltip(btn_cond_br, "AI Edit: Make this bridge shorter and punchier.")
+                        
+            btn_exp_br = ctk.CTkButton(br_hdr, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F")
+            btn_exp_br.pack(side="right", padx=2)
+            Tooltip(btn_exp_br, "AI Expansion: Make this bridge slightly longer and more descriptive.")
             
-            # Smart Formatter: Combines the 3 fields into strict editor syntax for the LLM
-            if src and tgt and inst:
-                instruction = f"Find the text '{src}' and replace it literally with '{tgt}'. Then, apply this editorial instruction to the surrounding scene: {inst}"
-                display_title = f"{tgt} (+ {inst})"
-            elif src and tgt:
-                instruction = f"Find the exact text '{src}' and swap it literally with '{tgt}'. Do not add narrative commentary about the change."
-                display_title = tgt
-            elif src and inst:
-                instruction = f"Locate the text '{src}' and rewrite it according to this instruction: {inst}"
-                display_title = inst
-            elif tgt and not src and not inst:
-                instruction = f"Insert or apply this exact text to the scene: '{tgt}'"
-                display_title = tgt
-            else:
-                instruction = f"Apply this editorial instruction to the scene: {inst}"
-                display_title = inst
+            btn_gen_br = ctk.CTkButton(br_hdr, text="⟳ Reroll", width=70, height=24, fg_color="#F57C00", hover_color="#E65100")
+            btn_gen_br.pack(side="right", padx=2)
+            Tooltip(btn_gen_br, "Ask AI to generate a brand new bridge connecting the previous action to this prose.")
+            
+            bridge_box = ctk.CTkTextbox(scroll, height=100, wrap="word", font=self.bridge_font)
+            bridge_box._textbox.configure(spacing2=6, font=self.bridge_font)
+            bridge_box.insert("1.0", clean_prose(turn.get("narrative_bridge", "")))
+            bridge_box.pack(fill="x", pady=(0, 20))
+            
+            from ui.tooltip import apply_global_text_bindings
+            try: apply_global_text_bindings(bridge_box._textbox)
+            except: pass
+            
+            btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
+            
+            def generate_bridge_async():
+                btn_gen_br.configure(state="disabled", text="Generating...")
+                def worker():
+                    b_text = self.engine.request_bridge_generation(turn_idx)
+                    def update_ui():
+                        if b_text and b_text not in ["[OK]", "[FAILED]"]:
+                            bridge_box.delete("1.0", "end")
+                            bridge_box.insert("1.0", clean_prose(b_text))
+                        elif b_text == "[OK]":
+                            from tkinter import messagebox
+                            messagebox.showinfo("Bridge", "The AI determined the transition is already seamless [OK].")
+                        else:
+                            from tkinter import messagebox
+                            messagebox.showerror("Error", "Failed to generate bridge.")
+                        btn_gen_br.configure(state="normal", text="⟳ Reroll")
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
                 
-            # Extract float from string (e.g. "Conservative (0.2)" -> 0.2)
-            freedom_str = freedom_var.get()
-            import re
-            match = re.search(r'\(([\d\.]+)\)', freedom_str)
-            target_temp = float(match.group(1)) if match else 0.4
-            
-            # Save preference to engine memory
-            self.engine.setup_data["fix_freedom"] = freedom_str
-            from config import save_json_atomically
-            save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
+            def edit_bridge_async(edit_type, btn_ref):
+                current_bridge = bridge_box.get("1.0", "end").strip()
+                if not current_bridge: return
+                orig_text = btn_ref.cget("text")
+                btn_ref.configure(state="disabled", text="Working...")
+                def worker():
+                    from api import TomeWeaverAPI
+                    # Pass the Engine so the API can construct the full Narrative Sandwich + RAG Lore
+                    success, result = TomeWeaverAPI.edit_narrative_bridge(self.engine, turn_idx, current_bridge, edit_type)
+                    
+                    def update_ui():
+                        btn_ref.configure(state="normal", text=orig_text)
+                        if success and result:
+                            clean_res = result.strip('"\'')
+                            bridge_box.delete("1.0", "end")
+                            bridge_box.insert("1.0", clean_prose(clean_res))
+                        else:
+                            from tkinter import messagebox
+                            messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
                 
+            btn_gen_br.configure(command=generate_bridge_async)
+            btn_pol_br.configure(command=lambda: edit_bridge_async("polish", btn_pol_br))
+            btn_cond_br.configure(command=lambda: edit_bridge_async("condense", btn_cond_br))
+            btn_exp_br.configure(command=lambda: edit_bridge_async("expand", btn_exp_br))
+        else:
+            bridge_box = None
+
+        header_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 5))
+        ctk.CTkLabel(header_frame, text="Story Prose:", font=("Arial", 16, "bold")).pack(side="left")
+
+        # --- RESTORED STORY TOOLS ---
+        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: [dialog.destroy(), self._trigger_polish(turn_idx)])
+        btn_p.pack(side="right", padx=2)
+        Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow in this specific card.")
+
+        btn_c = ctk.CTkButton(header_frame, text="✨ Condense", width=70, height=24, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: [dialog.destroy(), self._trigger_condense(turn_idx)])
+        btn_c.pack(side="right", padx=2)
+        Tooltip(btn_c, "AI Edit: Make this prose shorter and punchier.")
+        
+        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F", command=lambda: [dialog.destroy(), self._trigger_expansion(turn_idx)])
+        btn_e.pack(side="right", padx=2)
+        Tooltip(btn_e, "AI Expansion: Add sensory depth to this specific card.")
+
+        story_box = ctk.CTkTextbox(scroll, height=350, wrap="word", font=self.prose_font)
+        story_box._textbox.configure(spacing2=6, font=self.prose_font)
+        story_box.insert("1.0", clean_prose(turn.get("story_text", "")))
+        story_box.pack(fill="x", pady=(0, 20))
+
+        ctk.CTkLabel(scroll, text="Action Choices:", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+        
+        choice_rows = []
+        choices_container = ctk.CTkFrame(scroll, fg_color="transparent")
+        choices_container.pack(fill="x")
+
+        def render_choice_list():
+            for w in choices_container.winfo_children(): w.destroy()
+            choice_rows.clear()
+            
+            curr_choices = turn.get("choices", [])
+            for i, c_text in enumerate(curr_choices):
+                row = ctk.CTkFrame(choices_container, fg_color="transparent")
+                row.pack(fill="x", pady=2)
+                
+                var = ctk.StringVar(value=c_text)
+                ctk.CTkLabel(row, text=f"{i+1}.").pack(side="left", padx=5)
+                entry = ctk.CTkEntry(row, textvariable=var, font=("Arial", 13))
+                entry.pack(side="left", fill="x", expand=True)
+                
+                if not self.engine.is_campaign:
+                    # --- RESTORED INDIVIDUAL REROLL BUTTON ---
+                    btn_reroll = ctk.CTkButton(row, text="⟳", width=25, fg_color="#F57C00", hover_color="#E65100")
+                    btn_reroll.pack(side="left", padx=2)
+                    Tooltip(btn_reroll, "Generate a new action to replace this one.")
+                    
+                    def do_reroll(target_var=var, target_btn=btn_reroll):
+                        target_btn.configure(state="disabled", text="...")
+                        current_story = story_box.get("1.0", "end").strip()
+                        existing_choices = [v.get().strip() for v in choice_rows if v.get().strip() and v.get().strip() != "New action..."]
+                        def worker():
+                            from llm import generate_single_choice
+                            new_choice = generate_single_choice(current_story, existing_choices)
+                            def update_ui():
+                                if new_choice: target_var.set(new_choice)
+                                else:
+                                    from tkinter import messagebox
+                                    messagebox.showerror("Error", "Failed to generate a new choice. Check developer console.")
+                                target_btn.configure(state="normal", text="⟳")
+                            self.after(0, update_ui)
+                        import threading
+                        threading.Thread(target=worker, daemon=True).start()
+                        
+                    btn_reroll.configure(command=do_reroll)
+                    
+                    btn_del = ctk.CTkButton(row, text="X", width=25, fg_color="#B71C1C", hover_color="#7F0000", 
+                                            command=lambda idx=i: [turn["choices"].pop(idx), render_choice_list()])
+                    btn_del.pack(side="left", padx=2)
+                
+                choice_rows.append(var)
+
+            if not self.engine.is_campaign:
+                btn_row = ctk.CTkFrame(choices_container, fg_color="transparent")
+                btn_row.pack(fill="x", pady=(10, 0))
+                btn_add = ctk.CTkButton(btn_row, text="+ Add Choice", width=100, fg_color="#4A4A4A", hover_color="#333333",
+                                        command=lambda: [turn["choices"].append("New action..."), render_choice_list()])
+                btn_add.pack(side="left", padx=(0, 10))
+                
+                # --- RESTORED REROLL ALL CHOICES BUTTON ---
+                btn_reroll_ch = ctk.CTkButton(btn_row, text="⟳ Reroll Choices", width=120, fg_color="#0288D1", hover_color="#01579B",
+                                        command=lambda: [dialog.destroy(), self._trigger_redo_choices(turn_idx)])
+                btn_reroll_ch.pack(side="left")
+                Tooltip(btn_reroll_ch, "Ask AI to generate a fresh set of choices for this exact card.")
+
+        render_choice_list()
+
+        pc_var = None
+        if turn.get("player_choice") is not None:
+            ctk.CTkLabel(scroll, text="Player Action Taken:", font=("Arial", 14, "bold")).pack(anchor="w", pady=(20, 0))
+            pc_var = ctk.StringVar(value=turn.get("player_choice", ""))
+            ctk.CTkEntry(scroll, textvariable=pc_var, font=("Arial", 14), text_color="#4CAF50").pack(fill="x", pady=(0, 15))
+
+        def on_save():
+            self.engine.history[turn_idx]["location"] = loc_var.get().strip()
+            self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
+            self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip().replace("\n", "\\n")
+            if "choices" in turn: 
+                self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in choice_rows if v.get().strip()]
+            
+            if pc_var: 
+                self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
+                
+            if bridge_box is not None:
+                b_text = bridge_box.get("1.0", "end").strip().replace("\n", "\\n")
+                if b_text: self.engine.history[turn_idx]["narrative_bridge"] = b_text
+                elif "narrative_bridge" in self.engine.history[turn_idx]: del self.engine.history[turn_idx]["narrative_bridge"]
+            
+            self.engine._resync_all_visibility()
+            self.engine.save_state()
+            self._render_turn() 
             dialog.destroy()
-            
-            self._lock_ui(f"Applying fix: {display_title[:15]}...")
-            def worker():
-                draft = self.engine.request_fix(instruction, turn_idx, temp_override=target_temp)
-                # Pass 'tgt' to the diff window so the title bar displays the user's actual typed text
-                self.after(0, lambda: self._show_draft_diff(draft, "fix", display_title))
-            import threading
-            threading.Thread(target=worker, daemon=True).start()
-            
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=20)
-        
-        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
-        ctk.CTkButton(btn_frame, text="Apply Fix", width=120, font=("Arial", 14, "bold"), fg_color="#009688", hover_color="#00796B", command=on_submit).pack(side="right", padx=10)
-        
-    def _execute_action(self, action_string):
-        """Sends the user's action to the engine on a background thread to prevent UI freezing."""
-        pc_exact = str(action_string).strip()
-        
-        if pc_exact in ["Export Story", "Export Tragic Ending"]:
-            self.master.master._export_dialog() 
-            return
-        if pc_exact == "Quit":
-            self.master.master.close_workspace()
-            return
-            
-        self._lock_ui(f"Submitting: '{action_string[:20]}...'")
-        def worker():
-            result = self.engine.submit_action(action_string)
-            
-            def update_ui():
-                if not result and pc_exact != "Restart Game" and not pc_exact.startswith("Undo"):
-                    from tkinter import messagebox
-                    messagebox.showerror("Generation Error", "The AI failed to generate the next turn.\nPlease check the Developer Console for details.")
-                    self.refresh_timeline(retain_scroll=True)
-                    return
 
-                # --- EXPLICIT RAG OVERLAY ---
-                # Check if this exact turn triggered a memory compilation
-                def on_progress(current, total):
-                    if current == "Seeding": msg = "Extracting Base Lore..."
-                    elif current == "Condensing": msg = f"{total}..."
-                    elif current == "Reconciling": msg = "Merging duplicates..."
-                    elif current == "Syncing": msg = "Recalculating Last Seen timestamps..."
-                    else: msg = f"Processing Chunk {current}/{total}..."
-                    self.after(0, lambda: self._lock_ui(f"UPDATING LONG-TERM MEMORY: {msg}"))
-                    
-                def on_complete(success, msg):
-                    self.after(0, lambda: self.refresh_timeline(retain_scroll=True))
+        def on_seed_save():
+            seed_file = self.engine.adv_dir / "start_turn.json"
+            import json
+            with open(seed_file, "w", encoding="utf-8") as f:
+                json.dump(turn, f, indent=4)
+            messagebox.showinfo("Seed Created", "This turn has been saved as the official Story Seed!\nAny new game will begin exactly here.")
 
-                did_trigger_rag = self.engine._trigger_memory_compilation(
-                    progress_callback=on_progress, 
-                    completion_callback=on_complete
-                )
+        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_row.pack(side="bottom", fill="x", pady=20, padx=20)
+        
+        ctk.CTkButton(btn_row, text="Commit All Changes", font=("Arial", 14, "bold"), height=40,
+                      fg_color="#2E7D32", hover_color="#1B5E20", command=on_save).pack(side="right", padx=10)
+        
+        if turn.get("turn", 0) <= 1:
+            ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=40,
+                                  fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save).pack(side="left", padx=10)
+    # ---------------------------------------------------------
+    # UI LOCKS AND AUTOPILOT
+    # ---------------------------------------------------------
+
+    def _lock_ui(self, status_msg):
+        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
+            from colorama import Style
+            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
+            
+        self.winfo_toplevel().configure(cursor="watch") 
+        self.status_var.set(status_msg)
+        self.btn_submit.configure(state="disabled")
+        self.text_input.configure(state="disabled")
+        self.cmd_dropdown.configure(state="disabled")
+        self.slider.configure(state="disabled")
+        
+        for w in [self.btn_first, self.btn_prev, self.btn_next, self.btn_last]:
+            w.configure(state="disabled")
+            
+        for panel in [self.bridge_tools, self.story_tools, self.choices_frame, self.hdr_frame]:
+            for w in panel.winfo_children():
+                if isinstance(w, ctk.CTkButton): w.configure(state="disabled")
+                elif isinstance(w, ctk.CTkFrame):
+                    for sub_w in w.winfo_children():
+                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="disabled")
+
+    def _unlock_ui(self, status_msg):
+        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
+            from colorama import Style
+            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
+            
+        self.winfo_toplevel().configure(cursor="") 
+        self.status_var.set(status_msg)
+        
+        if len(self.engine.history) > 1:
+            self.slider.configure(state="normal")
+            self.btn_first.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
+            self.btn_prev.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
+            self.btn_next.configure(state="normal" if self.current_turn_idx < len(self.engine.history) - 1 else "disabled")
+            self.btn_last.configure(state="normal" if self.current_turn_idx < len(self.engine.history) - 1 else "disabled")
+            
+        is_game_over = False
+        if self.engine.history:
+            is_game_over = str(self.engine.history[self.current_turn_idx].get("is_game_over", False)).lower() == "true"
+            
+        for panel in [self.bridge_tools, self.story_tools, self.choices_frame, self.hdr_frame]:
+            for w in panel.winfo_children():
+                if isinstance(w, ctk.CTkButton): w.configure(state="normal")
+                elif isinstance(w, ctk.CTkFrame):
+                    for sub_w in w.winfo_children():
+                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="normal")
+
+        if self.engine.is_test_mode and self.current_turn_idx == len(self.engine.history) - 1:
+            last_turn = self.engine.history[-1]
+            is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
+            is_victory = str(last_turn.get("objective_achieved", False)).lower() == "true"
+            
+            if is_over or (is_victory and last_turn.get("turn", 0) > 0):
+                self.workspace._toggle_test()
+                self.status_var.set("Autopilot finished: Campaign Complete.")
+                return
+            
+            if last_turn.get("choices"):
+                auto_choice = last_turn["choices"][0]
+                self.status_var.set(f"Autopilot: Selecting '{auto_choice[:20]}...' in 2s")
+                def auto_step():
+                    if self.engine.is_test_mode: self._execute_action(auto_choice)
+                    else: self.status_var.set("Autopilot aborted.")
+                self.after(2000, auto_step)
+
+    def _trigger_startup(self):
+        self.startup_frame.pack_forget()
+        self._lock_ui("Generating opening scene...")
+        import threading
+        threading.Thread(target=self._async_init, daemon=True).start()
                 
-                # If RAG didn't trigger, just refresh the timeline normally
-                if not did_trigger_rag:
-                    self.refresh_timeline(retain_scroll=True)
-                    
-            self.after(0, update_ui)
-            
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _delete_bridge_timeline(self, turn_idx):
-        """Instantly deletes a bridge directly from the timeline card."""
-        if messagebox.askyesno("Delete Bridge", "Are you sure you want to delete this narrative bridge?"):
-            if "narrative_bridge" in self.engine.history[turn_idx]:
-                del self.engine.history[turn_idx]["narrative_bridge"]
-                self.engine._resync_all_visibility()
-                self.engine.save_state()
-                self._render_visible_cards()
-
-    def _generate_bridge_timeline(self, turn_idx):
-        """Triggers the LLM to rewrite the bridge directly from the timeline card."""
-        self._lock_ui("Regenerating narrative bridge...")
-        def worker():
-            b_text = self.engine.request_bridge_generation(turn_idx)
-            def update_ui():
-                if b_text and b_text not in ["[OK]", "[FAILED]"]:
-                    self.engine.history[turn_idx]["narrative_bridge"] = b_text
-                    self.engine.save_state()
-                elif b_text == "[OK]":
-                    messagebox.showinfo("Bridge", "The AI determined the transition is already seamless [OK].")
-                else:
-                    messagebox.showerror("Error", "Failed to generate bridge.")
-                    
-                self._unlock_ui("Ready.")
-                self._render_visible_cards(retain_scroll=True) 
-            self.after(0, update_ui)
-            
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _trigger_bridge_edit(self, turn_idx, edit_type):
-        """Generates a Draft of a Polished or Expanded bridge and opens the Visual Diff window."""
-        if self.btn_submit.cget("state") == "disabled": return 
-        if turn_idx <= 0 or turn_idx >= len(self.engine.history): return
-        
-        current_bridge = self.engine.history[turn_idx].get("narrative_bridge", "").strip()
-        if not current_bridge: return
-            
-        self._lock_ui(f"Applying {edit_type} to bridge...")
-        
-        # 1. "Trick" the Engine into thinking we are editing a main story turn
-        # This allows us to reuse the massive, robust Visual Diff window seamlessly.
-        self.engine.backup_turn = self.engine.history[turn_idx].copy()
-        self.engine.backup_turn["story_text"] = current_bridge 
-        self.engine.backup_turn_idx = turn_idx
-        
-        def worker():
-            from api import TomeWeaverAPI
-            success, result = TomeWeaverAPI.edit_narrative_bridge(current_bridge, edit_type)
-            
-            def update_ui():
-                if success and result:
-                    clean_result = result.replace('"', '').replace('*', '').strip()
-                    
-                    # Create a mock draft object
-                    draft_turn = self.engine.backup_turn.copy()
-                    draft_turn["story_text"] = clean_result
-                    
-                    # Tell the Diff window that this is a special bridge edit
-                    self._show_draft_diff(draft_turn, f"{edit_type} (Bridge)")
-                else:
-                    from tkinter import messagebox
-                    messagebox.showerror("Error", f"Failed to {edit_type} bridge.\n{result}")
-                    self.engine.cancel_draft()
-                    self._unlock_ui("Ready.")
-                
-            self.after(0, update_ui)
-            
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-        
     def _async_init(self):
-        """Runs the Turn 1 / Prologue startup logic in the background."""
-        try: 
-            self.engine.initialize_game()
-        except Exception as e: 
-            self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))
+        try: self.engine.initialize_game()
+        except Exception as e: self.after(0, lambda: messagebox.showerror("Engine Error", str(e)))
             
         def on_init_complete():
-            self.refresh_timeline()
-            
-            # THE RESUME HOOK
-            # Catches interrupted sessions immediately on launch without firing during normal gameplay
+            self.refresh_timeline(go_to_last=True)
             if self.engine.history:
                 last_turn = self.engine.history[-1]
                 if last_turn.get("player_choice") is not None:
                     self._lock_ui("Resuming interrupted generation...")
                     def worker():
-                        action_to_resume = last_turn["player_choice"]
-                        result = self.engine.submit_action(action_to_resume)
+                        result = self.engine.submit_action(last_turn["player_choice"])
                         def update_ui():
-                            if not result:
-                                from tkinter import messagebox
-                                messagebox.showerror("Generation Error", "Failed to resume the interrupted turn.\nPlease check the Developer Console for details.")
-                            self.refresh_timeline(retain_scroll=True)
+                            self.refresh_timeline(go_to_last=True)
+                            
+                            def on_progress(current, total):
+                                if current == "Seeding": msg = "Extracting Base Lore..."
+                                elif current == "Condensing": msg = f"{total}..."
+                                elif current == "Reconciling": msg = "Merging duplicates..."
+                                elif current == "Syncing": msg = "Recalculating Timestamps..."
+                                else: msg = f"Processing Chunk {current}/{total}..."
+                                self.after(0, lambda: self.status_var.set(f"Background Task: {msg}"))
+                                
+                            def on_complete(success, msg):
+                                self.after(0, lambda: self.status_var.set("Ready."))
+
+                            self.engine._trigger_memory_compilation(progress_callback=on_progress, completion_callback=on_complete)
                         self.after(0, update_ui)
                     import threading
                     threading.Thread(target=worker, daemon=True).start()
-
         self.after(0, on_init_complete)
-
-    def _lock_ui(self, status_msg):
-        """Disables all input controls while the AI is generating."""
-        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
-            from colorama import Style
-            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
-            
-        self.winfo_toplevel().configure(cursor="watch") # Spin cursor
-            
-        self.status_var.set(status_msg)
-        self.btn_submit.configure(state="disabled")
-        self.text_input.configure(state="disabled")
-        self.cmd_dropdown.configure(state="disabled")
-        self.history_slider.configure(state="disabled")
-        
-        for refs in self.recycled_cards:
-            if "btn_bridge" in refs: refs["btn_bridge"].configure(state="disabled")
-            if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="disabled")
-            
-            # Disable Edit/Polish/Condense/Expand/Undo buttons
-            for w in refs["btn_frame"].winfo_children():
-                if isinstance(w, ctk.CTkButton): 
-                    w.configure(state="disabled")
-                elif isinstance(w, ctk.CTkFrame): 
-                    for sub_w in w.winfo_children():
-                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="disabled")
-                        
-            # Safely grab the Retry/Cancel buttons if they exist
-            if "btn_retry" in refs and refs["btn_retry"].winfo_exists():
-                refs["btn_retry"].configure(state="disabled")
-            if "btn_cancel" in refs and refs["btn_cancel"].winfo_exists():
-                refs["btn_cancel"].configure(state="disabled")
-
-    def _unlock_ui(self, status_msg):
-        """Restores interactivity after an AI generation completes."""
-        if status_msg and status_msg != "Ready." and not status_msg.startswith("Autopilot:"):
-            from colorama import Style
-            print(f"{Style.DIM}[UI] {status_msg}{Style.RESET_ALL}")
-            
-        self.winfo_toplevel().configure(cursor="") # Restore cursor
-        self.status_var.set(status_msg)
-        
-        # Check if the game is over to permanently lock the input bar
-        is_game_over = False
-        if self.engine.history:
-            is_game_over = str(self.engine.history[-1].get("is_game_over", False)).lower() == "true"
-            
-        if is_game_over:
-            self.btn_submit.configure(state="disabled")
-            self.text_input.configure(state="disabled")
-            self.cmd_dropdown.configure(state="disabled")
-        else:
-            self.btn_submit.configure(state="normal")
-            self.text_input.configure(state="normal")
-            self.cmd_dropdown.configure(state="normal")
-            
-        if len(self.engine.history) > self.MAX_CARDS:
-            self.history_slider.configure(state="normal")
-            
-        for refs in self.recycled_cards:
-            if "btn_bridge" in refs: refs["btn_bridge"].configure(state="normal")
-            if "br_btn_gen" in refs: refs["br_btn_gen"].configure(state="normal")
-            
-            # Safely restore the Retry/Cancel buttons if they exist
-            if "btn_retry" in refs and refs["btn_retry"].winfo_exists():
-                refs["btn_retry"].configure(state="normal")
-            if "btn_cancel" in refs and refs["btn_cancel"].winfo_exists():
-                refs["btn_cancel"].configure(state="normal")
-            
-            # Note: We do not unlock card buttons if the game is over, except for the explicit UI commands
-            for w in refs["btn_frame"].winfo_children():
-                if isinstance(w, ctk.CTkButton) and w not in [refs.get("btn_retry"), refs.get("btn_cancel")]: 
-                    w.configure(state="normal")
-                elif isinstance(w, ctk.CTkFrame):
-                    for sub_w in w.winfo_children():
-                        if isinstance(sub_w, ctk.CTkButton): sub_w.configure(state="normal")
-
-        # --- AUTOPILOT HOOK ---
-        if self.engine.is_test_mode:
-            # Check if there is an active turn with choices to click
-            if self.engine.history:
-                last_turn = self.engine.history[-1]
-                
-                # Check for Game Over OR Epilogue completion
-                is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
-                is_victory = str(last_turn.get("chapter_goal_achieved", False)).lower() == "true"
-                
-                # If it's a Victory Epilogue, it sets is_game_over to True, so we must stop.
-                if is_over or (is_victory and last_turn.get("turn", 0) > 0):
-                    self.workspace._toggle_test()
-                    self.status_var.set("Autopilot finished: Campaign Complete.")
-                    return
-                
-                if last_turn.get("choices"):
-                    # Select Choice #1 (The Golden Path)
-                    auto_choice = last_turn["choices"][0]
-                    self.status_var.set(f"Autopilot: Selecting '{auto_choice[:20]}...' in 2s")
-                    
-                    def auto_step():
-                        if self.engine.is_test_mode:
-                            self._execute_action(auto_choice)
-                        else:
-                            self.status_var.set("Autopilot aborted.")
-
-                    self.after(2000, auto_step)
-                    
-                    

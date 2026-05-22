@@ -602,9 +602,14 @@ class MemoryTab(ctk.CTkFrame):
         Tooltip(state_menu, "Active: Included in AI prompt.\nPinned: Guaranteed included in AI prompt.\nArchived: Hidden from AI to save tokens.")
         
         last_seen = active_data.get("last_seen_turn", "?")
-        lbl_seen = ctk.CTkLabel(hdr, text=f"(Last Seen: Turn {last_seen})", font=("Arial", 12, "italic"), text_color="gray")
-        lbl_seen.pack(side="left", padx=10)
-        Tooltip(lbl_seen, "The Auto-Decay engine tracks when this entity was last mentioned.\nIt automatically archives entities not seen in 40 turns, and revives them instantly if mentioned again.")
+        
+        btn_seen = ctk.CTkButton(
+            hdr, text=f"🔍 Last Seen: Turn {last_seen}", font=("Arial", 12, "bold", "underline"),
+            fg_color="transparent", text_color="#00BCD4", hover_color="#333333", height=24, width=80,
+            command=lambda: self._show_last_seen_context(entity_name, ledger_type, last_seen)
+        )
+        btn_seen.pack(side="left", padx=10)
+        Tooltip(btn_seen, "Click to view the exact text where the Auto-Decay engine last detected this entity.")
 
         def prompt_merge():
             safe_entity_name = entity_name
@@ -652,6 +657,11 @@ class MemoryTab(ctk.CTkFrame):
                 ledger_aliases[safe_entity_name] = master_name
                 
                 del self.engine.memory[ledger_type][safe_entity_name]
+                
+                # --- JANITOR HOOK ---
+                # Recalculate the master's last seen turn now that they have a new alias
+                self.engine._resync_all_visibility()
+                
                 self.engine.save_state()
                 dialog.destroy()
                 
@@ -774,20 +784,7 @@ class MemoryTab(ctk.CTkFrame):
                 messagebox.showerror("Error", "Entity no longer exists in memory.")
                 return
                 
-            # 1. Update Object
-            target_obj = self.engine.memory[ledger_type][entity_name]
-            
-            target_obj["characteristics"] = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
-            target_obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
-            target_obj["author_notes"] = var_notes.get("1.0", "end").strip()
-            
-            # If the user manually rescues them from the archive to active, reset their last_seen so they don't immediately decay again
-            if var_state.get() == "active" and target_obj.get("state") == "archived":
-                target_obj["last_seen_turn"] = len(self.engine.history)
-                
-            target_obj["state"] = var_state.get()
-            
-            # 2. Handle Rename Safely
+            # 1. Handle Rename Safely (Must happen FIRST so the Janitor uses the right name)
             new_name = var_entity_name.get().strip()
             target_name = entity_name
             
@@ -798,7 +795,7 @@ class MemoryTab(ctk.CTkFrame):
                 self.engine.memory[ledger_type][new_name] = self.engine.memory[ledger_type].pop(entity_name)
                 target_name = new_name
             
-            # 3. Handle Aliases
+            # 2. Handle Aliases (Must happen SECOND so the Janitor can scan them)
             all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(ledger_type, {})
             keys_to_delete = [k for k, v in all_aliases.items() if v == entity_name]
             for k in keys_to_delete: del all_aliases[k]
@@ -809,7 +806,31 @@ class MemoryTab(ctk.CTkFrame):
                     clean_a = a.strip()
                     if clean_a: all_aliases[clean_a] = target_name
 
-            # 4. Commit and Refresh
+            # 3. THE JANITOR HOOK
+            # Now that memory has the new name and aliases, calculate the math
+            self.engine._resync_all_visibility()
+
+            # 4. Update the Object & Overrides
+            target_obj = self.engine.memory[ledger_type][target_name]
+            
+            # --- UI SYNC OVERRIDE ---
+            # If the Janitor just woke this entity up, we must visually update the dropdown
+            # so the final save command doesn't instantly re-archive them!
+            janitor_state = target_obj.get("state", "active")
+            if janitor_state == "active" and var_state.get() == "archived":
+                var_state.set("active")
+            
+            target_obj["characteristics"] = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
+            target_obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
+            target_obj["author_notes"] = var_notes.get("1.0", "end").strip()
+            
+            # If the user manually overrides the Janitor (e.g., forces an archived character to active), preserve it
+            if var_state.get() == "active" and target_obj.get("state") == "archived":
+                target_obj["last_seen_turn"] = len(self.engine.history)
+                
+            target_obj["state"] = var_state.get()
+
+            # 5. Commit and Refresh
             self.engine.save_state()
             
             prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
@@ -817,5 +838,85 @@ class MemoryTab(ctk.CTkFrame):
             
             messagebox.showinfo("Saved", f"'{target_name}' updated successfully.")
             self._refresh_nav()
+            self._render_view() # Instantly redraw the UI so the "Last Seen" label physically updates
 
         ctk.CTkButton(self.editor_frame, text="Save Entity Lore", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_entity).pack(pady=20)
+        
+        
+    # ---------------------------------------------------------
+    # LAST SEEN CONTEXT VIEWER (HIGHLIGHTER)
+    # ---------------------------------------------------------
+
+    def _show_last_seen_context(self, entity_name, ledger_type, turn_num):
+        if turn_num == "?" or turn_num == 0:
+            messagebox.showinfo("Context", "This entity was seeded at the start of the game and hasn't been seen in the timeline yet.")
+            return
+            
+        # 1. Find the raw turn data
+        turn_data = None
+        for t in self.engine.history:
+            if str(t.get("turn", -1)) == str(turn_num):
+                turn_data = t
+                break
+                
+        if not turn_data:
+            messagebox.showerror("Error", f"Turn {turn_num} could not be found in the history ledger.")
+            return
+
+        # 2. Setup the Viewer Dialog
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"Context: {entity_name} (Turn {turn_num})")
+        dialog.geometry("750x550")
+        dialog.attributes("-topmost", True)
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text=f"🔍 Highlighted Mentions (Turn {turn_num})", font=("Arial", 16, "bold"), text_color="#00ACC1").pack(pady=(20, 10))
+
+        # 3. Assemble the full scanned text (Location + Bridge + Story)
+        loc = turn_data.get("location", "Unknown")
+        pov = turn_data.get("pov_character", "Unknown")
+        bridge = turn_data.get("narrative_bridge", "")
+        story = turn_data.get("story_text", "").replace("\\n", "\n")
+        
+        full_text = f"[ Location: {loc} ]\n[ POV: {pov} ]\n\n"
+        if bridge and bridge not in ["[OK]", "[FAILED]"]:
+            full_text += f"{bridge}\n\n"
+        full_text += story
+
+        # 4. Textbox Injection
+        box = ctk.CTkTextbox(dialog, wrap="word", font=("Georgia", 15))
+        box.pack(fill="both", expand=True, padx=20, pady=10)
+        box.insert("1.0", full_text)
+
+        # 5. Extract Master Name + All Aliases for searching
+        aliases_map = self.engine.memory.get("aliases", {}).get(ledger_type, {})
+        search_terms = [entity_name.lower()]
+        for alias, master in aliases_map.items():
+            if master == entity_name:
+                search_terms.append(alias.lower())
+
+        # 6. Apply Highlighting via Native Python Search (Bypasses Tkinter's regex bugs)
+        # Bright yellow background with black text for extreme contrast
+        box._textbox.tag_config("highlight", background="#FFEB3B", foreground="black", font=("Georgia", 15, "bold"))
+
+        import re
+        for term in search_terms:
+            # Use Python's robust regex engine to find the exact character offsets
+            pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+            for match in pattern.finditer(full_text):
+                # Convert Python's character index into Tkinter's '1.0 + X chars' format
+                start_idx = f"1.0 + {match.start()}c"
+                end_idx = f"1.0 + {match.end()}c"
+                box._textbox.tag_add("highlight", start_idx, end_idx)
+
+        # 7. Auto-Scroll to the first found match
+        try:
+            box._textbox.see("highlight.first")
+        except Exception:
+            pass # Failsafe if the scanner tracked it but it wasn't visually found
+
+        box.configure(state="disabled")
+
+        ctk.CTkButton(dialog, text="Close Viewer", command=dialog.destroy, fg_color="#4A4A4A", hover_color="#333333").pack(pady=(10, 20))

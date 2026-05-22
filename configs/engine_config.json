@@ -6,7 +6,7 @@
     "auto_polish": true,
     "auto_narrative_bridge": false,
     "ui_scaling": 1.2,
-    "prose_font_size": 15,
+    "prose_font_size": 18,
     "ui_wrap_margin": 150,
     "logging_enabled": true,
     "log_verbose": true,

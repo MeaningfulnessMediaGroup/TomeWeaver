@@ -1156,10 +1156,11 @@ class TomeWeaverAPI:
         
         
     @staticmethod
-    def edit_narrative_bridge(bridge_text, edit_type):
+    def edit_narrative_bridge(engine, turn_idx, bridge_text, edit_type):
         """
         AI Bridge Editor.
-        Specifically handles the Polish and Expand actions for transition sentences.
+        Specifically handles Polish, Condense, and Expand actions for transition sentences.
+        Provides the LLM with massive Continuity Context (Prev Scene, Action, Next Scene, and RAG Lore).
         """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import enforce_rate_limit
@@ -1167,10 +1168,41 @@ class TomeWeaverAPI:
         
         sys_prompt = PROMPTS.get("SYS_BRIDGE_EDIT", "")
         
+        turn_obj = engine.history[turn_idx]
+        prev_obj = engine.history[turn_idx - 1] if turn_idx > 0 else None
+        
+        # --- ASSEMBLE THE MASSIVE CONTINUITY SANDWICH ---
+        context = "--- CONTEXT FOR CONTINUITY (DO NOT REWRITE THESE) ---\n"
+        context += f"POV CHARACTER: {turn_obj.get('pov_character', 'Unknown')}\n"
+        context += f"LOCATION: {turn_obj.get('location', 'Unknown')}\n"
+        context += f"MAIN CHARACTER LORE: {engine.setup_data.get('main_character', 'Unknown')}\n\n"
+        
+        # Inject RAG Characters so the AI knows genders, relationships, and physical states
+        chars = engine.memory.get("character_ledger", {})
+        if chars:
+            context += "KNOWN CHARACTERS IN WORLD:\n"
+            for k, data in chars.items():
+                if isinstance(data, dict) and data.get("state") != "archived":
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                    context += f"- {k} (Traits: {traits})\n"
+            context += "\n"
+            
+        if prev_obj:
+            context += f"PREVIOUS SCENE:\n{prev_obj.get('story_text', '')}\n\n"
+            context += f"ACTION TAKEN BY PLAYER:\n{prev_obj.get('player_choice', '')}\n\n"
+            
+        context += f"NEXT SCENE (The result of the action):\n{turn_obj.get('story_text', '')}\n"
+        context += "-----------------------------------------------------\n\n"
+        
         if edit_type == "polish":
             user_prompt = PROMPTS.get("USER_BRIDGE_POLISH", "").replace("{bridge}", bridge_text)
+        elif edit_type == "condense":
+            user_prompt = PROMPTS.get("USER_BRIDGE_CONDENSE", "Concisely summarize and shorten this transition sentence:\n'{bridge}'").replace("{bridge}", bridge_text)
         else:
             user_prompt = PROMPTS.get("USER_BRIDGE_EXPAND", "").replace("{bridge}", bridge_text)
+
+        # Prepend the context to the user instruction
+        user_prompt = context + user_prompt
 
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
         
@@ -1185,7 +1217,7 @@ class TomeWeaverAPI:
         
         if edit_type == "polish":
             # Polish shouldn't add much length, just fix grammar
-            dynamic_tokens = max(150, estimated_input_tokens + 100)
+            dynamic_tokens = max(150, estimated_input_tokens + 200)
         else:
             # Expand needs room to grow significantly
             dynamic_tokens = max(300, estimated_input_tokens + 400)
