@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# ADD THIS BLOCK TO FIX THE 403 ERROR
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build for ${{ matrix.os }}
@@ -47,13 +51,11 @@ jobs:
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        # Point to scripts/gui.py and tell PyInstaller to look in scripts/ for imports
         pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs;configs" scripts/gui.py
 
     - name: Build Executable (MacOS/Linux)
       if: matrix.os != 'windows-latest'
       run: |
-        # Point to scripts/gui.py and tell PyInstaller to look in scripts/ for imports
         pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs:configs" scripts/gui.py
 
     - name: Upload Artifact
@@ -63,9 +65,13 @@ jobs:
         path: dist/TomeWeaver*
 
     - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/')
+      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest-dev' }}
+        name: TomeWeaver Release ${{ github.ref_name }}
+        draft: false
+        prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
         files: |
           dist/TomeWeaver*
       env:
