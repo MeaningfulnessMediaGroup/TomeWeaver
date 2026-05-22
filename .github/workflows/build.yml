@@ -51,3 +51,12 @@ jobs:
       with:
         name: ${{ matrix.asset_name }}
         path: dist/TomeWeaver*
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/TomeWeaver*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
