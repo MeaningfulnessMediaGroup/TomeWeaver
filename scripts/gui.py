@@ -1,12 +1,24 @@
 """
 TomeWeaver: GUI Launcher
 ------------------------
-Entry point for the Desktop Application. Parses command-line arguments 
-from .bat shortcuts and launches the CustomTkinter UI.
+Entry point for the Desktop Application.
 """
 import sys
 import os
 import ctypes
+
+# --- CRITICAL FAILSAFE FOR --noconsole MODE ---
+# In PyInstaller --noconsole mode, sys.stdout and sys.stderr are None.
+# Any print() call during the import/loading phase will crash the app.
+# We redirect them to a dummy "Null" stream immediately to prevent crashes.
+class NullStream:
+    def write(self, text): pass
+    def flush(self): pass
+
+if sys.stdout is None: sys.stdout = NullStream()
+if sys.stderr is None: sys.stderr = NullStream()
+# ----------------------------------------------
+
 from pathlib import Path
 import customtkinter as ctk
 from ui.app import TomeWeaverApp
