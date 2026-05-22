@@ -936,16 +936,16 @@ def generate_single_choice(story_text, current_choices):
     return None
     
     
-def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir):
+def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir, old_inventory=None):
     """
-    Phase 2 Auditor: Runs a strict, low-temperature evaluation of the story text
-    to determine if the active objective was explicitly completed.
+    Phase 2 Auditor: Strictly evaluates logic. Now handles BOTH Goal Achievement 
+    and Inventory/Status updates for Campaign mode.
     """
-    import requests, time
+    import requests, time, json
     from colorama import Style
     from config import ENGINE_CONFIG, PROMPTS
     
-    print(f"{Style.DIM}Auditing goal progression...{Style.RESET_ALL}")
+    print(f"{Style.DIM}Auditing state and goal progression...{Style.RESET_ALL}")
     
     ctx_text = ""
     for t in context_turns:
@@ -960,6 +960,10 @@ def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir):
     user_prompt = PROMPTS.get("USER_AUDITOR", "").replace("{context}", ctx_text)
     user_prompt = user_prompt.replace("{goal}", goal).replace("{obstacles}", obs)
     
+    # Inject current inventory for the auditor to update
+    if old_inventory:
+        user_prompt += f"\n\nCURRENT INVENTORY/STATE:\n{old_inventory}\n\nTASK: Update the inventory string based on the LATEST SCENE. If an item was found, add it. If used or lost, remove it. If health/status changed, update it. Keep the format exactly the same."
+
     messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
     headers = {"Content-Type": "application/json"}
     if ENGINE_CONFIG.get("api_key", "").strip():
@@ -968,22 +972,24 @@ def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir):
     for attempt in range(2):
         payload = {
             "model": ENGINE_CONFIG.get("model", "loaded-model"),
-            "messages": messages,
-            "temperature": 0.1,  # Near-zero temperature forces pure logic
-            "max_tokens": 150
+            "messages": messages, "temperature": 0.1, "max_tokens": 300
         }
         try:
             enforce_rate_limit()
             resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
             if resp.status_code == 200:
                 raw = resp.json()['choices'][0]['message']['content'].strip()
+                from llm import sanitize_json
                 clean_json = sanitize_json(raw)
                 data = json.loads(clean_json, strict=False)
-                if isinstance(data, dict) and "objective_achieved" in data:
-                    reason = data.get("reasoning", "Evaluated by Auditor.")
-                    achieved = str(data["objective_achieved"]).lower() == "true"
-                    return achieved, reason
+                
+                res = {
+                    "achieved": str(data.get("objective_achieved", False)).lower() == "true",
+                    "reason": data.get("reasoning", "No reason provided."),
+                    "inventory": data.get("inventory_and_state", old_inventory)
+                }
+                return res
         except Exception:
             time.sleep(1)
     
-    return False, "Auditor failed to respond correctly. Defaulting to false."
+    return {"achieved": False, "reason": "Audit failed.", "inventory": old_inventory}

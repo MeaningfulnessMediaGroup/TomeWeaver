@@ -37,17 +37,24 @@ class DashboardFrame(ctk.CTkFrame):
         
         # New Feature: The Split Dropdown Button
         self.new_story_var = ctk.StringVar(value="+ Create New Story")
-        btn_new = ctk.CTkOptionMenu(
+        
+        # We calculate the initial values
+        menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
+        from api import ADV_DIR
+        if not (ADV_DIR / "Samples").exists():
+            menu_values.append("Download Samples...")
+
+        self.btn_new = ctk.CTkOptionMenu(
             header, 
             variable=self.new_story_var, 
-            values=["Manual Setup...", "Generate via AI...", "Guided Wizard..."], 
+            values=menu_values, 
             fg_color="#2E7D32", 
             button_color="#1B5E20", 
             button_hover_color="#0D3B13",
             command=self._handle_create_menu
         )
-        btn_new.pack(side="right", padx=(10, 0))
-        Tooltip(btn_new, "Initialize a new Sandbox or Campaign adventure.")
+        self.btn_new.pack(side="right", padx=(10, 0))
+        Tooltip(self.btn_new, "Initialize a new Sandbox or Campaign adventure.")
         
         btn_import = ctk.CTkButton(header, text="Import .zip", fg_color="#4A4A4A", hover_color="#333333", command=self.import_zip)
         btn_import.pack(side="right", padx=10)
@@ -140,6 +147,9 @@ class DashboardFrame(ctk.CTkFrame):
         self.card_pool = []
         self.lbl_loading = ctk.CTkLabel(self.scroll, text="Reading library from disk... please wait.", font=("Arial", 16, "italic"), text_color="gray")
         self.lbl_empty = ctk.CTkLabel(self.scroll, text="", font=("Arial", 16, "italic"), text_color="gray")
+        
+        # Permanent reference to the welcome UI so it can be cleared
+        self.welcome_frame = None
 
         # Load initial data
         self.load_data()
@@ -332,11 +342,27 @@ class DashboardFrame(ctk.CTkFrame):
 
     def render_page(self):
         """Draws the specific slice of stories for the current page using Virtualization."""
+        # 1. HIDE ALL POTENTIAL EMPTY STATES
         self.lbl_empty.pack_forget()
+        if self.welcome_frame:
+            self.welcome_frame.pack_forget()
+            
         for card in self.card_pool:
             card["frame"].pack_forget()
 
         total_items = len(self.filtered_stories)
+        
+        # 2. EVALUATE TRULY EMPTY (NO STORIES AND NO FOLDERS)
+        if total_items == 0:
+            is_truly_empty = len(self.all_stories) == 0
+            if is_truly_empty and not self.search_var.get():
+                self._render_empty_welcome()
+            else:
+                msg = "No stories match your search/filter." if (self.search_var.get() or self.status_var.get() != "All") else "No stories found in this directory."
+                self.lbl_empty.configure(text=msg)
+                self.lbl_empty.pack(pady=50)
+            return
+            
         total_pages = max(1, math.ceil(total_items / self.items_per_page))
         
         self.lbl_page.configure(text=f"Page {self.current_page} of {total_pages}")
@@ -346,9 +372,16 @@ class DashboardFrame(ctk.CTkFrame):
         self.btn_last.configure(state="normal" if self.current_page < total_pages else "disabled")
 
         if total_items == 0:
-            msg = "No stories match your search/filter." if (self.search_var.get() or self.status_var.get() != "All") else "No stories found in this directory."
-            self.lbl_empty.configure(text=msg)
-            self.lbl_empty.pack(pady=50)
+            # Check if adventures folder is physically empty (no stories at all)
+            is_truly_empty = len(self.all_stories) == 0
+            
+            if is_truly_empty and not self.search_var.get():
+                self.lbl_empty.pack_forget()
+                self._render_empty_welcome()
+            else:
+                msg = "No stories match your search/filter." if (self.search_var.get() or self.status_var.get() != "All") else "No stories found in this directory."
+                self.lbl_empty.configure(text=msg)
+                self.lbl_empty.pack(pady=50)
             return
 
         start_idx = (self.current_page - 1) * self.items_per_page
@@ -834,6 +867,8 @@ class DashboardFrame(ctk.CTkFrame):
             self.show_ai_create_dialog()
         elif choice == "Guided Wizard...":
             self.show_wizard_dialog()
+        elif choice == "Download Samples...":
+            self._trigger_sample_download()
 
     def show_wizard_dialog(self):
         """Spawns the step-by-step guided narrative builder."""
@@ -1467,3 +1502,39 @@ class DashboardFrame(ctk.CTkFrame):
         
         # 2. Force the right-hand panel to render the active selection immediately
         render_editor()
+        
+        
+    def _render_empty_welcome(self):
+        """Displays a large welcome screen with a Download Samples button."""
+        # Reuse existing frame if possible to save memory
+        if not self.welcome_frame:
+            self.welcome_frame = ctk.CTkFrame(self.scroll, fg_color="transparent")
+            
+            ctk.CTkLabel(self.welcome_frame, text="Welcome to TomeWeaver", font=("Georgia", 32, "bold")).pack()
+            ctk.CTkLabel(self.welcome_frame, text="Your library is currently empty.", font=("Arial", 16), text_color="gray").pack(pady=(5, 30))
+            
+            btn_dl = ctk.CTkButton(self.welcome_frame, text="📦 Download Sample Adventures", font=("Arial", 16, "bold"), 
+                                   height=50, fg_color="#1F6AA5", command=self._trigger_sample_download)
+            btn_dl.pack()
+
+        self.welcome_frame.pack(expand=True, pady=100)
+        
+    def _trigger_sample_download(self):
+        self.lbl_loading.pack(pady=50)
+        
+        def worker():
+            success, msg = TomeWeaverAPI.download_samples(lambda status: self.after(0, lambda: self.lbl_loading.configure(text=status)))
+            def complete():
+                self.lbl_loading.pack_forget()
+                if success:
+                    # Update the dropdown values to remove the Download option now that they exist
+                    new_vals = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
+                    self.btn_new.configure(values=new_vals)
+                    
+                    messagebox.showinfo("Success", msg)
+                    self.load_data()
+                else:
+                    messagebox.showerror("Error", msg)
+            self.after(0, complete)
+            
+        threading.Thread(target=worker, daemon=True).start()

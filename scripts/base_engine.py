@@ -840,21 +840,25 @@ class BaseEngine:
                 turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
 
         # 3. Mortality/Victory Interceptor
-        if self.can_die:
-            if turn_data.get("turn", 0) > 0 and str(turn_data.get("is_game_over", False)).lower() == "true":
-                prev_choice = self.history[-1].get("player_choice", "") if self.history else ""
-                if prev_choice == "Conclude the Story":
-                    print(f"\n{Fore.GREEN}[System: CAMPAIGN COMPLETE! Victory achieved.]{Style.RESET_ALL}")
-                else:
-                    print(f"\n{Fore.RED}[System: GAME OVER! The protagonist has met their end.]{Style.RESET_ALL}")
-                
-                turn_data["input_type"] = "choice"
-                turn_data["choices"] = [
-                    "Undo (Cheat Death and try a different action)",
-                    "Restart Game",
-                    "Export Tragic Ending",
-                    "Quit"
-                ]
+        if turn_data.get("turn", 0) > 0 and str(turn_data.get("is_game_over", False)).lower() == "true":
+            is_victory = str(turn_data.get("chapter_goal_achieved", False)).lower() == "true"
+            
+            if is_victory:
+                print(f"\n{Fore.GREEN}[System: CAMPAIGN COMPLETE! Victory achieved.]{Style.RESET_ALL}")
+                undo_text = "Undo (Try a different action)"
+                export_text = "Export Story"
+            else:
+                print(f"\n{Fore.RED}[System: GAME OVER! The protagonist has met their end.]{Style.RESET_ALL}")
+                undo_text = "Undo (Cheat Death and try a different action)"
+                export_text = "Export Tragic Ending"
+            
+            turn_data["input_type"] = "choice"
+            turn_data["choices"] = [
+                undo_text,
+                "Restart Game",
+                export_text,
+                "Quit"
+            ]
 
         # 4. Finalize and Save
         self.active_fix = None

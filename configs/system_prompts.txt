@@ -403,12 +403,14 @@ RECENT STORY CONTEXT:
 TASK:
 1. Read the LATEST SCENE. Did the protagonist explicitly complete the GOAL TO EVALUATE?
 2. If they only made progress, got distracted, or are still dealing with the OBSTACLES, the goal is NOT achieved.
-3. Output a JSON dictionary with "reasoning" (1 short sentence of logic) and "objective_achieved" (boolean).
+3. Update the 'inventory_and_state' string based on events. If they found an item, add it. If they used one, remove it. Update Health/State if they were injured or changed mood.
+4. Output a JSON dictionary with "reasoning", "objective_achieved", and "inventory_and_state".
 
 CRITICAL SCHEMA:
 {
   "reasoning": "The protagonist found the key, but has not yet opened the door.",
-  "objective_achieved": false
+  "objective_achieved": false,
+  "inventory_and_state": "Health: Good. Items: Rope, Moonstone Key. State: Determined."
 }
 
 

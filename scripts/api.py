@@ -1639,3 +1639,37 @@ class TomeWeaverAPI:
                 continue
                 
         return False, f"Seeding Failed: {err}"
+        
+        
+    @staticmethod
+    def download_samples(callback=None):
+        """Downloads a samples.zip from GitHub and extracts it into /adventures/."""
+        import requests, zipfile, io
+        
+        # CRITICAL: This URL must match your GitHub file name exactly (Case-Sensitive!)
+        URL = "https://github.com/dobrado76/TomeWeaver/raw/main/samples/Samples_v1.zip"
+        
+        try:
+            if callback: callback("Connecting to GitHub...")
+            # Use allow_redirects=True to handle GitHub's internal routing
+            response = requests.get(URL, timeout=20, allow_redirects=True)
+            response.raise_for_status()
+            
+            # --- ZIP HEADER VALIDATION ---
+            # Every valid .zip file MUST start with the bytes 'PK' (0x50 0x4B)
+            content = response.content
+            if not content.startswith(b'PK'):
+                # It's probably an HTML error page from GitHub.
+                snippet = content[:100].decode('utf-8', errors='ignore')
+                if "<!DOCTYPE" in snippet or "<html" in snippet:
+                    return False, "Download failed: The link returned a webpage instead of a file. Check if the file name matches exactly (Case Sensitive!) and is Public."
+                return False, "Download failed: Server did not return a valid ZIP archive."
+
+            if callback: callback("Extracting archives...")
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
+                from api import ADV_DIR
+                z.extractall(ADV_DIR)
+                
+            return True, "Samples downloaded successfully!"
+        except Exception as e:
+            return False, f"Network Error: {str(e)}"

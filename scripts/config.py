@@ -17,10 +17,26 @@ from colorama import Fore, Style
 # GLOBAL PATHS
 # ---------------------------------------------------------
 
-# Resolve the absolute path to the project root directory
-ROOT_DIR = Path(__file__).resolve().parent.parent
-API_CONFIGS_DIR = ROOT_DIR / "configs" / "API_configs"
-PROMPTS_FILE = ROOT_DIR / "configs" / "system_prompts.txt"
+
+# Internal Root: Where the code and bundled prompts live (Temp folder if EXE)
+if getattr(sys, 'frozen', False):
+    INTERNAL_ROOT = Path(sys._MEIPASS)
+else:
+    INTERNAL_ROOT = Path(__file__).resolve().parent.parent
+
+# External Root: Where the EXE sits (User's folder for saves/configs)
+if getattr(sys, 'frozen', False):
+    USER_ROOT = Path(sys.executable).parent
+else:
+    USER_ROOT = Path(__file__).resolve().parent.parent
+
+# 1. Prompts are BUNDLED (Internal)
+PROMPTS_FILE = INTERNAL_ROOT / "configs" / "system_prompts.txt"
+
+# 2. Configs and Adventures are PERSISTENT (External)
+API_CONFIGS_DIR = USER_ROOT / "configs" / "API_configs"
+# Note: ROOT_DIR is used by some loaders, we should point it to USER_ROOT for safety
+ROOT_DIR = USER_ROOT
 
 
 # ---------------------------------------------------------

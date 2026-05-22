@@ -423,10 +423,19 @@ class CampaignEngine(BaseEngine):
         if active_obj and not turn_data.get("is_game_over", False) and not is_setup_turn:
             from llm import evaluate_campaign_objective
             context_turns = self.history[-2:] if len(self.history) >= 2 else self.history
-            achieved, reason = evaluate_campaign_objective(context_turns, turn_data, active_obj, self.adv_dir)
             
-            turn_data["objective_achieved"] = achieved
-            turn_data["goal_progress"] = f"Target: {active_obj.get('goal', 'Survive')}\nStatus: {reason}"
+            # Fetch the inventory from the PREVIOUS turn (Phase 1 might have hallucinated a mess, we want the truth)
+            old_inv = self.history[-1].get("inventory_and_state", "") if self.history else ""
+            
+            # Auditor now processes both Goal and Inventory
+            audit_res = evaluate_campaign_objective(context_turns, turn_data, active_obj, self.adv_dir, old_inv)
+            
+            turn_data["objective_achieved"] = audit_res["achieved"]
+            turn_data["goal_progress"] = f"Target: {active_obj.get('goal', 'Survive')}\nStatus: {audit_res['reason']}"
+            
+            # Definitive overwrite: The Auditor's inventory is now the source of truth
+            if self.track_inventory:
+                turn_data["inventory_and_state"] = audit_res["inventory"]
         else:
             turn_data["objective_achieved"] = False
             if is_setup_turn:
