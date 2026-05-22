@@ -1,0 +1,1240 @@
+# ==============================================================================
+# TOMEWEAVER SYSTEM PROMPTS CONFIGURATION
+# ==============================================================================
+# This file contains all the static and dynamic prompts used by the LLM Engine.
+# You may edit the wording of these prompts to improve AI performance.
+#
+# RULES:
+# 1. Do not change the [PROMPT:KEY_NAME] headers. The engine requires them.
+# 2. You may use Python-style block comments (''' or \"\"\") to add notes.
+#    The engine will completely ignore anything between block quotes.
+# 3. Variables like {story_text} are dynamically replaced by the engine. 
+#    Do not alter the variable names inside the curly braces.
+# ==============================================================================
+
+[PROMPT:SYS_WORLD_GEN]
+'''
+File: api.py | Function: create_story_from_prompt
+Description: System instruction for the AI World Generator.
+'''
+You are a master world-builder and interactive fiction designer. Output ONLY a flat JSON object matching the exact keys below. Do not nest them under a parent object.
+
+
+
+
+[PROMPT:USER_WORLD_GEN]
+'''
+File: api.py | Function: create_story_from_prompt
+Variables: {mode}, {prompt_text}, {title}, {schema}
+'''
+MODE: {mode}
+USER CONCEPT: '{prompt_text}'
+{title}
+TASK: Generate the game configuration using this EXACT JSON schema. Write highly detailed, creative content for the values:
+{schema}
+
+
+
+
+[PROMPT:SYS_RECAP]
+'''
+File: llm.py | Function: generate_recap
+Variables: {adv_title}
+'''
+Summarize the events of '{adv_title}'. Focus on the main plot, key events, and current situation.
+
+
+
+
+[PROMPT:USER_RECAP]
+'''
+File: llm.py | Function: generate_recap
+Variables: {history_text}
+'''
+Adventure log:
+
+{history_text}
+
+Write the recap.
+
+
+
+
+[PROMPT:SYS_BRIDGE]
+'''
+File: llm.py | Function: generate_narrative_bridge
+'''
+You are a strict narrative parser. You follow instructions exactly and output only what is requested.
+
+
+
+
+[PROMPT:USER_BRIDGE]
+'''
+File: llm.py | Function: generate_narrative_bridge
+Variables: {pov}, {action}, {c_text}
+'''
+CHARACTER: {pov}
+ACTION TAKEN: {action}
+
+NEXT SCENE:
+{c_text}
+
+TASK:
+1. Read the NEXT SCENE. Does it explicitly state that the CHARACTER performed the ACTION TAKEN?
+2. If YES, reply ONLY with the exact text: [OK]
+3. If NO (the scene skips directly to the result), rewrite the ACTION TAKEN into a single, third-person sentence.
+4. CRITICAL: Your sentence MUST match the tense (past or present) used in the NEXT SCENE.
+5. Output ONLY the sentence. Do not copy text from the scene. Do not explain.
+
+EXAMPLES IF NO:
+Action: climb the tree (If scene is past tense) -> Kaelen climbed the tree.
+Action: climb the tree (If scene is present tense) -> Kaelen climbs the tree.
+
+
+
+
+[PROMPT:SYS_CHOICES]
+'''
+File: llm.py | Function: generate_missing_choices
+'''
+You are an interactive fiction engine. Your only job is to generate a JSON array of 3 to 6 brief actions the player can take next.
+
+
+
+
+[PROMPT:USER_CHOICES]
+'''
+File: llm.py | Function: generate_missing_choices
+Variables: {story_text}
+'''
+CURRENT SCENE:
+{story_text}
+
+TASK:
+1. Based on the CURRENT SCENE, provide EXACTLY 3 to 6 logical choices for the player's next action.
+2. Each choice MUST be a short string (Max 15 words) describing ONLY the action, not the result.
+3. Output ONLY a raw JSON array of strings. No keys, no markdown.
+
+EXAMPLE OUTPUT:
+[
+  "Draw my sword and attack.",
+  "Run toward the heavy wooden door.",
+  "Search the room for clues."
+]
+
+
+
+
+[PROMPT:SYS_EDITOR]
+'''
+File: base_engine.py | Function: _generate_turn
+Description: Replaces the standard system prompt when the user is running an Edit Draft (Fix, Polish, Expand, Redo Choices).
+'''
+CRITICAL: You are acting as a professional editor. You output ONLY valid JSON matching the schema above.
+
+
+
+
+[PROMPT:USER_REDO_CHOICES]
+'''
+File: base_engine.py | Function: redo_choices
+Variables: {original_json}
+'''
+EDIT MODE: Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. Do NOT include meta-notes, director instructions, or outcomes. Keep them brief.
+CRITICAL: Keep the 'story_text' EXACTLY the same.
+Original JSON:
+{original_json}
+
+
+
+
+[PROMPT:USER_EXPAND]
+'''
+File: base_engine.py | Function: request_expansion
+Variables: {world_info}, {prev_story}, {original_json}
+'''
+EDIT MODE (EXPAND): You are a literary expansion agent. Your task is to take a short 'story_text' and expand it into 3-5 rich, cinematic paragraphs.
+
+--- WORLD CONTEXT ---
+{world_info}
+
+--- NARRATIVE CONTEXT ---
+{prev_story}
+
+--- TASK ---
+Expand the 'story_text' in the Original JSON below. Use the World and Narrative context above to ensure consistency in tone and continuity.
+1. USE sensory details (textures, lighting, smells) and internal character emotions.
+2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within the current scene.
+3. CRITICAL: DO NOT introduce new items or characters not mentioned in the context.
+4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.
+
+Original JSON to Expand:
+{original_json}
+
+
+
+
+[PROMPT:USER_POLISH]
+'''
+File: base_engine.py | Function: request_polish
+Variables: {original_json}
+'''
+EDIT MODE (POLISH): Proofread and elevate the 'story_text' to professional novel quality. Fix grammar and vocabulary. DO NOT change the plot or touch dialogue.
+Original JSON:
+{original_json}
+
+
+
+
+[PROMPT:USER_FIX]
+'''
+File: base_engine.py | Function: request_fix
+Variables: {instruction}, {original_json}
+'''
+EDIT MODE: Apply this fix: '{instruction}'. Original JSON:
+{original_json}
+
+
+
+
+[PROMPT:USER_AUTO_POLISH]
+'''
+File: base_engine.py | Function: _auto_polish_pass
+Variables: {original_json}
+Description: Silently runs after standard generation if 'auto_polish' is enabled in engine settings.
+'''
+EDIT MODE (POLISH): You are a professional copy-editor. Your task is to proofread and heavily elevate the 'story_text' of the provided JSON to the quality of a published novel.
+1. You MUST fix missing determiners, prepositions, and correct awkward phrasing.
+2. You MUST enhance sentence flow, vocabulary, and descriptive imagery.
+3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written to preserve character accents.
+4. CRITICAL: Do NOT alter the plot, setting, POV, or choices. Only enhance the prose delivery.
+Original JSON:
+{original_json}
+
+
+
+
+[PROMPT:FEEDBACK_INVALID_JSON]
+'''
+File: base_engine.py | Function: _generate_turn
+Variables: {error}
+Description: First part of the feedback loop injected into retries when JSON fails to parse.
+'''
+Your previous JSON was invalid. Error: {error}.
+
+
+
+
+[PROMPT:FEEDBACK_CONTROL_CHAR]
+'''
+File: base_engine.py | Function: _generate_turn
+Description: Second part of the feedback loop, triggered when the user hits 'Enter' inside a JSON string.
+'''
+ CRITICAL: Use \" for dialogue and \n for new lines. Do NOT press Enter inside a JSON string. Please correct it.
+
+
+
+
+
+
+
+'''
+# ==============================================================================
+# CAMPAIGN & SANDBOX ENGINE FRAGMENTS (DYNAMIC PROMPTS)
+# ==============================================================================
+'''
+
+[PROMPT:FRAG_INVENTORY]
+'''
+Appended if 'track_inventory' is enabled.
+Variables: {inv_format}
+'''
+
+INVENTORY & STATE TRACKING:
+CRITICAL: Your JSON output MUST include the 'inventory_and_state' key.
+The state of all items and conditions must reflect the relevant changes that occurred during this turn.
+If an item was used, consumed, dropped, left behind, or destroyed, remove it. If a new item was given or found, add it. If physical health or status changed, update it.
+You MUST keep these exact category keys:
+"{inv_format}"
+DO NOT invent new categories. DO NOT rename categories.
+CRITICAL FORMATTING: Keep values extremely brief (1-5 words max). Use comma-separated lists for items. NEVER write full sentences or narrative descriptions in the inventory string.
+
+
+
+[PROMPT:FRAG_CAN_DIE]
+'''
+Appended if 'can_die' is enabled.
+'''
+
+MORTALITY & GAME OVER:
+The player is not invincible. If they make a fatal mistake, you MUST explicitly describe their gruesome and final death in the story_text. ONLY IF the character is explicitly dead, set 'is_game_over': true.
+
+
+
+
+[PROMPT:FRAG_NO_DIE]
+'''
+Appended if 'can_die' is disabled.
+'''
+
+FAIL FORWARD (NO DEATH):
+The protagonist CANNOT be killed. If the player makes a terrible mistake, they must survive, but you must inflict severe narrative consequences.
+
+
+
+
+[PROMPT:FRAG_TEST_MODE]
+'''
+Injected during Autopilot testing.
+'''
+
+*** TEST MODE ACTIVE ***: The FIRST choice in your 'choices' array (Choice #1) MUST ALWAYS be the single most optimal, direct action that propels the player toward achieving the GOAL.
+
+
+
+
+[PROMPT:FRAG_FINAL_CHAPTER]
+'''
+Appended in campaigns during the final chapter.
+'''
+
+NOTE: This is the FINAL CHAPTER of the campaign. When the GOAL is met, you MUST apply Rule #8 (THE FINALE) to conclude the story.
+
+
+
+
+[PROMPT:FRAG_STATE_RULE]
+'''
+Campaign state stability rule.
+'''
+
+CRITICAL STATE RULE:
+The JSON keys 'location', 'inventory_and_state', and 'objective_achieved' MUST reflect the world state at the VERY END of your story text.
+
+
+
+[PROMPT:FRAG_REQ_KEYS]
+'''
+Variables: {keys}
+'''
+ CRITICAL: Your JSON MUST include the following keys: {keys}.
+
+
+
+
+[PROMPT:FRAG_EPILOGUE_MODE]
+'''
+Campaign Epilogue logic flag.
+'''
+
+EPILOGUE MODE:
+The campaign is over. The protagonist has survived and won! You MUST set 'is_game_over': true in your JSON.
+
+
+
+
+[PROMPT:FRAG_EPILOGUE_EXPAND]
+'''
+Variables: {epilogue_content}, {req_str}
+'''
+Generate the next turn in JSON format.
+CRITICAL OVERRIDE: The campaign's final goal has been achieved! Expand the following brief epilogue into 5-8 paragraphs of satisfying prose: '{epilogue_content}'
+You MUST finish the 'story_text' paragraph with: *** THE END. ***
+CRITICAL: Set 'objective_achieved' to true and 'is_game_over' to true.{req_str} Provide meta-options in choices like 'Restart Game', 'Export Story', and 'Quit'.
+
+
+
+
+[PROMPT:FRAG_EPILOGUE_GENERATE]
+'''
+Variables: {req_str}
+'''
+Generate the next turn in JSON format.
+CRITICAL OVERRIDE: The campaign's final goal has been achieved! Write a satisfying epilogue. You MUST finish the 'story_text' paragraph with: *** THE END. ***
+CRITICAL: Set 'objective_achieved' to true and 'is_game_over' to true.{req_str} Provide meta-options in choices like 'Restart Game', 'Export Story', and 'Quit'.
+
+
+
+
+[PROMPT:FRAG_CAMPAIGN_EXPAND]
+'''
+Variables: {expand_txt}, {test_rule}, {req_str}, {objective_text}, {win_choice}
+'''
+CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of cinematic, rich prose:
+'{expand_txt}'
+
+Provide 3 to 6 choices.{test_rule}{req_str}
+
+
+
+
+
+
+[PROMPT:FRAG_CAMPAIGN_TURN]
+'''
+Variables: {test_rule}, {req_str}, {objective_text}, {win_choice}
+'''
+Generate the next turn in JSON format. Write 3 to 5 paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}
+
+
+
+
+[PROMPT:SYS_AUDITOR]
+'''
+File: llm.py | Function: evaluate_campaign_objective
+'''
+You are a strict game logic auditor. Your job is to evaluate if a player has completed their current objective based ONLY on the text provided. Output ONLY a valid JSON dictionary. Do not use markdown.
+
+
+
+
+[PROMPT:USER_AUDITOR]
+'''
+File: llm.py | Function: evaluate_campaign_objective
+Variables: {goal}, {obstacles}, {context}
+'''
+GOAL TO EVALUATE: {goal}
+KNOWN OBSTACLES: {obstacles}
+
+RECENT STORY CONTEXT:
+{context}
+
+TASK:
+1. Read the LATEST SCENE. Did the protagonist explicitly complete the GOAL TO EVALUATE?
+2. If they only made progress, got distracted, or are still dealing with the OBSTACLES, the goal is NOT achieved.
+3. Output a JSON dictionary with "reasoning" (1 short sentence of logic) and "objective_achieved" (boolean).
+
+CRITICAL SCHEMA:
+{
+  "reasoning": "The protagonist found the key, but has not yet opened the door.",
+  "objective_achieved": false
+}
+
+
+
+
+
+[PROMPT:FRAG_CAMPAIGN_COLD_OPEN]
+'''
+Variables: {chapter_number}, {chapter_title}, {req_str}
+'''
+CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the new setting and goal. Provide 3 to 6 choices. CRITICAL: You MUST set 'objective_achieved' to false for this introductory turn!{req_str}
+
+
+
+
+[PROMPT:FRAG_PROLOGUE_EXPAND]
+'''
+Variables: {prologue_content}, {chapter_title}
+'''
+PROLOGUE MODE: Expand the following brief prologue into 5-8 paragraphs of cinematic, rich prose: '{prologue_content}'
+CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {chapter_title}']. Set 'objective_achieved' to false.
+
+
+
+
+[PROMPT:FRAG_PROLOGUE_GENERATE]
+'''
+Variables: {chapter_title}
+'''
+PROLOGUE MODE: Generate a sweeping, atmospheric introduction (5-8 paragraphs) for this campaign. CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {chapter_title}']. Set 'objective_achieved' to false.
+
+
+
+
+[PROMPT:FRAG_DIRECTOR_NOTE]
+'''
+Campaign Director's Warning (Appended to the end of history).
+'''
+
+[DIRECTOR'S NOTE]: 
+- Write 3-5 cinematic paragraphs in 'story_text'.
+- Provide 3-6 choices in the 'choices' array (Max 15 words each).
+- JSON SAFETY: Use \n for paragraph breaks. Use \" for dialogue quotes. NEVER use raw carriage returns inside the JSON object.
+- CRITICAL: Output the JSON object and NOTHING ELSE.
+
+
+
+
+[PROMPT:FRAG_SANDBOX_EXPAND]
+'''
+Variables: {expand_txt}, {test_rule}, {req_str}
+'''
+CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 paragraphs of rich, descriptive prose:
+'{expand_txt}'
+*** MANDATORY RULES ***:
+1. Write 3 to 5 detailed paragraphs.
+2. Provide 3 to 6 choices.
+3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}
+
+
+
+
+[PROMPT:FRAG_SANDBOX_TURN]
+'''
+Variables: {test_rule}, {req_str}
+'''
+Based on the latest action, generate the next turn in JSON format.
+*** MANDATORY RULES ***:
+1. Write 3 to 5 detailed paragraphs.
+2. Provide 3 to 6 choices.
+3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}
+
+
+
+
+[PROMPT:FRAG_SANDBOX_COLD_OPEN]
+'''
+Variables: {chapter_number}, {chapter_title}, {test_rule}, {req_str}, {time_jump}
+'''
+CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the setting. Do not conclude anything. Provide 3 to 6 choices.{test_rule}{req_str}{time_jump}
+
+
+
+
+[PROMPT:FRAG_SANDBOX_PROLOGUE_EXPAND]
+'''
+Variables: {prologue_content}, {chapter_title}
+'''
+PROLOGUE OVERRIDE: Expand the following author notes into 5-8 paragraphs of rich, descriptive prose:
+'{prologue_content}'
+Establishing the scene. CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {chapter_title}'].
+
+
+
+
+[PROMPT:FRAG_SANDBOX_PROLOGUE_GENERATE]
+'''
+Variables: {chapter_title}
+'''
+PROLOGUE OVERRIDE: Generate an atmospheric opening narrative (5-8 paragraphs) based on the INITIAL SETTING and SITUATION. CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: {chapter_title}'].
+
+
+
+
+[PROMPT:FRAG_SANDBOX_DIRECTOR_NOTE]
+'''
+Sandbox Director's Warning (Appended to the end of history).
+'''
+
+[DIRECTOR'S NOTE]: 
+- Layer Sensory and Internal details in 'story_text' (3-5 paragraphs).
+- Provide 3-6 varied choices (Max 15 words each).
+- Focus choices on player INTENT (e.g., 'Search for...', 'Attempt to...').
+- JSON SAFETY: Use \n for paragraph breaks. Use \" for dialogue quotes. NEVER use raw carriage returns inside the JSON object.
+- CRITICAL: Output the JSON object and NOTHING ELSE.
+
+
+
+
+[PROMPT:SYS_SINGLE_CHOICE]
+'''
+File: llm.py | Function: generate_single_choice
+'''
+You are an interactive fiction engine. Your only job is to generate a JSON array containing EXACTLY ONE brief action the player can take next.
+
+
+
+
+[PROMPT:USER_SINGLE_CHOICE]
+'''
+File: llm.py | Function: generate_single_choice
+Variables: {story_text}, {current_choices}
+'''
+CURRENT SCENE:
+{story_text}
+
+CURRENT CHOICES:
+{current_choices}
+
+TASK:
+1. Based on the CURRENT SCENE, provide exactly ONE new, logical choice for the player's next action.
+2. It must be DIFFERENT from the CURRENT CHOICES.
+3. It MUST be a short string (Max 15 words) describing ONLY the action.
+4. Output ONLY a raw JSON array containing this single string. No markdown.
+
+EXAMPLE OUTPUT:
+[
+  "Examine the mysterious glowing artifact."
+]
+
+
+
+
+[PROMPT:USER_CONDENSE]
+'''
+File: base_engine.py | Function: request_condense
+Variables: {original_json}
+'''
+EDIT MODE (CONDENSE): You are a professional editor. Your task is to concisely summarize and condense the 'story_text' in the Original JSON.
+1. If the text is 5-8 paragraphs, condense it to 2-3 paragraphs. If it is 1-3 paragraphs, condense it to 1 paragraph.
+2. CRITICAL: Preserve all vital plot points, location details, and physical actions.
+3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written.
+4. CRITICAL: Do NOT alter the plot, setting, POV, or choices.
+
+Original JSON:
+{original_json}
+
+
+
+
+[PROMPT:USER_REDO_BRIDGE]
+'''
+File: base_engine.py | Function: redo_turn
+Variables: {bridge}
+'''
+CRITICAL NARRATIVE CONTINUITY: The previous action resulted in the following transition:
+"{bridge}"
+You MUST begin your 'story_text' by smoothly continuing from that exact transition. Do not repeat it, just follow it.
+
+
+
+
+[PROMPT:SYS_FIELD_GEN]
+'''
+File: api.py | Function: generate_field_data
+'''
+You are an expert world-builder and interactive fiction writer. Output only the requested content, without markdown formatting, preambles, or wrapping quotes.
+
+
+
+
+
+[PROMPT:USER_FIELD_REROLL]
+'''
+File: api.py | Function: generate_field_data
+Variables: {context}, {field_name}, {length_constraint}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+Generate a highly creative and detailed entry for the following game property: '{field_name}'. 
+Do not regurgitate the world context; use it to invent something new and fitting. 
+FORMAT RULE: {length_constraint}. 
+Output ONLY the requested text. Do not include labels like "Title:" or "Tone:".
+
+
+
+
+[PROMPT:USER_FIELD_INSPIRE]
+'''
+File: api.py | Function: generate_field_data
+Variables: {context}, {field_name}, {shorthand}, {length_constraint}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+The user wrote the following shorthand for the '{field_name}' property:
+"{shorthand}"
+
+Expand and polish this shorthand into a highly creative entry. Stay true to the shorthand's core intent.
+FORMAT RULE: {length_constraint}. 
+Output ONLY the requested text. Do not include labels like "Title:" or "Tone:".
+
+
+
+
+[PROMPT:SYS_SCHEMA_GEN]
+'''
+File: api.py | Function: generate_schema_data
+Description: Used when the AI needs to generate Lists or Dictionaries for the World Builder.
+'''
+You are an expert game designer. Output ONLY valid JSON matching the requested schema. Do not use markdown blocks or preambles.
+
+
+
+
+[PROMPT:USER_INV_REROLL]
+'''
+File: api.py | Function: generate_schema_data
+Variables: {context}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+Invent a starting Inventory and Status schema for this protagonist. Output EXACTLY 3 to 5 keys. 
+1. The "val" field MUST be a simple, flat string. 
+2. If it is a list of items, use a simple comma-separated string (e.g., "Rusty Dagger, Rope, Torch").
+3. DO NOT use nested arrays, brackets, or long descriptions inside the "val" field.
+
+CRITICAL JSON SCHEMA:
+{
+  "Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"},
+  "Items": {"val": "Rusty Dagger, Rope", "icon": "🎒", "color": "#1F6AA5"}
+}
+
+
+
+
+
+[PROMPT:USER_INV_INSPIRE]
+'''
+File: api.py | Function: generate_schema_data
+Variables: {context}, {shorthand}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+The user wants an inventory based on this idea: "{shorthand}"
+Invent a starting Inventory and Status schema based on that idea. Output EXACTLY 3 to 5 keys. 
+1. The "val" field MUST be a simple, flat string. 
+2. If it is a list of items, use a simple comma-separated string (e.g., "Rusty Dagger, Rope, Torch").
+3. DO NOT use nested arrays, brackets, or long descriptions inside the "val" field.
+
+CRITICAL JSON SCHEMA:
+{
+  "Health": {"val": "Good", "icon": "❤️", "color": "#B71C1C"},
+  "Items": {"val": "Rusty Dagger, Rope", "icon": "🎒", "color": "#1F6AA5"}
+}
+
+
+
+
+[PROMPT:USER_LIST_GEN]
+'''
+File: api.py | Function: generate_schema_data
+Variables: {context}, {field_name}, {shorthand}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+Generate creative data for the lore property: '{field_name}'. 
+User's idea: "{shorthand}"
+Output ONLY a flat JSON Array of 3 to 6 strings.
+EXAMPLE SCHEMA:
+["First item.", "Second item.", "Third item."]
+
+
+
+
+[PROMPT:USER_DICT_GEN]
+'''
+File: api.py | Function: generate_schema_data
+Variables: {context}, {field_name}, {shorthand}
+'''
+WORLD CONTEXT:
+{context}
+
+TASK:
+Generate creative data for the lore property: '{field_name}'. 
+User's idea: "{shorthand}"
+Output ONLY a flat JSON Dictionary with 3 to 6 key-value pairs (both must be strings).
+EXAMPLE SCHEMA:
+{"Name": "Description or value.", "Another_Name": "Another value."}
+
+
+
+
+[PROMPT:USER_AUTO_STYLE]
+'''
+File: api.py | Function: autofill_inventory_styles
+Variables: {inventory_json}
+'''
+Here is a JSON dictionary representing a game inventory. Some 'icon' and 'color' fields are empty.
+TASK:
+1. Fill in any empty "icon" fields with a single, highly fitting Emoji based on the key and value.
+2. Fill in any empty "color" fields with a fitting Hex Color Code (e.g., #2E7D32).
+3. Do NOT change the "val" or the keys.
+4. Output the completed JSON dictionary.
+
+INVENTORY JSON:
+{inventory_json}
+
+
+
+
+
+[PROMPT:SYS_CHAP_GEN]
+'''
+File: api.py | Function: generate_chapter_data
+'''
+You are an expert campaign writer. Output ONLY a flat JSON Dictionary matching the chapter schema. Do not use markdown blocks.
+
+
+
+
+[PROMPT:USER_CHAP_GEN]
+'''
+File: api.py | Function: generate_chapter_data
+Variables: {context}, {prev_chap_context}, {shorthand}
+'''
+WORLD CONTEXT:
+{context}
+
+{prev_chap_context}
+
+TASK:
+Generate a campaign chapter based on the user's idea: "{shorthand}"
+If the idea is empty, naturally advance the plot from the previous chapter.
+
+CRITICAL JSON SCHEMA:
+{
+  "title": "Short Chapter Title",
+  "setting": "Specific location description",
+  "pov": "Character name",
+  "time": "Time jump or 'Immediately after'",
+  "goal": "Specific, actionable objective for this chapter",
+  "obstacles": "Specific threats or challenges"
+}
+
+
+
+
+[PROMPT:SYS_BRIDGE_EDIT]
+'''
+File: api.py | Function: edit_narrative_bridge
+'''
+You are a professional copy-editor. Output ONLY the rewritten transition sentence. Do not explain your edits. Do not include markdown or quotes.
+
+
+
+
+[PROMPT:USER_BRIDGE_POLISH]
+'''
+File: api.py | Function: edit_narrative_bridge
+Variables: {bridge}
+'''
+Proofread and elevate the prose of the following transition sentence. Fix any grammatical errors and improve the flow, but do not change the core action or meaning.
+
+TRANSITION SENTENCE:
+"{bridge}"
+
+
+
+
+[PROMPT:USER_BRIDGE_EXPAND]
+'''
+File: api.py | Function: edit_narrative_bridge
+Variables: {bridge}
+'''
+Expand the following transition prose by adding rich sensory details (textures, lighting, sounds, atmosphere) and ensuring it reads like cinematic prose. You may write up to a full, detailed paragraph. Do not resolve any plot elements, just expand the description of the action. 
+It has to include ALL the same elements. If I were to ask an LLM to summarize the expanded version afterward, it should summarize back to before expansion. That is all narrative details MUST BE THERE in the expanded version.
+
+TRANSITION PROSE:
+"{bridge}"
+
+
+
+
+
+[PROMPT:SYS_MEMORY_PLOT]
+'''
+File: api.py | Function: generate_plot_summary
+'''
+You are an expert archivist. Your job is to read chronological gameplay logs and extract a dense, turn-by-turn ledger. Output ONLY a bulleted list following the exact template provided. Do not use markdown blocks.
+
+
+
+[PROMPT:USER_MEMORY_PLOT]
+'''
+File: api.py | Function: generate_plot_summary
+Variables: {chunk_text}
+'''
+Read the following sequence of events from the adventure. 
+Extract a chronological ledger of exactly what happened. 
+You MUST format your output as a strict list, explicitly declaring the Turn Number for every single event.
+Focus strictly on facts: locations visited, important characters met, actions taken, and direct consequences.
+
+CRITICAL FORMAT TEMPLATE:
+- Turn [Number]: [Summary of all important events]
+- Turn [Number]: [Summary of all important events]
+
+RAW GAMEPLAY LOG:
+{chunk_text}
+
+
+
+
+[PROMPT:SYS_MEMORY_ENTITY]
+You are an AI Memory Compiler.
+Read the RAW TEXT CHUNK and extract ANY new status changes, injuries, acquisitions, or relationship changes for Entities.
+
+Output a JSON dictionary exactly like this:
+{
+  "Characters": { "Character Name": { "event": "What happened to them", "traits": {"Age": "...", "Appearance": "..."} } },
+  "Locations": { "Location Name": { "event": "What happened here", "traits": {"Atmosphere": "...", "Danger Level": "..."} } },
+  "Artifacts": { "Item Name": { "event": "How it was used/found", "traits": {"Appearance": "...", "Magic/Tech": "..."} } }
+  {faction_schema}
+}
+If nothing happened to a category, output an empty object {}. Do NOT hallucinate events.
+
+
+
+[PROMPT:USER_MEMORY_ENTITY]
+'''
+File: api.py | Function: extract_entity_updates
+Variables: {chunk_text}, {known_chars}, {known_locs}
+'''
+Read the following RAW GAMEPLAY LOG. 
+
+TASK:
+Identify any NEW significant events, or newly revealed static traits (age, appearance, personality, quirks) that occurred to characters or locations.
+CRITICAL: DO NOT GUESS. If a trait (like age or appearance) is not explicitly stated in the text, DO NOT invent one. Leave it out.
+Do NOT repeat traits or events already listed in the KNOWN blocks. If a new important character or location is introduced, add them.
+
+KNOWN CHARACTERS (For Context):
+{known_chars}
+
+KNOWN LOCATIONS (For Context):
+{known_locs}
+
+RAW GAMEPLAY LOG:
+{chunk_text}
+
+CRITICAL JSON SCHEMA:
+Output a nested JSON object with EXACTLY two root keys: "Characters" and "Locations". 
+Inside each, the key is the Entity's Name. The value MUST be an object containing "event" (a 1-sentence update of what happened, or null) and "traits" (a dictionary of any NEWLY revealed static characteristics, or an empty dict {}).
+Here is an example of structure to usage precisely (don't output these values, REPLACE these values by appropriate memory where applicable, if they are mentioned at all):
+{
+  "Characters": {
+    "Character Name": {
+      "event": "An important event that happen to the character.",
+      "traits": {"Age": "34", "Appearance": "Wears a dark shadow cloak", "Quirks": "Hates dogs"}
+    }
+  },
+  "Locations": {
+    "Name of location": {
+      "event": "Description of that location.",
+      "traits": {"Architecture": "Massive iron portcullis", "Faction": "City Watch"}
+    }
+  }
+}
+
+
+[PROMPT:USER_MEMORY_ENTITY]
+'''
+File: api.py | Function: extract_entity_updates
+Variables: {chunk_text}, {known_chars}, {known_locs}, {known_arts}
+'''
+Read the following RAW GAMEPLAY LOG. 
+
+TASK:
+Identify any NEW significant events, or newly revealed static traits (appearance, personality, mechanics, material) that occurred to characters, locations, or artifacts.
+CRITICAL: DO NOT GUESS. If a trait is not explicitly stated in the text, DO NOT invent one. Leave it out.
+Do NOT repeat traits or events already listed in the KNOWN blocks. If a new important entity is introduced, add it.
+
+KNOWN CHARACTERS:
+{known_chars}
+
+KNOWN LOCATIONS:
+{known_locs}
+
+KNOWN ARTIFACTS / KEY ITEMS:
+{known_arts}
+
+RAW GAMEPLAY LOG:
+{chunk_text}
+
+CRITICAL JSON SCHEMA:
+Output a nested JSON object with EXACTLY three root keys: "Characters", "Locations", and "Artifacts". 
+Inside each, the key is the Entity's Name. The value MUST be an object containing "event" (a 1-sentence update of what happened, or null) and "traits" (a dictionary of any NEWLY revealed static characteristics, or an empty dict {}).
+Here is an example of structure to usage precisely (don't output these values, REPLACE these values by appropriate memory where applicable, if they are mentioned at all):
+{
+  "Characters": {
+    "Kaelen": {
+      "event": "Broke his left arm jumping from the rooftop.",
+      "traits": {"Age": "34", "Appearance": "Wears a dark shadow cloak"}
+    }
+  },
+  "Locations": {
+    "Oakhaven City Gates": {
+      "event": "The gates were locked down.",
+      "traits": {"Architecture": "Massive iron portcullis"}
+    }
+  },
+  "Artifacts": {
+    "Crown of Whispers": {
+      "event": "Kaelen dropped it, cracking the gem.",
+      "traits": {"Material": "Gold", "Magic": "Allows telepathy"}
+    }
+  }
+}
+
+
+
+[PROMPT:SYS_MEMORY_SEED]
+'''
+File: api.py | Function: seed_initial_memory
+'''
+You are an expert data-extraction engine. Your job is to extract static characters, locations, and artifacts from a world-building document and format them into a strict JSON dictionary.
+
+
+
+
+[PROMPT:USER_MEMORY_SEED]
+'''
+File: api.py | Function: seed_initial_memory
+Variables: {world_doc}
+'''
+Read the following WORLD BUILDING DOCUMENT. It contains the foundational lore of an interactive fiction game.
+
+TASK:
+Exhaustively extract ALL explicitly named Characters, Locations, and Artifacts. 
+If a family tree or list of characters is provided, you MUST separate them into individual entries. Do not group them.
+For each entity, identify their core static traits (Age, Appearance, Personality, Relationships, Profession, Rules).
+
+WORLD BUILDING DOCUMENT:
+{world_doc}
+
+CRITICAL JSON SCHEMA:
+Output a nested JSON object with EXACTLY three root keys: "Characters", "Locations", and "Artifacts". 
+Inside each, the key is the Entity's Name. The value MUST be an object containing "traits" (a dictionary of static characteristics). Set "event" to null.
+{
+  "Characters": {
+    "Alan Prescot": {
+      "event": null,
+      "traits": {"Age": "34", "Relationship": "Father of Melissa"}
+    },
+    "Cindy Miller Prescot": {
+      "event": null,
+      "traits": {"Age": "32", "Relationship": "Mother of Melissa"}
+    }
+  },
+  "Locations": {
+    "Oakhaven": {
+      "event": null,
+      "traits": {"Description": "A dark, smog-filled city"}
+    }
+  }
+}
+
+
+
+[PROMPT:USER_MEMORY_ENTITY_FACTIONS]
+'''
+File: api.py | Function: extract_entity_updates
+'''
+Read the following RAW GAMEPLAY LOG. 
+
+TASK:
+Identify any NEW significant events, or newly revealed static traits (appearance, personality, mechanics, material) that occurred to characters, locations, artifacts, or factions/organizations.
+CRITICAL: DO NOT GUESS. If a trait is not explicitly stated in the text, DO NOT invent one. Leave it out.
+Do NOT repeat traits or events already listed in the KNOWN blocks. If a new important entity is introduced, add it.
+
+KNOWN CHARACTERS:
+{known_chars}
+
+KNOWN LOCATIONS:
+{known_locs}
+
+KNOWN ARTIFACTS:
+{known_arts}
+
+KNOWN FACTIONS / ORGS:
+{known_facs}
+
+RAW GAMEPLAY LOG:
+{chunk_text}
+
+CRITICAL JSON SCHEMA:
+Output a nested JSON object with EXACTLY four root keys: "Characters", "Locations", "Artifacts", and "Factions". 
+Inside each, the key is the Entity's Name. The value MUST be an object containing "event" (a 1-sentence update of what happened, or null) and "traits" (a dictionary of any NEWLY revealed static characteristics, or an empty dict {}).
+Here is an example of structure to usage precisely (don't output these values, REPLACE these values by appropriate memory where applicable):
+{
+  "Characters": { "Kaelen": { "event": "Broke his arm.", "traits": {"Age": "34"} } },
+  "Locations": { "Oakhaven": { "event": "The gates were locked.", "traits": {"Architecture": "Iron portcullis"} } },
+  "Artifacts": { "Crown": { "event": "Cracked the gem.", "traits": {"Magic": "Telepathy"} } },
+  "Factions": { "Thieves Guild": { "event": "Declared Kaelen a traitor.", "traits": {"Leader": "Lord Vane", "Disposition": "Hostile"} } }
+}
+
+
+
+[PROMPT:USER_MEMORY_SEED_FACTIONS]
+'''
+File: api.py | Function: seed_initial_memory
+'''
+Read the following WORLD BUILDING DOCUMENT. It contains the foundational lore of an interactive fiction game.
+
+TASK:
+Exhaustively extract ALL explicitly named Characters, Locations, Artifacts, and Factions/Organizations. 
+If a family tree or list of characters is provided, you MUST separate them into individual entries. Do not group them.
+For each entity, identify their core static traits (Age, Appearance, Personality, Relationships, Profession, Rules, Disposition).
+
+WORLD BUILDING DOCUMENT:
+{world_doc}
+
+CRITICAL JSON SCHEMA:
+Output a nested JSON object with EXACTLY four root keys: "Characters", "Locations", "Artifacts", and "Factions". 
+Inside each, the key is the Entity's Name. The value MUST be an object containing "traits" (a dictionary of static characteristics). Set "event" to null.
+Here is an example of structure to usage precisely (don't output these values, REPLACE these values by appropriate memory where applicable):
+{
+  "Characters": { "Alan Prescot": { "event": null, "traits": {"Age": "34"} } },
+  "Locations": { "Oakhaven": { "event": null, "traits": {"Description": "Smog-filled city"} } },
+  "Artifacts": { "Holy Sword": { "event": null, "traits": {"Damage": "High"} } },
+  "Factions": { "City Watch": { "event": null, "traits": {"Goal": "Enforce the law"} } }
+}
+
+
+
+
+[PROMPT:SYS_MEMORY_RECONCILE]
+'''
+File: api.py | Function: reconcile_aliases
+'''
+You are an intelligent data-reconciliation engine. Output ONLY a valid JSON dictionary mapping duplicate aliases to their Master Entity.
+
+
+
+
+[PROMPT:USER_MEMORY_RECONCILE]
+'''
+File: api.py | Function: reconcile_aliases
+Variables: {entities_context}
+'''
+Review the following list of entities and their traits.
+Identify any entities that are CLEARLY the exact same person, place, or thing, just referred to by a shorter name or alias (e.g., "Captain Vance" and "Vance", or "The Broken Anvil" and "Broken Anvil Tavern").
+
+ENTITIES LIST:
+{entities_context}
+
+TASK:
+Output a flat JSON dictionary where the KEY is the short Alias to remove, and the VALUE is the longer Master Entity name to keep.
+If there are no duplicates, output an empty dictionary {}.
+DO NOT guess or merge distinct entities. Only merge obvious duplicates.
+
+CRITICAL SCHEMA:
+{
+  "Vance": "Captain Vance",
+  "Broken Anvil": "The Broken Anvil Tavern"
+}
+
+
+
+
+[PROMPT:SYS_MEMORY_VERIFY]
+'''
+File: api.py | Function: verify_memory_integrity
+'''
+You are an expert continuity editor and logic checker. Output ONLY a valid JSON dictionary.
+
+
+
+[PROMPT:USER_MEMORY_VERIFY]
+'''
+File: api.py | Function: verify_memory_integrity
+Variables: {plot_context}, {lore_context}
+'''
+Review the PLOT SUMMARIES and the LORE BIBLE of this story.
+Your task is to identify logical contradictions, impossibilities, or severe discrepancies in the Lore Bible.
+For example: A character is described as both "blind" and "having perfect vision", or a character died in the Plot Summary but their Lore ledger says they are "Currently drinking at the tavern."
+
+PLOT SUMMARIES (Chronological):
+{plot_context}
+
+LORE BIBLE (Current State):
+{lore_context}
+
+TASK:
+Output a JSON dictionary. 
+If there are contradictions, set "has_issues" to true and write a clear, bulleted "report" detailing the contradictions.
+If everything makes logical sense, set "has_issues" to false and set "report" to exactly: "Nothing to report: All the Ledgers, Characters, Locations, Artifacts, and Factions seem to be logically consistent."
+
+CRITICAL SCHEMA:
+{
+  "has_issues": false,
+  "report": "Your detailed report or the success message here."
+}
+
+
+
+
+[PROMPT:SYS_MEMORY_CHAPTER]
+'''
+File: api.py | Function: generate_chapter_summary
+'''
+You are an expert literary archivist. Your job is to read several granular "Part Summaries" of a completed chapter and condense them into a single, high-level Chapter Summary. Output ONLY the summary text.
+
+
+
+[PROMPT:USER_MEMORY_CHAPTER]
+'''
+File: api.py | Function: generate_chapter_summary
+Variables: {parts_text}
+'''
+Read the following Part Summaries that make up a single, completed chapter of the story.
+Write a concise, 1-to-2 paragraph high-level summary of the entire chapter. Focus on the major plot developments, key reveals, and the final state of the characters at the end of the chapter. Do not list granular turn-by-turn details.
+
+CHAPTER PARTS:
+{parts_text}
+
+
+
+
+[PROMPT:SYS_MEMORY_VALIDATE]
+'''
+File: api.py | Function: validate_plot_chunk
+'''
+You are a strict narrative auditor and Quality Assurance tester. Your job is to compare an AI-generated summary against the raw source material and return a fidelity score. Output ONLY a valid JSON dictionary. Do not use markdown blocks.
+
+
+
+[PROMPT:USER_MEMORY_VALIDATE]
+'''
+File: api.py | Function: validate_plot_chunk
+Variables: {raw_text}, {summary_text}
+'''
+Compare the CURRENT SUMMARY against the RAW GAMEPLAY LOG. 
+
+RAW GAMEPLAY LOG (Source of Truth):
+{raw_text}
+
+CURRENT SUMMARY (To be audited):
+{summary_text}
+
+TASK:
+Audit the summary for accuracy.
+CRITICAL: You are in a sterile environment. You MUST ONLY use the events explicitly described in the RAW GAMEPLAY LOG above. Do NOT use outside knowledge, lore, or events from other parts of the story. If a character or event is not in the RAW GAMEPLAY LOG, it does not exist for this audit.
+
+Look for:
+1. Missing crucial details (major events that were left out).
+2. Fabricated details (things in the summary that NEVER happened in the raw log).
+3. Inaccurate details (things that happened, but were described incorrectly or assigned to the wrong turn/character).
+
+CRITICAL JSON SCHEMA:
+Output a JSON dictionary with "score" (a string like "85/100") and "report" (a highly detailed, bulleted string explaining the exact discrepancies).
+{
+  "score": "85/100",
+  "report": "• Missing: [Detail]\n• Fabricated: [Detail]\n• Inaccurate: [Detail]"
+}
+
+
+
+
+[PROMPT:SYS_MEMORY_PATCH]
+'''
+File: api.py | Function: patch_plot_chunk
+'''
+You are an expert editor. Your job is to fix a plot summary based on a Quality Assurance report. Output ONLY the rewritten bulleted list. Do not use markdown blocks.
+
+
+
+[PROMPT:USER_MEMORY_PATCH]
+'''
+File: api.py | Function: patch_plot_chunk
+Variables: {raw_text}, {current_summary}, {qa_report}
+'''
+Review the RAW GAMEPLAY LOG, the CURRENT SUMMARY, and the QA REPORT.
+
+RAW GAMEPLAY LOG (Source of Truth):
+{raw_text}
+
+CURRENT SUMMARY:
+{current_summary}
+
+QA REPORT:
+{qa_report}
+
+TASK:
+Rewrite the CURRENT SUMMARY to fix all the issues identified in the QA REPORT. 
+CRITICAL: You are in a sterile environment. You MUST ONLY use the events explicitly described in the RAW GAMEPLAY LOG above. Do NOT include characters or events that belong to a different part of the story.
+
+You MUST format your output as a strict list, explicitly declaring the Turn Number for every single event:
+- Turn [X]: [Brief summary of event]
+- Turn [X+1]: [Brief summary of event]
+

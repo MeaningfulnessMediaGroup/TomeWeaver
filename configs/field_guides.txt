@@ -1,0 +1,170 @@
+[HELP:TITLE]
+This field dictates the overarching name of your adventure. It helps the AI understand the core theme and sets the folder name on your computer.
+
+[EXAMPLE:TITLE]
+ALL: The Heist of the Ruby Skull
+ALL: Echoes of the Leviathan
+SANDBOX: Mallow the Cat
+SANDBOX: Lost in the Neon City
+SANDBOX: The Merchant of Driftwood
+CAMPAIGN: The Last Train to Oakhaven
+CAMPAIGN: Project: Icarus
+CAMPAIGN: The Bloodline Crown
+
+
+
+[HELP:CHAR]
+This field is used to describe the main character's features. The AI performs best when you include physical limitations, quirky personality traits, and internal fears alongside basic descriptions.
+
+[EXAMPLE:CHAR]
+ALL: Kaelen, a cynical thief with a bad knee and a penchant for gambling.
+ALL: Subject 84, an amnesiac supersoldier who is terrifyingly fast but deeply paranoid.
+SANDBOX: Bob the builder, 27yo, short but muscular, lives in his parents' attic after a failed marriage.
+SANDBOX: Elara, a starry-eyed potion merchant with a silver tongue and a terrible sense of direction.
+SANDBOX: Barnaby, an overly enthusiastic golden retriever separated from his owner.
+CAMPAIGN: Vera, 21yo, an art major having an existential crisis about her career prospects.
+CAMPAIGN: Captain Vance, a disgraced naval officer looking for one last shot at redemption.
+CAMPAIGN: Silas the Grim, an elderly necromancer who is severely allergic to dust.
+
+
+
+[HELP:TONE]
+The tone instructs the AI on the writing style and vocabulary. Tell it exactly what genre tropes and atmospheres you want it to emulate. This is the single most important field of the World Builder to set the tone and mood of the story.
+
+[EXAMPLE:TONE]
+ALL: Whimsical, comedic, overly dramatic, cozy.
+ALL: Serious, procedural, suspense, rain-slicked film-noir.
+ALL: Gritty, tense, low-fantasy, violent, unforgiving.
+ALL: Dreamlike, surreal, philosophical, slow-paced, abstract.
+ALL: Cyberpunk, high-octane action, neon-lit, cynical.
+ALL: Cosmic horror, dread-inducing, claustrophobic, hopeless.
+ALL: Epic high-fantasy, heroic, grand, awe-inspiring.
+ALL: Post-apocalyptic, bleak, desperate, lonely, atmospheric.
+ALL: Cinematic, explosive, fast-paced, adrenaline-fueled action.
+ALL: Mythic, fable-like, enchanting, lyrical, fairytale.
+ALL: Industrial steampunk, clockwork, smog-filled, rebellious.
+ALL: Gothic horror, aristocratic, brooding, macabre, romantic.
+ALL: Space-opera, vast, diplomatic, technological, optimistic.
+ALL: Slice-of-life, mundane, character-driven, emotional, grounded.
+ALL: Satirical, witty, breaking the fourth wall, absurd.
+ALL: Hard sci-fi, grounded, scientific, sterile, isolationist.
+ALL: Western, dust-choked, lawless, standoffish, rugged.
+ALL: Melancholic, tragic, poetic, sorrowful, introspective.
+
+
+
+[HELP:GOAL]
+The overarching motivation driving the protagonist. In Campaign mode, this is the final "end game" objective. In Sandbox mode, this gives the AI a reason to push the story forward rather than stagnating.
+
+[EXAMPLE:GOAL]
+ALL: Escape the facility before the self-destruct timer hits zero.
+ALL: Survive the harsh wilderness and find a way back to civilization.
+SANDBOX: Find a comfortable place to sleep and maybe a bowl of milk.
+SANDBOX: Build a thriving tavern business from the ground up.
+SANDBOX: Explore the infinite procedural backrooms and document anomalies.
+SANDBOX: Ascend the ranks of the local thieves guild by picking pockets and making connections.
+CAMPAIGN: Steal the Ruby Skull from the Sunken Tomb and escape the city.
+CAMPAIGN: Assassinate the corrupt King before the royal wedding concludes.
+CAMPAIGN: Deliver the encrypted datapad to the rebel base across the galaxy.
+CAMPAIGN: Find a cure for the supernatural plague ravaging your village.
+
+
+
+[HELP:SETTING]
+The initial environment where the story begins. Focus on sensory details: lighting, architecture, weather, and smells. The AI loves rich environmental descriptions.
+
+[EXAMPLE:SETTING]
+ALL: A dense, spooky forest at midnight. The air smells like wet pine and ozone.
+ALL: An abandoned sci-fi research facility on a frozen moon. Blaring red alarms and the hiss of broken steam pipes.
+ALL: A crowded, dirty tavern in the slums of Oakhaven. Smells like cheap ale and sweat.
+SANDBOX: A bustling interstellar space station market filled with alien merchants and neon signs.
+SANDBOX: A seemingly endless office building with yellow wallpaper and buzzing fluorescent lights.
+SANDBOX: A cozy, sunlit cottage kitchen filled with the smell of baking bread and dried herbs.
+CAMPAIGN: The rainy, cobblestone streets of a Victorian-era London analogue, lit by flickering gas lamps.
+CAMPAIGN: A moving bullet-train speeding through a desolate, irradiated wasteland.
+CAMPAIGN: The grand, marble foyer of a vampire lord's castle, chillingly silent and draped in red velvet.
+
+
+
+[HELP:LORE]
+Hard rules the AI must never break. Use this to ban certain technologies, define magic systems, set physical laws, or limit the protagonist's abilities.
+
+[EXAMPLE:LORE]
+ALL: Magic is highly illegal and punishable by death.
+ALL: Zombies are completely blind but have incredible hearing.
+ALL: The protagonist is a normal cat. He cannot speak English or hold items in his paws.
+ALL: All computer networks are infected by a hostile AI; manual analog tools are the only safe option.
+ALL: The sun never sets in this realm. It is constantly blazing noon.
+ALL: Anyone who speaks a lie immediately coughs up a black rose petal.
+
+
+
+[HELP:COLD_OPEN]
+Sets the immediate context for Turn 1. What is the protagonist doing right this exact second? Put them right in the middle of the action!
+
+[EXAMPLE:COLD_OPEN]
+ALL: Waking up in a cryo-pod with alarms blaring and no memory of how I got here.
+ALL: Crouched behind a wooden barrel, hiding from a patrolling guard.
+ALL: Sitting at the bar, nursing a cheap ale, when a stranger approaches with a map.
+SANDBOX: Stepping off the bus into a strange, rainy city with only a suitcase and ten dollars.
+SANDBOX: Staring at a blank computer screen in a cubicle, feeling an overwhelming urge to run away.
+SANDBOX: Opening the front door to find a mysterious, ticking package on the porch.
+CAMPAIGN: Dangling by one hand from the ledge of a skyscraper, hearing the police sirens approach.
+CAMPAIGN: Standing over the body of a corrupt official, holding a smoking pistol.
+CAMPAIGN: Strapped to an interrogation chair as the villain walks in holding a pair of pliers.
+
+
+
+[HELP:CHAP_GOAL]
+The specific, actionable objective for this exact chapter. The AI will not allow the chapter to end until the player successfully achieves this goal.
+
+[EXAMPLE:CHAP_GOAL]
+CAMPAIGN: Find a way to sneak past or bribe the city guards to enter Oakhaven.
+CAMPAIGN: Break into the manor, locate the hidden safe, and steal the Ruby Skull.
+CAMPAIGN: Navigate the spooky forest and find the hidden ruins without being caught by the mercenaries.
+CAMPAIGN: Interrogate the captured smuggler and extract the password to the mainframe.
+CAMPAIGN: Successfully navigate the high-society gala and quietly poison the Duke's wine.
+CAMPAIGN: Survive the first wave of alien attackers and restore power to the communication array.
+
+
+
+[HELP:CHAP_OBSTACLES]
+Specific threats or challenges that prevent the player from easily achieving the goal. The AI will use these to block the player's path and create tension.
+
+[EXAMPLE:CHAP_OBSTACLES]
+CAMPAIGN: The guards are highly alert and you have no money for a bribe.
+CAMPAIGN: Locked doors, patrolling guard dogs, and trap runes on the windows.
+CAMPAIGN: Slippery shingles, guards shooting crossbows, and a rival thief trying to steal the skull.
+CAMPAIGN: The smuggler is stubborn, and time is running out before his gang arrives to rescue him.
+CAMPAIGN: Nosy guests constantly trying to make small talk, and the Duke has a personal food taster.
+CAMPAIGN: Ammunition is severely limited, and the power relay is across a dark, flooded corridor.
+
+
+
+[HELP:CHAP_TIME]
+A brief instruction for the AI to seamlessly skip time between chapters.
+
+[EXAMPLE:CHAP_TIME]
+CAMPAIGN: Later that night...
+CAMPAIGN: The next morning, as the sun rises...
+CAMPAIGN: Three days later, deep in the mountains...
+CAMPAIGN: Immediately after. No time skip.
+CAMPAIGN: A week later, after recovering from the wounds...
+CAMPAIGN: Flashback to ten years ago...
+
+
+
+[HELP:INVENTORY]
+The Inventory & State tracking schema dictates exactly what the AI is allowed to track and update. 
+
+To use an example from below, click it. The AI will automatically read the example string and construct the full UI Schema (complete with Icons and Hex Colors) for you!
+
+[EXAMPLE:INVENTORY]
+ALL: Health: Good. Items: Rusty Dagger, Rope. Status: Feeling adventurous.
+ALL: Health: 100/100. Stamina: High. Weapon: Plasma Rifle. Credits: 50.
+ALL: Sanity: Deteriorating. Fear: High. Clues: Torn photograph.
+ALL: Hunger: Starving. Thirst: Parched. Backpack: Empty.
+ALL: Armor: Broken. Main Hand: Longsword. Off Hand: Wooden Shield.
+SANDBOX: Gold: 15. Reputation: Unknown. Cargo: 3x Spice crates.
+CAMPAIGN: Stealth: Undetected. Noise Level: Low. Tools: Lockpicks.
+

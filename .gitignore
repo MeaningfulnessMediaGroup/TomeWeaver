@@ -12,31 +12,9 @@ env/
 # Adventure Save Data
 # (We ignore all folders inside adventures EXCEPT a 'sample' template if you want to provide one)
 adventures/*
-!adventures/Mallow the Cat/
-!adventures/Sandbox/
-!adventures/Campaign/
 !adventures/README.md
+samples/Samples
 
 # Logs and Exports
 *.log
 configs/instance_config.json
-session_log.txt
-history.json
-*.html
-*.md
-*.txt
-!README.md
-!CONFIG_GUIDE.md
-!COMMAND_GUIDE.md
-!LICENSE.md
-!LM_STUDIO_CONFIG.md
-!RAG.md
-!default_system_prompt_*.txt
-!system_prompt.txt
-!requirements.txt
-!prologue.txt
-!epilogue.txt
-
-Story - *.bat
-!Story - Mallow the Cat.bat
-!Story - The Tomb of the Sunken King.bat
