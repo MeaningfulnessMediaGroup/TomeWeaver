@@ -4,6 +4,8 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
 ![LLM](https://img.shields.io/badge/LLM-Agnostic-orange)
 
+[ ![Download Latest Release](https://img.shields.io/github/v/release/dobrado76/TomeWeaver?label=Download%20Latest%20Executables&style=for-the-badge) ](https://github.com/dobrado76/TomeWeaver/releases/latest)
+
 
 ### AI stories that remember.
 
