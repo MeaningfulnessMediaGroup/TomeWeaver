@@ -311,11 +311,25 @@ class WorkspaceFrame(ctk.CTkFrame):
             # 1. Wipe History
             self.engine.history.clear()
             
-            # 2. Reset Chapters
+            # 2. Reset Chapters (Completely rebuild the state tracker)
             if self.engine.is_campaign:
-                for c in self.engine.chapters:
-                    c["start_turn"] = 1 if c["chapter_number"] == 1 else None
-                    c["end_turn"] = None
+                outline = self.engine.setup_data.get("plot_outline", [])
+                first_chap = outline[0] if outline else {}
+                
+                # Build the fresh objectives array for Chapter 1
+                objs = []
+                for i, o in enumerate(first_chap.get("objectives", [])):
+                    o_copy = o.copy()
+                    o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                    objs.append(o_copy)
+                    
+                self.engine.chapters = [{
+                    "chapter_number": 1,
+                    "title": first_chap.get("title", "Chapter 1"),
+                    "start_turn": 1, 
+                    "end_turn": None,
+                    "objectives": objs
+                }]
             else:
                 self.engine.chapters = [self.engine.chapters[0]]
                 self.engine.chapters[0]["start_turn"] = 1

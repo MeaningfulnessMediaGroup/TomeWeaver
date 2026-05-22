@@ -1222,8 +1222,6 @@ class TomeWeaverAPI:
             # Expand needs room to grow significantly
             dynamic_tokens = max(300, estimated_input_tokens + 400)
             
-        # Hard cap to prevent runaway billing if using cloud APIs
-        dynamic_tokens = min(2000, dynamic_tokens)
 
         for attempt in range(3):
             payload = {

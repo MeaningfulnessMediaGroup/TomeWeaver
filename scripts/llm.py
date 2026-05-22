@@ -78,45 +78,48 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         if "location" not in data:
             data["location"] = prev_turn.get("location", "Unknown")
             
-        if "is_game_over" not in data and can_die:
-            data["is_game_over"] = False
+    # Force Mortality rules regardless of hallucination
+    if not can_die:
+        data["is_game_over"] = False
+    elif "is_game_over" not in data:
+        data["is_game_over"] = False
             
-        # --- THE INVENTORY PATCHER (Zero-Trust) ---
-        if track_inventory:
-            curr_str = data.get("inventory_and_state", "")
-            if not isinstance(curr_str, str): curr_str = ""
+    # --- THE INVENTORY PATCHER (Zero-Trust) ---
+    if track_inventory:
+        curr_str = data.get("inventory_and_state", "")
+        if not isinstance(curr_str, str): curr_str = ""
+        
+        # Baseline: Establish the strict skeleton from setup.json so keys are NEVER dropped
+        merged_dict = {k: "None" for k in inv_schema.keys()} if inv_schema else {}
+        
+        # 1. Overlay the previous turn's data to establish continuity
+        prev_str = ""
+        if prev_turn:
+            # Failsafe in case a legacy Turn 0 with the wrong key name exists in memory
+            prev_str = prev_turn.get("inventory_and_state", prev_turn.get("inventory_dictionary", ""))
             
-            # Baseline: Establish the strict skeleton from setup.json so keys are NEVER dropped
-            merged_dict = {k: "None" for k in inv_schema.keys()} if inv_schema else {}
-            
-            # 1. Overlay the previous turn's data to establish continuity
-            prev_str = ""
-            if prev_turn:
-                # Failsafe in case a legacy Turn 0 with the wrong key name exists in memory
-                prev_str = prev_turn.get("inventory_and_state", prev_turn.get("inventory_dictionary", ""))
+        if prev_str and isinstance(prev_str, str):
+            for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str.replace("[Status]", "")):
+                clean_k = k.strip()
+                if inv_schema and clean_k not in inv_schema: continue
+                merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
                 
-            if prev_str and isinstance(prev_str, str):
-                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', prev_str.replace("[Status]", "")):
-                    clean_k = k.strip()
-                    if inv_schema and clean_k not in inv_schema: continue
-                    merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
-                    
-            # 2. Overlay the AI's current hallucinated data (Only allowing approved keys to overwrite)
-            if curr_str:
-                for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str.replace("[Status]", "")):
-                    clean_k = k.strip()
-                    if inv_schema and clean_k not in inv_schema: continue
-                    merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
-                    
-            # 3. Rebuild the perfect string
-            if merged_dict:
-                data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged_dict.items()]).strip()
-            else:
-                data["inventory_and_state"] = prev_str
+        # 2. Overlay the AI's current hallucinated data (Only allowing approved keys to overwrite)
+        if curr_str:
+            for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', curr_str.replace("[Status]", "")):
+                clean_k = k.strip()
+                if inv_schema and clean_k not in inv_schema: continue
+                merged_dict[clean_k] = v.split('\n')[0].strip(' .,;')
+                
+        # 3. Rebuild the perfect string
+        if merged_dict:
+            data["inventory_and_state"] = " ".join([f"{k}: {v}." for k, v in merged_dict.items()]).strip()
+        else:
+            data["inventory_and_state"] = prev_str
 
-        if "objective_achieved" not in data and is_campaign:
-            # Safest assumption: Objective is not met unless AI says so
-            data["objective_achieved"] = False
+    if "objective_achieved" not in data and is_campaign:
+        # Safest assumption: Objective is not met unless AI says so
+        data["objective_achieved"] = False
 
     # Infer Input Type based on context
     if "input_type" not in data:
@@ -146,9 +149,7 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
 
     # --- SCHEMA DEFINITION (Final Check) ---
     required_keys = {"story_text", "pov_character", "location", "input_type", "choices"}
-    if is_campaign: 
-        required_keys.add("objective_achieved")
-        required_keys.add("goal_progress")
+    # The auditor now injects goal progression, so Phase 1 doesn't require it natively!
     if track_inventory: required_keys.add("inventory_and_state")
     if can_die: required_keys.add("is_game_over")
         
@@ -184,6 +185,9 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         for c_str in flat_choices:
             c_str = c_str.strip()
             if not c_str: continue
+            
+            # 0.5 Remove LLM inline editorial comments (e.g. "// #1 - Direct Progression" or "/* comment */")
+            c_str = re.split(r'//|/\*', c_str)[0].strip()
             
             # 1. Remove LLM "Concatenation" artifacts (e.g. "Text" + "\n")
             c_str = c_str.replace('" + "', '').replace('\\" + \\"', '').replace('\" + \"', '')
@@ -930,3 +934,56 @@ def generate_single_choice(story_text, current_choices):
             
     print(f"{Fore.RED}[System] LLM failed to generate a single choice.{Style.RESET_ALL}")
     return None
+    
+    
+def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir):
+    """
+    Phase 2 Auditor: Runs a strict, low-temperature evaluation of the story text
+    to determine if the active objective was explicitly completed.
+    """
+    import requests, time
+    from colorama import Style
+    from config import ENGINE_CONFIG, PROMPTS
+    
+    print(f"{Style.DIM}Auditing goal progression...{Style.RESET_ALL}")
+    
+    ctx_text = ""
+    for t in context_turns:
+        ctx_text += f"Turn {t.get('turn', '?')}: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
+    
+    ctx_text += f"LATEST SCENE:\n{new_turn.get('story_text', '')}\n"
+    
+    goal = active_obj.get("goal", "Survive")
+    obs = active_obj.get("obstacles", "None")
+    
+    sys_prompt = PROMPTS.get("SYS_AUDITOR", "You are a strict game logic auditor. Output ONLY valid JSON.")
+    user_prompt = PROMPTS.get("USER_AUDITOR", "").replace("{context}", ctx_text)
+    user_prompt = user_prompt.replace("{goal}", goal).replace("{obstacles}", obs)
+    
+    messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+    headers = {"Content-Type": "application/json"}
+    if ENGINE_CONFIG.get("api_key", "").strip():
+        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+        
+    for attempt in range(2):
+        payload = {
+            "model": ENGINE_CONFIG.get("model", "loaded-model"),
+            "messages": messages,
+            "temperature": 0.1,  # Near-zero temperature forces pure logic
+            "max_tokens": 150
+        }
+        try:
+            enforce_rate_limit()
+            resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                if isinstance(data, dict) and "objective_achieved" in data:
+                    reason = data.get("reasoning", "Evaluated by Auditor.")
+                    achieved = str(data["objective_achieved"]).lower() == "true"
+                    return achieved, reason
+        except Exception:
+            time.sleep(1)
+    
+    return False, "Auditor failed to respond correctly. Defaulting to false."

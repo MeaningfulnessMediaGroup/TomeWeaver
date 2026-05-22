@@ -16,6 +16,12 @@ from config import ENGINE_CONFIG
 if os.name == 'nt':
     ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
+# Ensure runtime folders exist on the user's machine
+from pathlib import Path
+Path("adventures").mkdir(parents=True, exist_ok=True)
+Path("configs/API_configs").mkdir(parents=True, exist_ok=True)
+
+
 # Set global appearance and scaling for the entire application
 ctk.set_appearance_mode("Dark")  
 ctk.set_default_color_theme("blue")

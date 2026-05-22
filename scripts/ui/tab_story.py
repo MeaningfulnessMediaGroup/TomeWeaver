@@ -226,7 +226,8 @@ class StoryTab(ctk.CTkFrame):
             self.btn_next.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
             self.btn_last.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
         else:
-            self.slider.configure(from_=0, to=0, number_of_steps=1)
+            # FIX: CustomTkinter crashes if 'from' and 'to' are identical. Provide safe dummy bounds.
+            self.slider.configure(from_=0, to=1, number_of_steps=1)
             self.slider.set(0)
             self.slider.configure(state="disabled")
             for btn in [self.btn_first, self.btn_prev, self.btn_next, self.btn_last]:
@@ -298,7 +299,29 @@ class StoryTab(ctk.CTkFrame):
         
         loc_hdr = loc_raw if len(loc_raw) <= 100 else "Current Location"
         pov_hdr = pov_raw if len(pov_raw) <= 100 else "Main Character"
-        self.lbl_meta.configure(text=f"[Turn {actual_turn}] • [Loc: {loc_hdr}] • [POV: {pov_hdr}]")
+        
+        meta_text = f"[Turn {actual_turn}]"
+        
+        # Inject the Micro-Objective Tracker for Campaign Mode
+        if self.engine.is_campaign and actual_turn > 0 and not is_epilogue:
+            obj_total = len(active_chap.get("objectives", []))
+            if obj_total > 0:
+                obj_current = 1
+                for pt in self.engine.history:
+                    pt_num = pt.get("turn", 0)
+                    c_start = active_chap.get("start_turn")
+                    # Count how many objectives were achieved *before* this specific turn
+                    if c_start is not None and c_start <= pt_num < actual_turn:
+                        if str(pt.get("objective_achieved", False)).lower() == "true":
+                            obj_current += 1
+                            
+                # Cap it mathematically so it doesn't overflow if the AI hallucinates early victories
+                if obj_current > obj_total: obj_current = obj_total
+                meta_text += f" • [🎯 {obj_current}/{obj_total}]"
+                
+        meta_text += f" • [Loc: {loc_hdr}] • [POV: {pov_hdr}]"
+        
+        self.lbl_meta.configure(text=meta_text)
         
         has_action = False
         if idx > 0 and self.engine.history[idx-1].get("player_choice"):
@@ -511,13 +534,17 @@ class StoryTab(ctk.CTkFrame):
         for k, v in re.findall(r'([A-Za-z0-9_]+)\s*:\s*(.*?)(?=(?:[A-Za-z0-9_]+\s*:|$))', inv_str):
             current_state[k.strip()] = v.strip(' .,;')
             
-        # Dynamically size the box height based on amount of items
-        inv_height = 50 if len(schema) <= 4 else 85
+        # Dynamically size the box height based on amount of items (Increased slightly to accommodate wrap padding)
+        inv_height = 55 if len(schema) <= 3 else 95
             
         inv_box = ctk.CTkTextbox(
             self.inv_frame, wrap="word", height=inv_height,
             fg_color="transparent", scrollbar_button_color=("#EBEBEB", "#22252A"), scrollbar_button_hover_color=("#EBEBEB", "#22252A")
         )
+        
+        # FIX: Add 10px of vertical padding specifically between wrapped lines
+        inv_box._textbox.configure(spacing2=10)
+        
         inv_box.pack(fill="x")
         
         schema_items = list(schema.items())
@@ -1230,10 +1257,12 @@ class StoryTab(ctk.CTkFrame):
 
         if self.engine.is_test_mode and self.current_turn_idx == len(self.engine.history) - 1:
             last_turn = self.engine.history[-1]
-            is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
-            is_victory = str(last_turn.get("objective_achieved", False)).lower() == "true"
             
-            if is_over or (is_victory and last_turn.get("turn", 0) > 0):
+            # ABSOLUTE OVERRIDE: Autopilot ONLY stops if the engine explicitly flagged Mortality or Epilogue.
+            # We strictly discard any legacy objective_achieved checks here.
+            is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
+            
+            if is_over:
                 self.workspace._toggle_test()
                 self.status_var.set("Autopilot finished: Campaign Complete.")
                 return

@@ -47,23 +47,55 @@ class CampaignEngine(BaseEngine):
             
             # Initialize the tracking ledger with the first chapter's data
             first_chap = outline[0]
+            
+            objs = []
+            for i, o in enumerate(first_chap.get("objectives", [])):
+                o_copy = o.copy()
+                o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                objs.append(o_copy)
+                
             initial_chapters = [{
                 "chapter_number": 1,
                 "title": first_chap.get("title", "Chapter 1"),
                 "start_turn": 1, 
                 "end_turn": None,
-                "setting": first_chap.get("setting"),
-                "pov": first_chap.get("pov"),
-                "time": first_chap.get("time"),
-                "goal": first_chap.get("goal"),
-                "obstacles": first_chap.get("obstacles")
+                "objectives": objs
             }]
                 
             with open(chapters_file, "w", encoding="utf-8") as f:
                 json.dump(initial_chapters, f, indent=4)
             return initial_chapters
             
-        return load_json_safely(chapters_file, "chapters.json")
+        chaps = load_json_safely(chapters_file, "chapters.json")
+        
+        # --- LEGACY AUTO-MIGRATION ---
+        # If chapters.json is corrupted or using the old format, heal it from setup.json
+        changed = False
+        outline = self.setup_data.get("plot_outline", [])
+        for c in chaps:
+            if "goal" in c and "objectives" not in c:
+                idx = c.get("chapter_number", 1) - 1
+                if 0 <= idx < len(outline) and "objectives" in outline[idx]:
+                    # Pull the fresh objectives array directly from the setup file
+                    c["objectives"] = [obj.copy() for obj in outline[idx]["objectives"]]
+                    for i, o in enumerate(c["objectives"]):
+                        o["status"] = "ACTIVE" if i == 0 else "LOCKED"
+                else:
+                    # Absolute fallback
+                    c["objectives"] = [{
+                        "goal": c.pop("goal", "Survive"),
+                        "obstacles": c.pop("obstacles", "None"),
+                        "setting": "", "pov": "", "status": "ACTIVE"
+                    }]
+                c.pop("goal", None)
+                c.pop("obstacles", None)
+                changed = True
+                
+        if changed:
+            with open(chapters_file, "w", encoding="utf-8") as f:
+                json.dump(chaps, f, indent=4)
+                
+        return chaps
 
 
     # ---------------------------------------------------------
@@ -181,7 +213,7 @@ class CampaignEngine(BaseEngine):
         completed_objs = []
         active_obj = None
         
-        # Parse the array to find the current state
+        # Parse the array to find the current state (SILENTLY DROPPING 'LOCKED' OBJECTIVES)
         for obj in objectives:
             if obj.get("status") == "COMPLETED":
                 completed_objs.append(obj.get("goal", ""))
@@ -212,7 +244,10 @@ class CampaignEngine(BaseEngine):
             system_content += f"POV: {pov_raw}\n"
             system_content += f"CRITICAL POV RULE: You must write strictly from {pov_raw}'s perspective. Apply familial titles (Dad, Uncle, Aunt, etc.) ONLY as they relate to {pov_raw}. Never use another character's relationship title by mistake.\n"
             
-        system_content += "CRITICAL INSTRUCTION: You must actively steer the narrative to allow the player to confront and achieve this CURRENT goal.\n"
+        system_content += "CRITICAL CAMPAIGN RULES:\n"
+        system_content += "1. Your SOLE PURPOSE right now is to guide the player to complete the CURRENT ACTIVE OBJECTIVE.\n"
+        system_content += "2. You MUST NOT allow the player to advance the plot, leave the current main area, or find end-game artifacts until this specific objective is completed.\n"
+        system_content += "3. If the player tries to wander off or do something unrelated, introduce obstacles to block them and circle the narrative back to the objective.\n"
         
         outline = self.setup_data.get("plot_outline", [])
         is_final_chapter = (active_chapter['chapter_number'] == len(outline))
@@ -233,6 +268,7 @@ class CampaignEngine(BaseEngine):
 
         if self.can_die:
             system_content += "\n\n" + PROMPTS.get("FRAG_CAN_DIE", "")
+            system_content += "\nCRITICAL RULE: 'is_game_over' is strictly a mortality flag. NEVER set it to true just because an objective or chapter is completed. ONLY set it to true if the player physically dies."
         else:
             system_content += "\n\n" + PROMPTS.get("FRAG_NO_DIE", "")
 
@@ -241,7 +277,7 @@ class CampaignEngine(BaseEngine):
         # ==========================================
         is_epilogue = completed_history and completed_history[-1].get("player_choice") == "Conclude the Story"
         
-        req_keys = ["'goal_progress' (string)", "'objective_achieved' (boolean)"]
+        req_keys = []
         if self.track_inventory and not is_epilogue: 
             req_keys.append("'inventory_and_state' (string)")
             
@@ -268,14 +304,6 @@ class CampaignEngine(BaseEngine):
             else:
                 base_instruction = PROMPTS.get("FRAG_EPILOGUE_GENERATE", "").replace("{req_str}", req_str)
         else:
-            # Determine what the "Win" button should say
-            if is_final_chapter and is_final_objective:
-                win_choice = "Conclude the Story"
-            elif is_final_objective:
-                win_choice = "Complete the Chapter"
-            else:
-                win_choice = "Proceed to the next objective"
-                
             last_action = completed_history[-1]['player_choice'] if completed_history else ""
             
             if last_action.startswith("EXPAND:"):
@@ -287,8 +315,6 @@ class CampaignEngine(BaseEngine):
                 
             base_instruction = base_instruction.replace("{test_rule}", test_rule)
             base_instruction = base_instruction.replace("{req_str}", req_str)
-            base_instruction = base_instruction.replace("{objective_text}", goal_text)
-            base_instruction = base_instruction.replace("{win_choice}", win_choice)
 
             p_style = self.setup_data.get("narrative", {}).get("prologue", "expand").lower()
             
@@ -374,27 +400,44 @@ class CampaignEngine(BaseEngine):
                 turn_data["story_text"] += "\n\n*** THE END. ***"
             return 
         
-        # 1. Did the AI achieve the Micro-Objective?
-        raw_goal = turn_data.get("objective_achieved", False)
-        objective_achieved = str(raw_goal).strip().lower() == "true"
+        # --- PHASE 2: THE AUDITOR ---
+        objectives = active_chap.get("objectives", [])
+        active_obj = None
+        active_idx = -1
+        for i, obj in enumerate(objectives):
+            if obj.get("status") == "ACTIVE":
+                active_obj = obj
+                active_idx = i
+                break
+                
+        # Speedrun Block: Skip the Auditor if the player hasn't actually made a choice towards the goal yet.
+        c_start = active_chap.get("start_turn")
+        last_action = self.history[-1].get("player_choice", "") if self.history else ""
         
-        # Speedrun Block: Cannot finish objective on the very first turn of a chapter
-        if active_chap.get("start_turn") == target_turn:
-            objective_achieved = False
+        is_prologue = (target_turn == 0)
+        is_chapter_start = (c_start is not None and target_turn == c_start)
+        is_objective_transition = (last_action == "Proceed to the next objective")
+        
+        is_setup_turn = is_prologue or is_chapter_start or is_objective_transition
+        
+        if active_obj and not turn_data.get("is_game_over", False) and not is_setup_turn:
+            from llm import evaluate_campaign_objective
+            context_turns = self.history[-2:] if len(self.history) >= 2 else self.history
+            achieved, reason = evaluate_campaign_objective(context_turns, turn_data, active_obj, self.adv_dir)
             
-        turn_data["objective_achieved"] = objective_achieved
+            turn_data["objective_achieved"] = achieved
+            turn_data["goal_progress"] = f"Target: {active_obj.get('goal', 'Survive')}\nStatus: {reason}"
+        else:
+            turn_data["objective_achieved"] = False
+            if is_setup_turn:
+                turn_data["goal_progress"] = "Establishing new setting and goal."
+            else:
+                turn_data["goal_progress"] = "Objective locked or game over."
+                
+        objective_achieved = turn_data["objective_achieved"]
 
         # 2. Advance the Quest Tracker
         if objective_achieved:
-            objectives = active_chap.get("objectives", [])
-            
-            # Find the currently active objective
-            active_idx = -1
-            for i, obj in enumerate(objectives):
-                if obj.get("status") == "ACTIVE":
-                    active_idx = i
-                    break
-                    
             if active_idx != -1:
                 # Mark it done
                 objectives[active_idx]["status"] = "COMPLETED"
@@ -408,8 +451,9 @@ class CampaignEngine(BaseEngine):
                     turn_data["input_type"] = "choice" 
                     turn_data["choices"] = ["Proceed to the next objective"]
                     
-                    # Do NOT end the chapter
+                    # Do NOT end the chapter or the game
                     turn_data["chapter_goal_achieved"] = False
+                    turn_data["is_game_over"] = False
                     
                 else:
                     # No more objectives! The entire Chapter is complete.
@@ -444,10 +488,12 @@ class CampaignEngine(BaseEngine):
                         
                         turn_data["input_type"] = "choice" 
                         turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
+                        turn_data["is_game_over"] = False
                     else:
                         # This IS the last chapter; trigger the finale
                         turn_data["input_type"] = "choice"
                         turn_data["choices"] = ["Conclude the Story"]
+                        turn_data["is_game_over"] = False
 
         else:
             # Objective not met. Proceed normally.

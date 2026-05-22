@@ -3,7 +3,7 @@
     "context_window": 10,
     "memory_decay_threshold": 40,
     "max_retries": 5,
-    "auto_polish": true,
+    "auto_polish": false,
     "auto_narrative_bridge": false,
     "ui_scaling": 1.2,
     "prose_font_size": 18,
