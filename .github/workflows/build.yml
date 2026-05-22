@@ -2,14 +2,18 @@ name: Build TomeWeaver Multi-Platform
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*' # Triggers build when you push a version tag like v1.0
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false # Don't cancel other builds if one fails
       matrix:
         include:
           - os: windows-latest
@@ -31,10 +35,21 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install Dependencies
+    - name: Install System Dependencies (Linux Only)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-tk
+
+    - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller customtkinter requests colorama
+
+    - name: Create Placeholder Configs (If missing)
+      run: |
+        mkdir -p configs
+        touch configs/.gitkeep
 
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
@@ -51,7 +66,7 @@ jobs:
       with:
         name: ${{ matrix.asset_name }}
         path: dist/TomeWeaver*
-        
+
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
