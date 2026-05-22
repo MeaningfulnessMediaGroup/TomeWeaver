@@ -6,7 +6,6 @@ on:
       - 'v*'
   workflow_dispatch:
 
-# ADD THIS BLOCK TO FIX THE 403 ERROR
 permissions:
   contents: write
 
@@ -19,14 +18,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: TomeWeaver-Windows.exe
-            asset_name: TomeWeaver-Windows
+            platform_name: Windows
           - os: macos-latest
-            artifact_name: TomeWeaver-MacOS
-            asset_name: TomeWeaver-MacOS
+            platform_name: MacOS
           - os: ubuntu-latest
-            artifact_name: TomeWeaver-Linux
-            asset_name: TomeWeaver-Linux
+            platform_name: Linux
 
     steps:
     - name: Checkout Code
@@ -36,6 +32,16 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+
+    - name: Set Version Variable
+      shell: bash
+      run: |
+        # Use the tag name if available, otherwise use 'latest-dev'
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          echo "APP_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        else
+          echo "APP_VERSION=latest-dev" >> $GITHUB_ENV
+        fi
 
     - name: Install System Dependencies (Linux Only)
       if: matrix.os == 'ubuntu-latest'
@@ -51,17 +57,19 @@ jobs:
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs;configs" scripts/gui.py
+        # Bundle the configs folder INTO the EXE
+        pyinstaller --noconsole --onefile --name TomeWeaver_${{ matrix.platform_name }}_${{ env.APP_VERSION }} --paths scripts --collect-all customtkinter --add-data "configs;configs" scripts/gui.py
 
     - name: Build Executable (MacOS/Linux)
       if: matrix.os != 'windows-latest'
       run: |
-        pyinstaller --noconsole --onefile --name TomeWeaver --paths scripts --collect-all customtkinter --add-data "configs:configs" scripts/gui.py
+        # Bundle the configs folder INTO the EXE
+        pyinstaller --noconsole --onefile --name TomeWeaver_${{ matrix.platform_name }}_${{ env.APP_VERSION }} --paths scripts --collect-all customtkinter --add-data "configs:configs" scripts/gui.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.asset_name }}
+        name: TomeWeaver-${{ matrix.platform_name }}
         path: dist/TomeWeaver*
 
     - name: Create Release
@@ -69,7 +77,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest-dev' }}
-        name: TomeWeaver Release ${{ github.ref_name }}
+        name: TomeWeaver Release ${{ env.APP_VERSION }}
         draft: false
         prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
         files: |

@@ -38,6 +38,28 @@ API_CONFIGS_DIR = USER_ROOT / "configs" / "API_configs"
 # Note: ROOT_DIR is used by some loaders, we should point it to USER_ROOT for safety
 ROOT_DIR = USER_ROOT
 
+def hydrate_user_directory():
+    """
+    The Bootstrapper: Copies the entire /configs folder from inside the EXE 
+    to the user's hard drive if it's missing.
+    """
+    internal_configs = INTERNAL_ROOT / "configs"
+    external_configs = USER_ROOT / "configs"
+    
+    # Create adventures folder immediately
+    (USER_ROOT / "adventures").mkdir(parents=True, exist_ok=True)
+    
+    if not external_configs.exists():
+        print(f"First run detected. Hydrating configs from bundle...")
+        try:
+            # Copy all default json/txt files so the user has a starting point
+            shutil.copytree(internal_configs, external_configs, dirs_exist_ok=True)
+        except Exception as e:
+            print(f"Hydration failed: {e}")
+
+# Run the bootstrapper immediately on import
+hydrate_user_directory()
+
 
 # ---------------------------------------------------------
 # SYSTEM PROMPTS PARSER

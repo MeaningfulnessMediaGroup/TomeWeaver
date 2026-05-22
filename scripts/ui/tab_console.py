@@ -98,8 +98,14 @@ class ConsoleTab(ctk.CTkFrame):
         self.textbox.tag_config("ansi_white", foreground="#FFFFFF")
         self.textbox.tag_config("ansi_dim", foreground="#888888")
         
+        # CRITICAL FIX for --noconsole mode:
+        # In a compiled EXE with no terminal, sys.stdout and sys.stderr are None.
+        # We must manually assign our redirector to these slots so that print() 
+        # calls have a destination (our UI textbox) instead of vanishing or crashing.
         self.redirector = ConsoleRedirector(self.textbox, status_callback)
+        
         sys.stdout = self.redirector
+        sys.stderr = self.redirector # Also catch Python tracebacks and errors!
         
         print("TomeWeaver API Console initialized. Awaiting engine events...\n")
 
