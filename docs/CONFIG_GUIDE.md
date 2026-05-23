@@ -1,8 +1,8 @@
-# T# TomeWeaver: Configuration & Architecture Guide
+# TomeWeaver: Configuration & Architecture Guide
 
 While TomeWeaver provides a powerful GUI to manage your adventures, the engine relies on strict underlying JSON schemas and configuration files to function. This guide explains how the engine's DNA works.
 
-*Note: You rarely need to edit these JSON files manually. The **Global Settings** and **World Builder (Codex)** UI tabs handle the serialization safely for you.*
+*Note: You rarely need to edit these JSON files manually. The **Global Settings**, **Story World**, and **Universe** UI tabs handle the serialization safely for you.*
 
 ---
 
@@ -16,7 +16,8 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | :--- | :--- |
 | **`active_api_profile`** | The name of the cloud/local profile currently selected (e.g., "LM_Studio", "OpenRouter"). |
 | **`temperature_base`** | Base creativity level (0.0 to 2.0). The engine automatically raises this during retries to break linguistic loops. |
-| **`context_window`** | The number of previous narrative turns the AI remembers. Higher values increase depth but also token cost. |
+| **`context_window`** | The number of previous narrative turns the AI remembers. This also dictates how often the background RAG memory engine triggers. |
+| **`memory_decay_threshold`** | The number of turns before an unmentioned entity is auto-archived out of the AI's prompt to save context tokens. |
 | **`max_retries`** | The number of times the "Fortress" logic will attempt to surgically heal broken LLM JSON output before halting. |
 | **`auto_polish`** | If `true`, the engine silently runs a second copy-editing LLM pass on every single turn to guarantee novel-quality prose. (Costs double tokens). |
 | **`auto_narrative_bridge`**| If `true`, the engine automatically patches missing transition prose in the background while you play. |
@@ -61,10 +62,22 @@ If the network connection drops or the Cloud Provider goes offline, TomeWeaver i
 
 ---
 
+## 🌌 Shared Universes (`master_setup.json`)
+
+If you want multiple stories to share the same World Lore, you can create a Universe container. 
+**Access in UI:** Workspace -> `Universe` tab.
+
+*   `master_setup.json`: Holds the `universe_title`, global `tone`, and global `lore_and_rules`. The Prompt Compiler will dynamically inject these global rules above the local story rules every turn.
+*   `shared_memory.json`: The Global World Bible. Holds characters, locations, artifacts, and factions that span across all threads in the Universe.
+
+**The Migration Wizard:** If you drag a standalone story into a Universe folder via the Dashboard, the engine will automatically launch an in-memory Migration Wizard. It will ask you how you want to merge the Local Rules with the Universe Rules, and safely resolve any Name Collisions before securely tethering the story to the Universe.
+
+---
+
 ## 🗺️ Adventure Configuration (`setup.json`)
 
-The `setup.json` file acts as the "DNA" of your adventure Cartridge. 
-**Access in UI:** Workspace -> `World Builder` tab.
+The `setup.json` file acts as the "DNA" of your local adventure Cartridge. 
+**Access in UI:** Workspace -> `Story World` tab.
 
 ### ⚠️ Extensibility
 The configuration is infinitely extensible. Any custom field you add in the UI (e.g., `family_tree`, `magic_rules`, `ship_inventory`) is instantly serialized into the JSON and sent to the LLM every turn. 

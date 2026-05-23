@@ -4,7 +4,7 @@ One of the greatest challenges of playing AI text adventures is the "Context Lim
 
 TomeWeaver solves this by implementing an autonomous **Retrieval-Augmented Generation (RAG) Engine**.
 
-![Memory Tab Overview](images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the Left Nav and the Plot Ledger.")
+![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the Left Nav and the Plot Ledger.")
 
 ---
 
@@ -28,11 +28,25 @@ Every time a chunk is processed, the AI extracts new events or static traits (e.
 
 ---
 
+## 🌐 Dual-Tiered Memory (Global vs. Local)
+
+In Version 0.2, TomeWeaver introduces **Shared Universes**. This means the RAG Engine must manage data across multiple timelines without confusing the AI.
+
+When playing inside a Universe, entities are assigned a Memory Scope:
+*   **Local Scope (Blue/Purple Icon):** This entity only exists in the current story thread (e.g., a random tavern cashier). It prevents the global Universe from bloating with minor characters.
+*   **Global Scope (Orange Icon):** This entity is stored in the Universe's World Bible. Any story played in this Universe will recognize and interact with them.
+
+### Local Overrides (The Prequel Solution)
+What happens if you want to play a flashback story set 10 years before the main campaign? 
+TomeWeaver allows you to create a **Local Override**. If an entity exists in *both* Global and Local memory, they will appear side-by-side in your UI. The engine will seamlessly send the Local version to the AI for that specific story. This allows you to play a prequel where the King is young and benevolent (Local), without overwriting his Present-Day profile as an old tyrant (Global)!
+
+---
+
 ## ⚙️ The Auto-Decay Engine (Context Bloat Prevention)
 
 If you track 50 characters, feeding all 50 to the AI every single turn will instantly blow out your Context Limit. TomeWeaver uses an invisible "Auto-Decay" regex scanner to manage this.
 
-![Entity State Dropdown](images/rag_decay.jpg "Screenshot of the state dropdown showing Active, Pinned, and Archived options.")
+![Entity State Dropdown](../images/rag_decay.jpg "Screenshot of the state dropdown showing Active, Pinned, and Archived options.")
 
 *   **Active:** The entity is currently relevant and injected into the AI's prompt.
 *   📦 **Archived:** The entity has not been mentioned in the story for `X` turns (Configurable via "Memory Decay Threshold" in Global Settings). They are hidden from the AI to save tokens. **If you or the AI mention an archived entity by name, they are instantly revived and returned to Active status!**
@@ -44,14 +58,17 @@ If you track 50 characters, feeding all 50 to the AI every single turn will inst
 
 Because LLMs occasionally hallucinate, TomeWeaver provides powerful Quality Assurance (QA) tools to ensure your memory ledgers are mathematically perfect.
 
-### Integrity Check & Reconcile
-From the **Compile Missing History** menu, you can run an Integrity Check.
-This bypasses the raw game history entirely. It reads your current Plot Ledger against your current Entity Lore and acts as a Continuity Editor, generating a detailed report of any logical contradictions (e.g., *"The Plot says Kaelen died, but his Lore profile says he is drinking at the tavern."*)
+### The Missing History Compiler
+If you edit the timeline manually or drag a story into a new Universe, you can click **Compile Missing History**. You have 4 modes:
+1.  **Base Lore:** Extracts static traits from your `setup.json` without reading the game history.
+2.  **Standard:** Fast. Only reads and summarizes new turns that haven't been compiled yet.
+3.  **Deep Entity Scan:** Forcefully re-reads your entire history. Useful if you just added a new Character manually and want the AI to retroactively find past events involving them.
+4.  **Integrity Check (Verify):** Acts as a Continuity Editor. It reads your current Plot Ledger against your current Entity Lore and generates a detailed report of any logical contradictions (e.g., *"The Plot says Kaelen died, but his Lore profile says he is drinking at the tavern."*)
 
 ### Granular Validation & Auto-Patching
 If you suspect a specific Plot Chunk hallucinated a detail, click the **✔️ Validate** button on its card.
 
-![Validation Report](images/rag_validation.jpg "Screenshot of a Fidelity Score report showing missing and fabricated details, with the Auto-Patch button.")
+![Validation Report](../images/rag_validation.jpg "Screenshot of a Fidelity Score report showing missing and fabricated details, with the Auto-Patch button.")
 
 1.  The engine will send the original raw turns and the summary to the AI and ask for a strict Fidelity Score (e.g., "85/100").
 2.  It generates a bulleted QA Report detailing exactly what is missing, fabricated, or inaccurate.

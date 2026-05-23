@@ -41,11 +41,12 @@ Instead of treating a story as a disposable chat log, TomeWeaver treats it as a 
 
 The engine combines:
 - Stateful campaign orchestration
+- Shared Universes (Multi-threaded Multiverses)
 - Structured world lore and schema management
-- Long-term RAG memory ledgers
+- Long-term Dual-Tiered RAG memory ledgers
 - Narrative bridge generation
 - Non-destructive AI-assisted editing
-- Timeline branching and time-travel
+- Timeline branching, surgery, and time-travel
 - Exportable storybook compilation
 - Resilient JSON repair and recovery systems
 
@@ -89,11 +90,11 @@ That architectural difference changes everything.
 Instead of relying purely on prompt context windows, TomeWeaver introduces systems for:
 - Persistent campaign memory
 - Entity tracking and archival
-- Structured world lore
+- Structured world lore (Global and Local)
 - Narrative bridging
 - Non-destructive revision workflows
 - Continuity auditing
-- Timeline branching
+- Timeline surgery (Insertion, Deletion, Slicing)
 - Long-term compression via RAG ledgers
 
 The result is an experience designed not just for momentary generation, but for **sustained narrative integrity across long-form adventures**.
@@ -127,47 +128,52 @@ It provides the "bones" of a game engine (inventory, chapters, goals, UI virtual
 
 ## ✨ Key Features
 
-### 1. The "Non-Linear Video Editor" Timeline
-Say goodbye to scrolling endless walls of text. TomeWeaver renders your story as a virtualized timeline of **Cards**. You can scrub back through history using the Time Travel slider, edit past turns, regenerate choices, or branch the story effortlessly.
+### 1. The "Non-Linear Video Editor" Timeline & Surgery
+Say goodbye to scrolling endless walls of text. TomeWeaver renders your story as a virtualized timeline of **Cards**. You can scrub back through history using the Time Travel slider, or use the **Timeline Editor** to exercise god-like pacing control. Insert blank turns to bridge gaps, permanently delete bad turns to collapse history, or perfectly convert a player action into a narrative bridge with a single click.
 
-### 2. Non-Destructive Editing (Visual Diffs)
+### 2. Shared Universes (The Multiverse)
+Create a "Universe" container to run multiple parallel stories (Sandbox or Campaign) that all share the same Global Lore and World Bible. Play as a Thief in one thread and a Detective in another—when the Thief burns down a tavern, the Detective will find the ashes.
+
+### 3. Non-Destructive Editing (Visual Diffs)
 When you ask the AI to "Polish" or "Expand" a scene, TomeWeaver does not blindly overwrite your history. It generates a **Draft** and opens a Git-style Visual Diff window, highlighting exactly what words the AI changed in Red and Green before you click "Accept."
 
-![Visual Diff Editor](docs/images/visual_diff.jpg "Screenshot of the Review Draft modal. It shows a split screen. On the left is the Original Text with red highlights for deleted words. On the right is the Proposed Revision with green highlights for inserted words. Buttons at the bottom: Cancel, Reroll, Accept.")
+### 4. The Visual "Codex" (Zero JSON Syntax Errors)
+You never have to look at raw JSON brackets again. The built-in **Story World** and **Universe** tabs dynamically generate UI forms for strings, bulleted lists, and dictionaries, allowing authors to build massive, deeply nested world lore safely.
 
-### 3. The Visual "Codex" (Zero JSON Syntax Errors)
-You never have to look at raw JSON brackets again. The built-in **World Builder** dynamically generates UI forms for strings, bulleted lists, and dictionaries, allowing authors to build massive, deeply nested world lore safely.
-
-### 4. The "Story Forge" (AI Generation & Guided Wizard)
+### 5. The "Story Forge" (AI Generation & Guided Wizard)
 Banish the blank page. You can initialize a brand new world manually, use the **Guided Wizard** for a step-by-step onboarding experience, or type a single concept into the **AI World Generator** to instantly overhaul the entire cartridge with rich, AI-generated lore, settings, and goals.
 
-### 5. Granular AI Co-Writing (Inspire & Reroll)
+### 6. Granular AI Co-Writing (Inspire & Reroll)
 AI assistance isn't just for the main story. Every lore field, chapter goal, and inventory schema features dedicated **🪄 Inspire** and **⟳ Reroll** buttons. Type a quick shorthand idea, click Inspire, and watch the AI expand it into rich, cinematic detail. Stuck? Click the **💡 Help** button to browse dozens of ready-to-use templates.
 
-### 6. Dual-Mode Storytelling
+### 7. Dual-Mode Storytelling
 *   **Sandbox Mode:** Open-ended world simulation. Use the Director tools to manually trigger scene shifts, POV changes, or time-jumps.
 *   **Campaign Mode:** Plot-driven adventures. The AI strictly follows a `plot_outline`, tracking goals and obstacles, and automatically triggers chapter transitions when you succeed.
 
-### 7. Non-Destructive Narrative Bridging
+### 8. Thread Forking (Slicing)
+Playing a massive 300-turn ensemble epic? Check a few boxes to **Slice Chapters** out of the main timeline. The engine will perfectly extract those turns, mathematically re-index the master clock, and spin them off into a brand new, dedicated story thread.
+
+### 9. Non-Destructive Narrative Bridging
 TomeWeaver solves the "narrative gap" common in AI games. 
 *   **The Problem:** You click "Go inside" and the next paragraph starts inside, leaving a jarring jump-cut.
 *   **The Solution:** TomeWeaver auto-generates a **Narrative Bridge**—a surgical patch that weaves your action into the prose. These bridges are stored as metadata, meaning your original human-curated prose is never modified.
 
-### 8. The "Fortress" JSON Sanitizer & Error Handler
+### 10. The "Fortress" JSON Sanitizer & Error Handler
 Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stage sanitizer is built for extreme resilience:
 *   **State-Machine Repair:** Differentiates between structural JSON markers and rogue dialogue quotes.
 *   **Surgical Repair:** Uses Python's error-coordinate metadata to "patch" missing quotes or trailing commas before giving up.
 *   **Truncation Recovery:** If the AI hits its token limit mid-sentence, the engine auto-balances the JSON so you can continue playing without a crash.
 *   **API Translator:** Gracefully intercepts network timeouts, 429 rate limits, and 502 bad gateways, providing human-readable UI alerts instead of crashing.
 
-### 9. Modern Native UX
+### 11. Modern Native UX
 TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
 
-### 10. Storybook Compiler (Export)
+### 12. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
-### 11. Autonomous Long-Term Memory (RAG Engine)
+### 13. Autonomous Long-Term Memory (RAG Engine)
 Play infinitely without breaking your model's context limit. TomeWeaver features a background Retrieval-Augmented Generation (RAG) engine that silently compiles your history into dense, token-efficient ledgers.
+*   **Dual-Tiered Memory:** Entities are scoped to "Local" (This story only) or "Global" (The Shared Universe).
 *   **Tiered Summarization:** Automatically compresses 10-turn chunks into "Parts," and finished chapters into high-level summaries.
 *   **The Auto-Decay Engine:** Characters, Locations, Artifacts, and Factions are tracked dynamically. If an entity hasn't been mentioned in 40 turns, they are quietly "Archived" out of the AI's prompt to save memory, and instantly "Revived" the moment they reappear in the story.
 *   **Continuity Auditor:** Includes a built-in QA tool that cross-references the Plot Ledger against the Lore Bible to flag contradictions, complete with 1-click Auto-Patching. 
@@ -235,17 +241,23 @@ If you are on a UNIX-based system or prefer setting up your environment manually
 4.  **Launch the GUI:**
     *(Ensure your virtual environment is active before running)*
     ```bash
-    python gui.py
+    python scripts/gui.py
     ```
 ---
 
 ## 📖 The Adventure "Cartridge" System
 
-TomeWeaver treats every adventure as a self-contained "Cartridge" (a folder inside `/adventures`). You can easily share your worlds or back up your saves just by zipping the folder.
+TomeWeaver treats every adventure as a self-contained "Cartridge" (a folder inside `/adventures`). You can easily share your worlds or back up your saves just by zipping the folder. 
+
+### The Universe Structure
+If you are using the Shared Universe feature, cartridges are nested to share memory:
+*   `[UNIVERSE FOLDER]` -> Contains `master_setup.json` and `shared_memory.json` (Global Lore).
+    *   `[STORY THREAD A]` -> Contains local `setup.json` and `history.json`.
+    *   `[STORY THREAD B]` -> Contains local `setup.json` and `history.json`.
 
 ### Core Configuration Files (Author Created)
 To build a new adventure, these files dictate the logic:
-*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics. *(Edited via the World Builder UI tab).*
+*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics. *(Edited via the Story World UI tab).*
 *   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
 *   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
 *   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.
@@ -254,6 +266,7 @@ To build a new adventure, these files dictate the logic:
 ### Engine State Files (Auto-Generated)
 As you play, TomeWeaver automatically generates and manages these files to maintain the game state:
 *   `history.json`: The master ledger. A perfect chronological record of every turn, AI response, player choice, and narrative bridge.
+*   `memory.json`: The RAG database. Contains the compressed Plot Ledger and Local Entity lore.
 *   `chapters.json`: The pacing metadata. Tracks where chapters begin and end.
 *   `session_log.txt`: The "Flight Recorder." A diagnostic log of every API call, retry, and raw JSON output for debugging your prompts.
 
@@ -264,8 +277,9 @@ As you play, TomeWeaver automatically generates and manages these files to maint
 TomeWeaver is a massive, feature-rich application. Please refer to our dedicated guides for detailed instructions on using the UI and configuring your worlds:
 
 *   🖼️ **[The UI Walkthrough (docs/README.md)](docs/README.md)** - A visual guide to the Library Dashboard, Story Timeline, and Editors.
-*   ⌨️ **[Gameplay & User Guide (docs/COMMAND_GUIDE.md)](docs/COMMAND_GUIDE.md)** - How to play, time-travel, and use Director tools.
-*   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, goals, and JSON schemas.
+*   ⌨️ **[Gameplay & User Guide (docs/COMMAND_GUIDE.md)](docs/COMMAND_GUIDE.md)** - How to play, perform Timeline Surgery, and use Director tools.
+*   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, Universes, and JSON schemas.
+*   🧠 **[LM Studio Setup & Models (docs/LM_STUDIO_CONFIG.md)](docs/LM_STUDIO_CONFIG.md)** - How to configure local, free LLMs to run the engine.
 
 ---
 
