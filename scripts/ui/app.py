@@ -152,7 +152,9 @@ class TomeWeaverApp(ctk.CTk):
             self.active_frame.pack(fill="both", expand=True)
             
             if target_tab:
-                try: self.active_frame.tabs.set(target_tab)
+                try: 
+                    self.active_frame.tabs.set(target_tab)
+                    self.active_frame._on_tab_change() # Force the lazy loader to trigger
                 except ValueError: pass 
             
             from config import INSTANCE_CONFIG

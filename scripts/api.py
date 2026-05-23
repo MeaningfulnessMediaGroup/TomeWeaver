@@ -861,7 +861,7 @@ class TomeWeaverAPI:
             return False, str(e)
 
     @staticmethod
-    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None, parent_dir=""):
+    def create_story_from_prompt(title, author, mode, prompt_text, gen_pro, gen_epi, rules_cfg=None, parent_dir="", extra_data=None, universe_lore=""):
         """
         AI World Generator. Contacts the LLM to dynamically generate the world data,
         extracts the title, safely creates the folder, and populates the schema files.
@@ -899,9 +899,15 @@ class TomeWeaverAPI:
         
         # Safe String Replacement to avoid JSON brace conflicts
         title_str = f"TITLE: {title}\n" if title else ""
+        
+        # Combine the user's prompt with the Universe Lore (if provided)
+        final_prompt_text = prompt_text
+        if universe_lore:
+            final_prompt_text = f"{universe_lore}\n\nUSER CONCEPT:\n{prompt_text}"
+            
         user_msg = PROMPTS.get("USER_WORLD_GEN", "")
         user_msg = user_msg.replace("{mode}", mode.upper())
-        user_msg = user_msg.replace("{prompt_text}", prompt_text)
+        user_msg = user_msg.replace("{prompt_text}", final_prompt_text) # Use the combined text!
         user_msg = user_msg.replace("{title}", title_str)
         user_msg = user_msg.replace("{schema}", schema)
         

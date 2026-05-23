@@ -237,6 +237,13 @@ class CodexTab(ctk.CTkFrame):
         self.inv_schema_vars = []
         self._render_inv_editor()
         self._toggle_inv_editor_visibility() # Apply initial visibility state
+        
+        # --- UI LAYOUT FIX: PREVENT BOTTOM-SNAP ---
+        # When lazily loaded, Tkinter sometimes snaps scrollable frames to the bottom.
+        # This explicitly forces it back to the top once rendering is complete.
+        def snap_to_top():
+            self.core_scroll_frame._parent_canvas.yview_moveto(0.0)
+        self.after(50, snap_to_top)
 
 
     # ---------------------------------------------------------

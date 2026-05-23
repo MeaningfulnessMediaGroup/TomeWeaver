@@ -75,34 +75,24 @@ class WorkspaceFrame(ctk.CTkFrame):
         if self.engine.is_campaign:
             self.t_chapters = self.tabs.add("Chapter Outline")
 
-        # --- Initialize Tabs ---
+        # --- Initialize Tabs (Lazy Loading) ---
         def safe_status_update(msg):
-            if hasattr(self, 'story_tab'):
+            if hasattr(self, 'story_tab') and self.story_tab is not None:
                 self.after(0, lambda: self.story_tab.status_var.set(msg))
 
+        # Always load Console first to catch stdout
         self.console_tab = ConsoleTab(self.t_console, self.engine, status_callback=safe_status_update) 
         self.console_tab.pack(fill="both", expand=True)
         
+        # Always load Story Mode as it is the default view
         self.story_tab = StoryTab(self.t_story, self.engine, self)
         self.story_tab.pack(fill="both", expand=True)
         
-        if self.engine.is_universe_thread:
-            from ui.tab_universe import UniverseTab
-            self.univ_tab = UniverseTab(self.t_univ, self.engine)
-            self.univ_tab.pack(fill="both", expand=True)
-
-        self.codex_tab = CodexTab(self.t_codex, self.engine)
-        self.codex_tab.pack(fill="both", expand=True)
-        
-        # Stage 4: Memory & Lore Viewer
-        from ui.tab_memory import MemoryTab
-        self.memory_tab = MemoryTab(self.t_memory, self.engine)
-        self.memory_tab.pack(fill="both", expand=True)
-        
-        # Stage 5: Chapter Outline (Only visible in Campaign Mode)
-        if self.engine.is_campaign:
-            self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
-            self.chapters_tab.pack(fill="both", expand=True)
+        # DEFER HEAVY UI TABS (Lazy Loading)
+        self.univ_tab = None
+        self.codex_tab = None
+        self.memory_tab = None
+        self.chapters_tab = None
 
     def close_workspace(self):
         """Safely shuts down the workspace and returns to the dashboard context."""
@@ -117,9 +107,55 @@ class WorkspaceFrame(ctk.CTkFrame):
         except Exception:
             pass
             
-        # Tell the app to open the dashboard with NO overrides. Let the App handle the memory.
         self.app.open_dashboard()
         
+    def _on_tab_change(self):
+        """Triggers instantly whenever the user clicks a different tab at the top. Lazy-loads UI heavy tabs and resets scrollbars."""
+        target = self.tabs.get()
+        
+        if target == "Story Mode" and self.story_tab is not None:
+            self.story_tab.refresh_timeline()
+            
+        elif target == "Universe":
+            if self.univ_tab is None:
+                from ui.tab_universe import UniverseTab
+                self.univ_tab = UniverseTab(self.t_univ, self.engine)
+                self.univ_tab.pack(fill="both", expand=True)
+            # Reset both scrollable frames in the Universe Tab
+            self.after(10, lambda: self.univ_tab.tab_core.winfo_children()[1]._parent_canvas.yview_moveto(0.0))
+            if hasattr(self.univ_tab, 'nav_frame'): self.after(10, lambda: self.univ_tab.nav_frame._parent_canvas.yview_moveto(0.0))
+                
+        elif target == "Story World":
+            if self.codex_tab is None:
+                from ui.tab_codex import CodexTab
+                self.codex_tab = CodexTab(self.t_codex, self.engine)
+                self.codex_tab.pack(fill="both", expand=True)
+            # Reset both scrollable frames in the Story World Tab
+            if hasattr(self.codex_tab, 'core_scroll_frame'): self.after(10, lambda: self.codex_tab.core_scroll_frame._parent_canvas.yview_moveto(0.0))
+            if hasattr(self.codex_tab, 'nav_frame'): self.after(10, lambda: self.codex_tab.nav_frame._parent_canvas.yview_moveto(0.0))
+                
+        elif target == "Memory & Lore":
+            if self.memory_tab is None:
+                from ui.tab_memory import MemoryTab
+                self.memory_tab = MemoryTab(self.t_memory, self.engine)
+                self.memory_tab.pack(fill="both", expand=True)
+            else:
+                engine_save_time = getattr(self.engine, 'last_save_time', 0)
+                if engine_save_time > self.memory_tab._last_render_time:
+                    self.memory_tab._refresh_nav()
+            # Reset all scrollable frames in the Memory Tab
+            if hasattr(self.memory_tab, 'nav_frame'): self.after(10, lambda: self.memory_tab.nav_frame._parent_canvas.yview_moveto(0.0))
+            if hasattr(self.memory_tab, 'editor_frame'): self.after(10, lambda: self.memory_tab.editor_frame._parent_canvas.yview_moveto(0.0))
+                    
+        elif target == "Chapter Outline":
+            if self.chapters_tab is None:
+                from ui.tab_chapters import ChapterTab
+                self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
+                self.chapters_tab.pack(fill="both", expand=True)
+            # Reset both scrollable frames in the Chapters Tab
+            if hasattr(self.chapters_tab, 'nav_frame'): self.after(10, lambda: self.chapters_tab.nav_frame._parent_canvas.yview_moveto(0.0))
+            if hasattr(self.chapters_tab, 'editor_frame'): self.after(10, lambda: self.chapters_tab.editor_frame._parent_canvas.yview_moveto(0.0))
+            
     # ---------------------------------------------------------
     # WORKSPACE UTILITIES (Recap & Export)
     # ---------------------------------------------------------
@@ -218,20 +254,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         box.pack(fill="both", expand=True, padx=20, pady=20)
         
         ctk.CTkButton(dialog, text="Close", command=dialog.destroy).pack(pady=(0, 20))
-        
-    def _on_tab_change(self):
-        """Triggers instantly whenever the user clicks a different tab at the top."""
-        target = self.tabs.get()
-        
-        if target == "Story Mode" and hasattr(self, 'story_tab'):
-            # Instantly re-evaluate setup.json and redraw the buttons/UI
-            self.story_tab.refresh_timeline()
-            
-        elif target == "Memory & Lore" and hasattr(self, 'memory_tab'):
-            # If the engine saved new RAG data in the background since we last looked at this tab, force a redraw!
-            engine_save_time = getattr(self.engine, 'last_save_time', 0)
-            if engine_save_time > self.memory_tab._last_render_time:
-                self.memory_tab._refresh_nav()
+
             
     def _export_dialog(self):
         """Opens a configuration dialog allowing the user to select their export format."""

@@ -122,6 +122,13 @@ class UniverseTab(ctk.CTkFrame):
         add_field("Global Tone / Atmosphere:", "tone", "TONE", tooltip_text="Sets the overarching mood for all stories.", show_ai=True)
         add_field("Global Lore & Hard Rules:", "lore_and_rules", "LORE", is_multiline=True, tooltip_text="Hard rules the AI must follow across all threads.", show_ai=True)
 
+        # --- UI LAYOUT FIX: PREVENT BOTTOM-SNAP ---
+        # When lazily loaded, Tkinter sometimes snaps scrollable frames to the bottom.
+        # This explicitly forces it back to the top once rendering is complete.
+        def snap_to_top():
+            scroll._parent_canvas.yview_moveto(0.0)
+        self.after(50, snap_to_top)
+
 
     def _save_core(self, silent=False):
         for key, widget in self.u_vars.items():

@@ -1052,8 +1052,12 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkEntry(dialog, textvariable=v_title, font=("Arial", 14)).pack(fill="x", padx=20, pady=(2, 15))
         
         ctk.CTkLabel(dialog, text="Author Name:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
-        v_author = ctk.StringVar()
-        ctk.CTkEntry(dialog, textvariable=v_author, font=("Arial", 14), placeholder_text="Anonymous").pack(fill="x", padx=20, pady=(2, 15))
+        
+        from config import INSTANCE_CONFIG, ROOT_DIR
+        last_author = INSTANCE_CONFIG.get("last_author", "Anonymous")
+        
+        v_author = ctk.StringVar(value=last_author)
+        ctk.CTkEntry(dialog, textvariable=v_author, font=("Arial", 14)).pack(fill="x", padx=20, pady=(2, 15))
         
         ctk.CTkLabel(dialog, text="Global Tone & Atmosphere:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
         v_tone = ctk.StringVar()
@@ -1067,7 +1071,12 @@ class DashboardFrame(ctk.CTkFrame):
             title = v_title.get().strip()
             if not title: return
             
-            success, msg = TomeWeaverAPI.create_universe(title, v_author.get(), v_tone.get(), t_lore.get("1.0", "end"), self.current_dir)
+            author_val = v_author.get().strip()
+            INSTANCE_CONFIG["last_author"] = author_val
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
+            
+            success, msg = TomeWeaverAPI.create_universe(title, author_val, v_tone.get(), t_lore.get("1.0", "end"), self.current_dir)
             if success:
                 dialog.destroy()
                 self.is_loading = False
@@ -1111,7 +1120,12 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkEntry(f0, textvariable=v_title, width=300, font=("Arial", 14)).pack(fill="x", pady=(0, 15))
         
         ctk.CTkLabel(f0, text="Author Name:", font=("Arial", 14, "bold")).pack(anchor="w")
-        ctk.CTkEntry(f0, textvariable=v_author, width=300, placeholder_text="Anonymous", font=("Arial", 14)).pack(fill="x", pady=(0, 15))
+        
+        from config import INSTANCE_CONFIG, ROOT_DIR
+        last_author = INSTANCE_CONFIG.get("last_author", "Anonymous")
+        
+        v_author = ctk.StringVar(value=last_author)
+        ctk.CTkEntry(f0, textvariable=v_author, width=300, font=("Arial", 14)).pack(fill="x", pady=(0, 15))
         
         ctk.CTkLabel(f0, text="Game Mode:", font=("Arial", 14, "bold")).pack(anchor="w")
         mf = ctk.CTkFrame(f0, fg_color="transparent")
@@ -1213,6 +1227,12 @@ class DashboardFrame(ctk.CTkFrame):
             title = v_title.get().strip()
             if not title: return
             
+            author_val = v_author.get().strip()
+            INSTANCE_CONFIG["last_author"] = author_val
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
+                
+            
             rules_cfg = {
                 "track_inventory": v_inv.get(),
                 "can_die": v_die.get(),
@@ -1256,7 +1276,12 @@ class DashboardFrame(ctk.CTkFrame):
         title_entry.pack(pady=5)
         
         ctk.CTkLabel(dialog, text="Author Name:", font=("Arial", 14)).pack(pady=(10, 2))
-        author_entry = ctk.CTkEntry(dialog, width=300, placeholder_text="Anonymous")
+        
+        from config import INSTANCE_CONFIG, ROOT_DIR
+        last_author = INSTANCE_CONFIG.get("last_author", "Anonymous")
+        
+        author_var = ctk.StringVar(value=last_author)
+        author_entry = ctk.CTkEntry(dialog, textvariable=author_var, width=300)
         author_entry.pack(pady=5)
 
         ctk.CTkLabel(dialog, text="Select Mode:", font=("Arial", 14)).pack(pady=(15, 2))
@@ -1290,8 +1315,14 @@ class DashboardFrame(ctk.CTkFrame):
         title_var.trace_add("write", check_title)
 
         def on_create():
+
             title = title_var.get().strip()
             if not title: return
+            
+            author_val = author_var.get().strip()
+            INSTANCE_CONFIG["last_author"] = author_val
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
                 
             rules_cfg = {
                 "track_inventory": inv_var.get(),
@@ -1299,8 +1330,7 @@ class DashboardFrame(ctk.CTkFrame):
                 "allow_cheats": True if mode_var.get() == "sandbox" else False
             }
                 
-            # The backend API automatically validates if the physical folder exists
-            success, msg = TomeWeaverAPI.create_story(title, author_entry.get(), mode_var.get(), rules_cfg, self.current_dir)
+            success, msg = TomeWeaverAPI.create_story(title, author_val, mode_var.get(), rules_cfg, self.current_dir)
             
             if success:
                 dialog.destroy() # Only close the window if the folder was successfully created
@@ -1318,9 +1348,12 @@ class DashboardFrame(ctk.CTkFrame):
         """Spawns the advanced AI Generator modal."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("AI World Generator")
-        dialog.geometry("550x600") # Made wider and taller
+        dialog.geometry("550x630") # Made slightly taller to fit the new Universe checkbox
         dialog.attributes("-topmost", True)
         dialog.grab_set()
+        
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="AI World Generator", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
         ctk.CTkLabel(dialog, text="Describe your concept. The AI will construct the setup and plot.", font=("Arial", 12, "italic"), text_color="gray").pack(pady=(0, 10))
@@ -1334,7 +1367,12 @@ class DashboardFrame(ctk.CTkFrame):
         title_entry.pack(side="left", fill="x", expand=True)
         
         ctk.CTkLabel(ta_frame, text="Author:", width=50, anchor="e").pack(side="left", padx=(10, 5))
-        author_entry = ctk.CTkEntry(ta_frame, width=120)
+        
+        from config import INSTANCE_CONFIG, ROOT_DIR
+        last_author = INSTANCE_CONFIG.get("last_author", "Anonymous")
+        
+        author_var = ctk.StringVar(value=last_author)
+        author_entry = ctk.CTkEntry(ta_frame, textvariable=author_var, width=120)
         author_entry.pack(side="left")
 
         # Mode Selection
@@ -1352,9 +1390,9 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkRadioButton(mode_frame, text="Sandbox", variable=mode_var, value="sandbox", command=on_mode_change).pack(side="left", padx=10)
         ctk.CTkRadioButton(mode_frame, text="Campaign", variable=mode_var, value="campaign", command=on_mode_change).pack(side="left", padx=10)
 
-        # AI Prompt (Taller Box)
+        # AI Prompt
         ctk.CTkLabel(dialog, text="Adventure Prompt:").pack(anchor="w", padx=20, pady=(5, 0))
-        prompt_box = ctk.CTkTextbox(dialog, height=230, wrap="word", font=("Arial", 14)) # Taller textbox
+        prompt_box = ctk.CTkTextbox(dialog, height=200, wrap="word", font=("Arial", 14)) 
         prompt_box.pack(fill="x", padx=20, pady=0)
         prompt_box.insert("1.0", "A dark fantasy heist where a master thief must break into the crypt of the Sunken King to steal a cursed ruby.")
 
@@ -1368,6 +1406,22 @@ class DashboardFrame(ctk.CTkFrame):
         gen_epi_var = ctk.BooleanVar(value=False)
         chk_epi = ctk.CTkSwitch(chk_frame, text="Generate Epilogue", variable=gen_epi_var, state="disabled")
         chk_epi.pack(side="left")
+        
+        # --- NEW: UNIVERSE CONTEXT CHECKBOX ---
+        from config import find_universe_root
+        from api import ADV_DIR
+        univ_root = find_universe_root(ADV_DIR / self.current_dir)
+        read_univ_var = ctk.BooleanVar(value=True) # Default to true if inside a universe
+        
+        if univ_root:
+            univ_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            univ_frame.pack(fill="x", padx=20, pady=(5, 0))
+            ctk.CTkSwitch(univ_frame, text="Inspire from Universe Lore (Read master_setup.json)", variable=read_univ_var, progress_color="#FF9800").pack(side="left")
+            from ui.tooltip import Tooltip
+            Tooltip(univ_frame, "If checked, the AI will read the global Universe rules and tone, ensuring this new story fits perfectly into the existing world.")
+        else:
+            # Force false if we are just making a normal standalone story
+            read_univ_var.set(False)
         
         # Engine Rules Toggles
         rules_frame = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -1390,10 +1444,17 @@ class DashboardFrame(ctk.CTkFrame):
             title = title_entry.get().strip()
             prompt = prompt_box.get("1.0", "end").strip()
             if not prompt:
+                from tkinter import messagebox
                 messagebox.showwarning("Missing Info", "Please enter an adventure concept prompt.")
                 return
 
-            dialog.configure(cursor="watch") # Spin cursor
+            author_val = author_var.get().strip()
+            import json
+            INSTANCE_CONFIG["last_author"] = author_val
+            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
+                json.dump(INSTANCE_CONFIG, f, indent=4)
+
+            dialog.configure(cursor="watch") 
             btn_gen.configure(state="disabled", text="Generating... Please wait.")
             status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
             
@@ -1404,29 +1465,43 @@ class DashboardFrame(ctk.CTkFrame):
             }
             
             def worker():
+                from api import TomeWeaverAPI
+                
+                # Fetch the universe lore string if the user opted in
+                univ_lore_str = ""
+                if read_univ_var.get() and univ_root:
+                    from config import load_json_safely
+                    master_setup = load_json_safely(univ_root / "master_setup.json", "master_setup.json")
+                    u_title = master_setup.get("universe_title", "The Universe")
+                    u_tone = master_setup.get("tone", "")
+                    u_rules = master_setup.get("lore_and_rules", "")
+                    univ_lore_str = f"UNIVERSE CONTEXT ({u_title}):\nTone: {u_tone}\nLore: {u_rules}\n"
+                
                 success, msg = TomeWeaverAPI.create_story_from_prompt(
-                    title, author_entry.get().strip(), mode_var.get(), 
-                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg, self.current_dir
+                    title, author_val, mode_var.get(), 
+                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg, self.current_dir,
+                    universe_lore=univ_lore_str # NEW KWARG
                 )
                 
                 def on_complete():
                     if success:
                         dialog.destroy() 
                         self.load_data() 
-                        self.app.open_workspace(msg, target_tab="World Builder") 
+                        self.app.open_workspace(msg, target_tab="Story World") 
                     else:
-                        dialog.configure(cursor="") # Restore cursor on failure
+                        from tkinter import messagebox
+                        dialog.configure(cursor="") 
                         btn_gen.configure(state="normal", text="✨ Generate World")
                         status_lbl.configure(text="Generation failed. Please edit your prompt and try again.", text_color="#F44336")
                         messagebox.showerror("AI Generation Error", msg)
                         
                 self.after(0, on_complete)
 
+            import threading
             threading.Thread(target=worker, daemon=True).start()
 
-        # Enforce both width and height to prevent CustomTkinter from collapsing the button
         btn_gen = ctk.CTkButton(dialog, text="✨ Generate World", font=("Arial", 16, "bold"), fg_color="#00ACC1", hover_color="#00838F", width=220, height=45, command=on_generate)
-        btn_gen.pack(pady=20) # Add healthy padding to let the button breathe
+        btn_gen.pack(pady=20)
         
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""

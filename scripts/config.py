@@ -399,14 +399,15 @@ def load_engine_config():
     return config
 
 def load_instance_config():
-    """Loads volatile session settings (Window size, last active story)."""
+    """Loads volatile session settings (Window size, last active story, last author)."""
     configs_dir = ROOT_DIR / "configs"
     config_path = configs_dir / "instance_config.json"
     
     default_config = {
         "window_geometry": "1100x750",
         "window_state": "normal",
-        "last_active_story": ""
+        "last_active_story": "",
+        "last_author": "Anonymous" # NEW: Remembers the author's pen name
     }
     
     if not config_path.exists():

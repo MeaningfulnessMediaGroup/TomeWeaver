@@ -195,6 +195,7 @@ class CampaignEngine(BaseEngine):
                 memory_str += f"- {p.get('summary', '')}\n"
                 
         # Helper to format lore safely
+        # Helper to format lore safely
         def append_lore(ledger_key, title):
             res = ""
             ledger = self.memory.get(ledger_key, {})
@@ -204,13 +205,24 @@ class CampaignEngine(BaseEngine):
             if combined:
                 res += f"\nACTIVE {title}:\n"
                 for k, data in combined.items():
-                    if isinstance(data, list): res += f"- {k}: {' '.join(data)}\n"
-                    else:
-                        if data.get("state", "active") == "archived": continue
-                        traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                        events = " ".join(data.get("ledger", []))
-                        notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                        res += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+                    # Extreme defensive casting: prevent UI/Save artifacts from crashing the LLM prompt
+                    if not isinstance(data, dict): 
+                        if isinstance(data, list): res += f"- {k}: {' '.join(str(i) for i in data)}\n"
+                        continue
+                        
+                    if data.get("state", "active") == "archived": continue
+                    
+                    traits_dict = data.get("characteristics", {})
+                    if not isinstance(traits_dict, dict): traits_dict = {}
+                    
+                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in traits_dict.items()])
+                    
+                    ledger_list = data.get("ledger", [])
+                    if not isinstance(ledger_list, list): ledger_list = []
+                    events = " ".join(str(e) for e in ledger_list)
+                    
+                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                    res += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
             return res
 
         memory_str += append_lore("character_ledger", "CHARACTERS & LORE BIBLE")
