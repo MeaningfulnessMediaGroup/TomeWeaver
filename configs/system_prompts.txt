@@ -141,10 +141,15 @@ CRITICAL: You are acting as a professional editor. You output ONLY valid JSON ma
 File: base_engine.py | Function: redo_choices
 Variables: {original_json}
 '''
-EDIT MODE: Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. Do NOT include meta-notes, director instructions, or outcomes. Keep them brief.
-CRITICAL: Keep the 'story_text' EXACTLY the same.
-Original JSON:
+Original JSON with old choices:
 {original_json}
+
+EDIT MODE: 
+- Generate 3 to 6 completely NEW, actionable, and immersive choices for the player based on the current scene. 
+- Do NOT include meta-notes, director instructions, or outcomes. Keep them brief (5-15 words max).
+- Remember the reader should spend more time reading stories than reading choices, they have to be quick to read.
+CRITICAL: Keep the 'story_text' EXACTLY the same.
+
 
 
 
@@ -421,8 +426,10 @@ CRITICAL SCHEMA:
 '''
 Variables: {chapter_number}, {chapter_title}, {req_str}
 '''
-CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the new setting and goal. Provide 3 to 6 choices. CRITICAL: You MUST set 'objective_achieved' to false for this introductory turn!{req_str}
-
+CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the new setting and goal. Provide 3 to 6 choices. 
+CRITICAL JSON RULES: 
+1. You MUST set 'objective_achieved' to false for this introductory turn!
+2. You MUST update the 'location' and 'pov_character' JSON keys to describe this completely new scene. It is very likely the scene is completely different from the previous turn. It is highly likely that the character POV has changed completely. DO NOT copy the previous turn's location.{req_str}
 
 
 
@@ -490,7 +497,8 @@ Based on the latest action, generate the next turn in JSON format.
 '''
 Variables: {chapter_number}, {chapter_title}, {test_rule}, {req_str}, {time_jump}
 '''
-CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the setting. Do not conclude anything. Provide 3 to 6 choices.{test_rule}{req_str}{time_jump}
+CRITICAL OVERRIDE: Begin Chapter {chapter_number}: {chapter_title}. Write a smooth introductory scene establishing the setting. Do not conclude anything. Provide 3 to 6 choices. 
+CRITICAL JSON RULE: You MUST update the 'location' and 'pov_character' JSON keys to accurately describe this completely new scene. DO NOT copy the previous turn's metadata.{test_rule}{req_str}{time_jump}
 
 
 
@@ -836,21 +844,25 @@ You are an expert archivist. Your job is to read chronological gameplay logs and
 [PROMPT:USER_MEMORY_PLOT]
 '''
 File: api.py | Function: generate_plot_summary
-Variables: {chunk_text}
+Variables: {chunk_text}, {start_turn}, {end_turn}
 '''
-Read the following sequence of events from the adventure. 
-Extract a chronological ledger of exactly what happened. 
-You MUST format your output as a strict list, explicitly declaring the Turn Number for every single event.
-Focus strictly on facts: locations visited, important characters met, actions taken, and direct consequences.
-
-CRITICAL FORMAT TEMPLATE:
-- Turn [Number]: [Summary of all important events]
-- Turn [Number]: [Summary of all important events]
-
-RAW GAMEPLAY LOG:
+RAW GAMEPLAY LOG (TURN {start_turn} - {end_turn}):
 {chunk_text}
 
+TASK: Extract a dense, factual chronological ledger for the specific sequence: TURN {start_turn} TO TURN {end_turn} ONLY.
 
+CRITICAL CONSTRAINTS:
+1. STERILE ENVIRONMENT: You must ONLY use facts explicitly stated in the RAW GAMEPLAY LOG below.
+2. NO EXTRAPOLATION: Do NOT invent future events, do NOT guess the outcome of the last action, and do NOT write a "To be continued" or summary of what might happen next.
+3. ABSOLUTE BOUNDARY: Your ledger MUST start at Turn {start_turn} and MUST end exactly at Turn {end_turn} inclusively. Do not mention Turn {end_turn} + 1.
+4. FACTUAL DENSITY: Focus on: locations reached, items acquired/used, characters met, and specific choices made.
+5. Do not end with a [ISOLATION_KEY: UID] or [END OF LEDGER] of any other text after the last Turn {end_turn}.
+6. Do not write long prose form of a chapter summary. Keep it bullet point ledger for each turns.
+
+FORMAT TEMPLATE:
+- Turn Start turn+0: [Loc: location] Ledger entries
+- Turn Start turn+1: [Loc: location] Ledger entries
+CRITICAL: Do not end with any text after the turn ledger. No [ISOLATION_KEY: UID] or [END OF LEDGER] or any other text after the last Turn {end_turn} summary.
 
 
 [PROMPT:SYS_MEMORY_ENTITY]
@@ -1239,4 +1251,17 @@ CRITICAL: You are in a sterile environment. You MUST ONLY use the events explici
 You MUST format your output as a strict list, explicitly declaring the Turn Number for every single event:
 - Turn [X]: [Brief summary of event]
 - Turn [X+1]: [Brief summary of event]
+
+
+
+[PROMPT:FRAG_SANDBOX_FORCE_CHAPTER]
+'''
+Variables: {chapter_desc}, {test_rule}, {req_str}
+'''
+CRITICAL DIRECTOR OVERRIDE: A NEW CHAPTER BEGINS NOW.
+1. ACTION: {chapter_desc}
+2. TASK: Perform a "Cold Open" for the new scene. 
+3. CONTINUITY: You may reference long-term lore, but DISCARD the immediate physical continuity of the previous turn. Treat this as a hard scene-cut in a movie or a new chapter in a book.
+4. Establish the new location and situation immediately.
+5. Provide 3 to 6 choices for this new environment.{test_rule}{req_str}
 

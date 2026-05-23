@@ -208,6 +208,11 @@ class SandboxEngine(BaseEngine):
         if is_prologue:
             # --- PROLOGUE HANDLING ---
             first_chap_title = active_chapter.get('title', 'Chapter 1')
+            # Deduplicate prefix
+            if str(first_chap_title).lower().startswith("chapter 1"):
+                import re
+                first_chap_title = re.sub(r"^chapter 1[:\-\s]*", "", str(first_chap_title), flags=re.IGNORECASE).strip()
+
             system_content += f"\n\nINITIAL SETTING: {self.setup_data.get('setting', '')}\nSITUATION: {self.setup_data.get('starting_situation', '')}\n"
             messages = [{"role": "system", "content": system_content}]
             
@@ -225,28 +230,36 @@ class SandboxEngine(BaseEngine):
             last_action = completed_history[-1]['player_choice'] if completed_history else ""
             
             if last_action.startswith("EXPAND:"):
-                # Expansion Tool (Director Override)
                 expand_txt = last_action[7:].strip()
                 base_instruction = PROMPTS.get("FRAG_SANDBOX_EXPAND", "")
                 base_instruction = base_instruction.replace("{expand_txt}", expand_txt)
-                base_instruction = base_instruction.replace("{test_rule}", test_rule)
-                base_instruction = base_instruction.replace("{req_str}", req_str)
+            elif last_action.startswith("chapter:"):
+                # NEW: Force Chapter Tool
+                chapter_desc = last_action[8:].strip()
+                base_instruction = PROMPTS.get("FRAG_SANDBOX_FORCE_CHAPTER", "")
+                base_instruction = base_instruction.replace("{chapter_desc}", chapter_desc)
             else:
                 # Standard Response
                 base_instruction = PROMPTS.get("FRAG_SANDBOX_TURN", "")
-                base_instruction = base_instruction.replace("{test_rule}", test_rule)
-                base_instruction = base_instruction.replace("{req_str}", req_str)
+            
+            base_instruction = base_instruction.replace("{test_rule}", test_rule)
+            base_instruction = base_instruction.replace("{req_str}", req_str)
+
             
             # --- MANUAL CHAPTER OVERRIDE ---
-            # If the user triggered the "New Chapter" wizard in the UI, force the AI to do a cold open
+            # Trigger a cold open if this is explicitly the first turn of the new chapter
             if active_chapter.get("start_turn") == target_turn and target_turn > 1:
-                time_jump = f" Time jump: {active_chapter['time']}." if active_chapter.get('time') else ""
+                time_jump = f" TIME JUMP: {active_chapter['time']}." if active_chapter.get('time') else ""
+                
+                # Heavily reinforce the new setting so the AI extracts POV and Location from it
+                new_setting = f" \n\n*** NEW SCENE CONTEXT ***:\n{active_chapter['setting']}\n" if active_chapter.get('setting') else ""
+                
                 base_instruction = PROMPTS.get("FRAG_SANDBOX_COLD_OPEN", "")
                 base_instruction = base_instruction.replace("{chapter_number}", str(active_chapter['chapter_number']))
                 base_instruction = base_instruction.replace("{chapter_title}", active_chapter['title'])
                 base_instruction = base_instruction.replace("{test_rule}", test_rule)
                 base_instruction = base_instruction.replace("{req_str}", req_str)
-                base_instruction = base_instruction.replace("{time_jump}", time_jump)
+                base_instruction = base_instruction.replace("{time_jump}", time_jump + new_setting)
 
             # ==========================================
             # 4. ASSEMBLE HISTORY & MESSAGES
@@ -291,31 +304,48 @@ class SandboxEngine(BaseEngine):
     # HEADLESS API ENDPOINT: MANUAL CHAPTER WIZARD
     # ---------------------------------------------------------
     
-    def trigger_manual_chapter(self, title, setting=None, pov=None, time_jump=None):
+    def trigger_manual_chapter(self, prompt_desc):
         """
-        API Endpoint: Replaces the old CLI wizard. The GUI calls this method 
-        with the user's desired settings. Appends the pending chapter and 
-        forces the LLM to wrap up the current scene.
+        RESTORED CINEMATIC TRANSITION:
+        1. AI generates a catchy Title based on the prompt_desc.
+        2. Engine saves new chapter with the prompt_desc as the 'setting'.
+        3. AI generates a Wrap-up for the OLD chapter with a single 'Start' choice.
         """
-        pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
-        if pending:
-            print(f"{Fore.RED}A chapter transition is already pending! Undo to cancel it.{Style.RESET_ALL}")
-            return None # GUI can capture this as a failed trigger
-            
-        print(f"\n{Fore.CYAN}=== MANUAL CHAPTER TRANSITION INITIATED ==={Style.RESET_ALL}")
+        from api import TomeWeaverAPI
+        from colorama import Fore, Style
         
+        pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
+        if pending: return None
+            
+        print(f"{Fore.CYAN}Generating chapter title from setting...{Style.RESET_ALL}")
+        
+        # Step 1: Generate a punchy Title based on the user's description
+        success, generated_title = TomeWeaverAPI.generate_field_data(self.setup_data, "title", shorthand=prompt_desc)
+        if not success: 
+            generated_title = "The Next Chapter"
+        else:
+            # FORCE FLATTENING: Take only the first non-empty line and strip quotes/markdown
+            lines = [l.strip() for l in generated_title.split("\n") if l.strip()]
+            if lines:
+                generated_title = lines[0].replace('"', '').replace("'", "").replace("*", "").replace("#", "").strip()
+            else:
+                generated_title = "The Next Chapter"
+        
+        # Step 2: Store the metadata
+        c_num = len(self.chapters) + 1
         new_chap = {
-            "chapter_number": len(self.chapters) + 1,
-            "title": title,
+            "chapter_number": c_num,
+            "title": generated_title,
             "start_turn": None, 
-            "setting": setting if setting else None,
-            "pov": pov if pov else None,
-            "time": time_jump if time_jump else None
+            "setting": prompt_desc, # User's raw text becomes the environment guide
+            "pov": None,
+            "time": None
         }
         self.chapters.append(new_chap)
         self.save_state()
         
-        action_instruction = f"DIRECTOR INSTRUCTION: Wrap up this chapter with a satisfying conclusion or cliffhanger. Do NOT start '{title}' yet."
+        # Step 3: Trigger the Wrap-up LLM Call
+        # Note: We use a specific delimiter (Chapter X: Title) so our deduplication logic catches it
+        action_instruction = f"DIRECTOR INSTRUCTION: Wrap up the current scene. Provide exactly ONE choice in the 'choices' array: 'Start Chapter {c_num}: {generated_title}'"
         
-        # Route directly into the standard action pipeline
         return self.submit_action(action_instruction)

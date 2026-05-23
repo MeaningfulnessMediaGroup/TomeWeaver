@@ -234,40 +234,37 @@ def load_api_profile(name):
 
 def load_json_safely(file_path, file_description):
     """
-    Loads a JSON file with an added 'Pre-Parse Repair' layer. 
-    This allows users to manually paste raw text (with literal newlines and 
-    unescaped quotes) into story fields without breaking the engine.
+    Attempts a fast standard JSON load. If it fails (due to unescaped user 
+    manual edits), it falls back to a heavy Regex-based 'Pre-Parse Repair' 
+    layer to heal the syntax before trying again.
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
-        # --- MANUAL PASTE REPAIR LAYER ---
-        # We surgically target long-form text fields that users often edit manually.
+        # --- PHASE 1: FAST PATH ---
+        try:
+            return json.loads(raw_content, strict=False)
+        except json.JSONDecodeError:
+            # Standard load failed. Proceed to the Slow-Repair fallback.
+            pass
+
+        # --- PHASE 2: REPAIR FALLBACK (Slow Path) ---
         def fix_pasted_content(match):
-            key_part = match.group(1)   # e.g., "story_text": "
-            text_part = match.group(3)  # The actual raw text
-            suffix = match.group(4)     # e.g., ", or "}
-            
-            # 1. Convert literal line breaks (Enter keys) to \n
+            key_part, target_key, text_part, suffix = match.groups()
+            # 1. Escape literal newlines
             text_part = text_part.replace('\n', '\\n').replace('\r', '\\r')
-            
-            # 2. Escape unescaped double quotes (find " not preceded by \)
-            # We use a negative lookbehind to ensure we don't double-escape.
+            # 2. Escape unescaped double quotes
             text_part = re.sub(r'(?<!\\)"', r'\"', text_part)
-            
             return f'{key_part}{text_part}{suffix}'
 
-        # List of keys likely to receive manual copy-pastes from external AIs
         targets = ["story_text", "introduction", "goal", "starting_situation", "inventory_and_state"]
         target_pattern = "|".join(targets)
-        
-        # Regex: Finds "key": " ... " followed by a comma or closing brace
-        # Using re.DOTALL to allow the (.*?) to match across multiple lines
         repair_regex = rf'("({target_pattern})"\s*:\s*")(.*?)("\s*[,}}])'
+        
         repaired_content = re.sub(repair_regex, fix_pasted_content, raw_content, flags=re.DOTALL)
 
-        # Now parse the (potentially repaired) string
+        # Final attempt with repaired content
         return json.loads(repaired_content, strict=False)
 
     except json.JSONDecodeError as e:

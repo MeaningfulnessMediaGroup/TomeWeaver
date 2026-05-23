@@ -333,6 +333,12 @@ class CampaignEngine(BaseEngine):
 
         if is_prologue:
             first_chap_title = active_chapter.get('title', 'Chapter 1')
+            # Deduplicate prefix if user already wrote it
+            if str(first_chap_title).lower().startswith("chapter 1"):
+                # Strip the prefix so we don't end up with "Start Chapter 1: Chapter 1..."
+                import re
+                first_chap_title = re.sub(r"^chapter 1[:\-\s]*", "", str(first_chap_title), flags=re.IGNORECASE).strip()
+            
             if getattr(self, 'prologue_content', ''):
                 start_instruction = PROMPTS.get("FRAG_PROLOGUE_EXPAND", "")
                 start_instruction = start_instruction.replace("{prologue_content}", self.prologue_content)
@@ -496,7 +502,13 @@ class CampaignEngine(BaseEngine):
                             pending_chap = new_chap
                         
                         turn_data["input_type"] = "choice" 
-                        turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
+                        c_num = pending_chap.get('chapter_number', current_num + 1)
+                        prefix = f"Chapter {c_num}"
+                        c_title = pending_chap['title']
+                        if not str(c_title).lower().startswith(prefix.lower()):
+                            c_title = f"{prefix}: {c_title}"
+                        
+                        turn_data["choices"] = [f"Start {c_title}"]
                         turn_data["is_game_over"] = False
                     else:
                         # This IS the last chapter; trigger the finale

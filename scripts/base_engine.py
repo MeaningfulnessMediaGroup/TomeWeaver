@@ -230,12 +230,16 @@ class BaseEngine:
         # --- PROLOGUE AS-IS BYPASS ---
         if is_first_turn and p_style == "as_is" and self.prologue_content:
             first_chap = self.chapters[0]
+            c1_title = first_chap['title']
+            if not str(c1_title).lower().startswith("chapter 1"):
+                c1_title = f"Chapter 1: {c1_title}"
+                
             turn_data = {
                 "story_text": self.prologue_content,
                 "pov_character": self.setup_data.get("main_character", "Protagonist"),
                 "location": self.setup_data.get("setting", "The Beginning"),
                 "input_type": "choice",
-                "choices": [f"Start Chapter 1: {first_chap['title']}"],
+                "choices": [f"Start {c1_title}"],
                 "text_prompt": None,
                 "turn": self.get_next_turn_number(),
                 "player_choice": None
@@ -326,13 +330,15 @@ class BaseEngine:
         log_event(self.adv_dir, f"Player Action [Turn {len(self.history)}]: {player_choice}")
         print(f"\n{Fore.CYAN}▶ Action Submitted: '{player_choice}'{Style.RESET_ALL}")
 
-        # Update Chapter Markers if jumping
-        if player_choice.startswith("Start Chapter:"):
+        # Update Chapter Markers if jumping (Regex makes this immune to formatting/titles)
+        if re.match(r"^start\s*chapter\s*\d+", str(player_choice).strip().lower()):
             pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
             if pending:
                 pending["start_turn"] = len(self.history) + 1
                 if len(self.chapters) > 1: 
                     self.chapters[-2]["end_turn"] = len(self.history)
+                    
+                print(f"\n{Fore.MAGENTA}=== CHAPTER {pending.get('chapter_number')} STARTED ==={Style.RESET_ALL}")
 
         # Save action to ledger
         self.history[-1]["player_choice"] = player_choice
@@ -837,7 +843,12 @@ class BaseEngine:
         if not self.is_campaign:
             pending_chap = next((c for c in self.chapters if c.get("start_turn") is None), None)
             if pending_chap and turn_data.get("player_choice") is None and not turn_data.get("is_game_over"):
-                turn_data["choices"] = [f"Start Chapter: {pending_chap['title']}"]
+                c_num = pending_chap.get('chapter_number', len(self.chapters))
+                prefix = f"Chapter {c_num}"
+                c_title = pending_chap['title']
+                if not str(c_title).lower().startswith(prefix.lower()):
+                    c_title = f"{prefix}: {c_title}"
+                turn_data["choices"] = [f"Start {c_title}"]
 
         # 3. Mortality/Victory Interceptor
         if turn_data.get("turn", 0) > 0 and str(turn_data.get("is_game_over", False)).lower() == "true":

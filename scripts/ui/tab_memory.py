@@ -21,7 +21,12 @@ class MemoryTab(ctk.CTkFrame):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.pack(fill="x", padx=10, pady=5)
         
-        ctk.CTkLabel(hdr, text="Long-Term Memory Ledger", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(side="left", padx=10, pady=10)
+        # STICKY SAVE BUTTON: Positioned on the far left for instant access
+        self.btn_save_memory = ctk.CTkButton(hdr, text="💾 Save Changes", font=("Arial", 12, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", width=120, command=self._save_active_memory)
+        self.btn_save_memory.pack(side="left", padx=(10, 5))
+        Tooltip(self.btn_save_memory, "Commit manual edits to Plot or Chapter summaries.")
+
+        ctk.CTkLabel(hdr, text="Long-Term Memory Ledger", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(side="left", padx=5, pady=10)
         
         self.btn_compile = ctk.CTkButton(hdr, text="🔄 Compile Missing History", font=("Arial", 12, "bold"), fg_color="#F57C00", hover_color="#E65100", command=self._compile_history)
         self.btn_compile.pack(side="right", padx=10)
@@ -500,14 +505,6 @@ class MemoryTab(ctk.CTkFrame):
             # Save the UI reference in a localized list instead of injecting it into the Engine's data
             self.plot_ui_references.append((chunk, box))
 
-        def save_plot_ledger():
-            for chunk, box in getattr(self, 'plot_ui_references', []):
-                chunk["summary"] = box.get("1.0", "end").strip()
-            self.engine.save_state()
-            messagebox.showinfo("Saved", "Plot summaries updated.")
-            self._render_view()
-
-        ctk.CTkButton(self.editor_frame, text="Save Summaries", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_plot_ledger).pack(pady=10)
         ctk.CTkLabel(self.editor_frame, text="Use the engine configuration to change the Memory Chunk size.", font=("Arial", 12, "italic"), text_color="#555555").pack(pady=20)
 
 
@@ -548,15 +545,6 @@ class MemoryTab(ctk.CTkFrame):
             box.pack(fill="x", padx=15, pady=(0, 15))
             
             self.chap_ui_references.append((chunk, box))
-
-        def save_chap_ledger():
-            for chunk, box in getattr(self, 'chap_ui_references', []):
-                chunk["summary"] = box.get("1.0", "end").strip()
-            self.engine.save_state()
-            messagebox.showinfo("Saved", "Chapter summaries updated.")
-            self._render_view()
-
-        ctk.CTkButton(self.editor_frame, text="Save Summaries", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_chap_ledger).pack(pady=10)
 
 
     def _render_entity_editor(self, entity_name, ledger_type):
@@ -920,3 +908,33 @@ class MemoryTab(ctk.CTkFrame):
         box.configure(state="disabled")
 
         ctk.CTkButton(dialog, text="Close Viewer", command=dialog.destroy, fg_color="#4A4A4A", hover_color="#333333").pack(pady=(10, 20))
+        
+        
+    def _save_active_memory(self):
+        """Routes the global Save button to the correct ledger logic based on selection."""
+        selection = self.active_selection.get()
+        if selection == "PLOT_LEDGER":
+            self._save_plot_ledger()
+        elif selection == "CHAPTER_LEDGER":
+            self._save_chapter_ledger()
+        else:
+            # If an entity is selected, remind the user the save button is on the detail form
+            messagebox.showinfo("Save Info", "Individual Character and Location changes are saved using the 'Save Entity Lore' button at the bottom of the editor.")
+
+    def _save_plot_ledger(self):
+        """Internal logic to extract text from Plot boxes and commit to engine."""
+        if not hasattr(self, 'plot_ui_references') or not self.plot_ui_references: return
+        for chunk, box in self.plot_ui_references:
+            chunk["summary"] = box.get("1.0", "end").strip()
+        self.engine.save_state()
+        messagebox.showinfo("Saved", "Plot Ledger updated successfully.")
+        self._render_view()
+
+    def _save_chapter_ledger(self):
+        """Internal logic to extract text from Chapter boxes and commit to engine."""
+        if not hasattr(self, 'chap_ui_references') or not self.chap_ui_references: return
+        for chunk, box in self.chap_ui_references:
+            chunk["summary"] = box.get("1.0", "end").strip()
+        self.engine.save_state()
+        messagebox.showinfo("Saved", "Chapter Summaries updated successfully.")
+        self._render_view()

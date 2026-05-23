@@ -159,7 +159,7 @@ class StoryTab(ctk.CTkFrame):
 
         self.cmd_dropdown = ctk.CTkOptionMenu(
             self.input_frame, 
-            values=["Standard Action", "Expand Notes", "Force Setting", "Force Time", "Force POV"],
+            values=["Standard Action", "Expand Notes", "Force Setting", "Force Time", "Force POV", "Force Chapter"],
             width=140
         )
         if not self.engine.is_campaign:
@@ -288,9 +288,24 @@ class StoryTab(ctk.CTkFrame):
         if actual_turn == 0: chap_title = "~ Prologue ~"
         elif is_epilogue: chap_title = "~ Epilogue ~"
         else:
-            c_name = f"Chapter {active_chap.get('chapter_number', 1)}"
-            c_title = active_chap.get('title', c_name)
-            chap_title = f"~ {c_name}: {c_title} ~" if c_title.lower() != c_name.lower() else f"~ {c_name} ~"
+            c_num = active_chap.get('chapter_number', 1)
+            c_title = active_chap.get('title', "").strip()
+            
+            # The standard prefix we automatically manage
+            prefix = f"Chapter {c_num}"
+            
+            # Smart Detection: Skip auto-prefixing if the user already did it.
+            # Handles: "Chapter 1", "Chapter 1 - Title", "CHAPTER 1: Title"
+            if not c_title or c_title.lower() == prefix.lower():
+                chap_display = prefix
+            elif c_title.lower().startswith(prefix.lower()):
+                # User manually wrote the chapter number, respect their formatting/delimiters
+                chap_display = c_title
+            else:
+                # Standard case: Prepend our managed index
+                chap_display = f"{prefix}: {c_title}"
+            
+            chap_title = f"~ {chap_display} ~"
             
         self.lbl_chapter.configure(text=chap_title)
         
@@ -326,18 +341,18 @@ class StoryTab(ctk.CTkFrame):
         has_action = False
         if idx > 0 and self.engine.history[idx-1].get("player_choice"):
             raw_action = self.engine.history[idx-1].get("player_choice", "").strip()
+            # Flatten to single line for the header display
             flat_action = raw_action.replace("\n", " ").replace("\r", " ")
             
-            self.lbl_action.pack(side="left")
+            # 1. Pack button to the far RIGHT first so it stays fixed
+            self.btn_action_more.pack(side="right", padx=(10, 0))
+            self.btn_action_more.configure(command=lambda a=raw_action: self._show_full_action(a))
             
-            if len(flat_action) > 85:
-                # Do not include the '...' in the string, let the button act as the ellipsis
-                self.lbl_action.configure(text=f"❯ {flat_action[:82]}")
-                self.btn_action_more.pack(side="left", padx=(5, 0))
-                self.btn_action_more.configure(command=lambda a=raw_action: self._show_full_action(a))
-            else:
-                self.lbl_action.configure(text=f"❯ {flat_action}")
-                self.btn_action_more.pack_forget()
+            # 2. Pack label to the LEFT and allow it to expand into the remaining middle space
+            self.lbl_action.pack(side="left", fill="x", expand=True)
+            # We provide the full text and set anchor="w" (West/Left). 
+            # CustomTkinter will naturally clip the text at the button's margin.
+            self.lbl_action.configure(text=f"❯ {flat_action}", anchor="w")
                 
             has_action = True
 
@@ -610,6 +625,17 @@ class StoryTab(ctk.CTkFrame):
         cmd_type = self.cmd_dropdown.get() if not self.engine.is_campaign else "Standard Action"
         self.text_input.delete(0, 'end') 
         
+        if cmd_type == "Force Chapter":
+            self._lock_ui("Architecting transition...")
+            def worker():
+                # Passes the raw description to be handled by the three-step engine logic
+                result = self.engine.trigger_manual_chapter(prompt_desc=raw_text)
+                self.after(0, lambda: self.refresh_timeline(go_to_last=True))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            return
+
+        # Standard routing for other commands
         if cmd_type == "Expand Notes": final_action = f"EXPAND: {raw_text}"
         elif cmd_type == "Force Setting": final_action = f"setting: {raw_text}"
         elif cmd_type == "Force Time": final_action = f"time: {raw_text}"
