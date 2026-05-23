@@ -19,5 +19,7 @@
     "lore_and_rules": "",
     "characters": {
         "New_Key": "New_Value"
-    }
+    },
+    "last_compile_mode": "missing",
+    "auto_reconcile": true
 }

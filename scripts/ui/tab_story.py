@@ -388,43 +388,64 @@ class StoryTab(ctk.CTkFrame):
         show_controls = not is_game_over and not self.engine.is_test_mode
         
         if show_controls:
+            # --- THE NARRATIVE SURGERY MENU ---
+            # Purge the tools_frame properly to fix the duplication bug
+            for w in self.tools_frame.winfo_children(): w.destroy()
+            
+            # Recreate the toolbars
+            self.bridge_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
+            self.story_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
+            
             if idx > 0:
                 self.bridge_tools.pack(fill="x", pady=(5, 0))
                 ctk.CTkLabel(self.bridge_tools, text="Bridge:", font=("Arial", 11, "bold"), text_color="#90CAF9", width=40).pack(side="left")
 
-                
                 if is_valid_bridge:
-                
                     btn_gen = ctk.CTkButton(self.bridge_tools, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=lambda: self._generate_bridge(idx))
                     btn_gen.pack(side="left", padx=2)
-                    Tooltip(btn_gen, "Ask AI to regenerate a new version of the transition.")
                     
                     btn_exp = ctk.CTkButton(self.bridge_tools, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_bridge_edit(idx, "expand"))
                     btn_exp.pack(side="left", padx=2)
-                    Tooltip(btn_exp, "AI Expansion: Make this bridge slightly longer and more descriptive.")
                     
                     btn_cond = ctk.CTkButton(self.bridge_tools, text="✨ Condense", width=60, height=24, font=("Arial", 11), fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_bridge_edit(idx, "condense"))
                     btn_cond.pack(side="left", padx=2)
-                    Tooltip(btn_cond, "AI Edit: Make this bridge shorter and punchier.")
                     
                     btn_pol = ctk.CTkButton(self.bridge_tools, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_bridge_edit(idx, "polish"))
                     btn_pol.pack(side="left", padx=2)
-                    Tooltip(btn_pol, "AI Copy-Edit: Fix grammar/flow of this bridge.")
                     
                     btn_edit_br = ctk.CTkButton(self.bridge_tools, text="✎ Edit", width=50, height=24, font=("Arial", 11), fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_edit_dialog(idx))
                     btn_edit_br.pack(side="left", padx=2)
-                    Tooltip(btn_edit_br, "Manually edit this bridge.")
                     
                     btn_del = ctk.CTkButton(self.bridge_tools, text="X", width=28, height=24, font=("Arial", 11), fg_color="#B71C1C", hover_color="#7F0000", command=lambda: self._delete_bridge(idx))
                     btn_del.pack(side="left", padx=2)
-                    Tooltip(btn_del, "Delete this transition.")
-                    
                 else:
-                
                     btn_gen = ctk.CTkButton(self.bridge_tools, text="✨ Generate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#E65100", command=lambda: self._generate_bridge(idx))
                     btn_gen.pack(side="left", padx=2)
-                    Tooltip(btn_gen, "Ask AI to generate a narrative transition from the previous turn into this turn based on the selected choice.")
+                    
+                # --- TIMELINE SURGERY (Right-Aligned on the Bridge Row) ---
+                # Buttons pack right-to-left: Delete -> Undo -> Insert -> Bridge2Turn -> Turn2Bridge
+                btn_del_t = ctk.CTkButton(self.bridge_tools, text="X Delete Turn", width=80, height=24, font=("Arial", 11), fg_color="#B71C1C", hover_color="#7F0000", command=lambda: self._trigger_surgery("delete", idx))
+                btn_del_t.pack(side="right", padx=2)
+                Tooltip(btn_del_t, "Permanently deletes this card and left-shifts all future turns.")
                 
+                if cheats_allowed and idx == history_len - 1 and history_len > 1:
+                    btn_undo = ctk.CTkButton(self.bridge_tools, text="↶ Undo Turn", width=90, height=24, fg_color="#D32F2F", hover_color="#9A0007", command=self.on_undo)
+                    btn_undo.pack(side="right", padx=2)
+                    Tooltip(btn_undo, "Revert the game state to the previous turn.")
+                
+                btn_ins = ctk.CTkButton(self.bridge_tools, text="+ Insert Turn", width=80, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=lambda: self._trigger_surgery("insert", idx))
+                btn_ins.pack(side="right", padx=2)
+                Tooltip(btn_ins, "Right-shifts all future turns and inserts a blank card here for you to type in.")
+                
+                if is_valid_bridge:
+                    btn_b2t = ctk.CTkButton(self.bridge_tools, text="↔ Bridge to Turn", width=100, height=24, font=("Arial", 11), fg_color="#7B1FA2", hover_color="#4A148C", command=lambda: self._trigger_surgery("bridge_to_turn", idx))
+                    btn_b2t.pack(side="right", padx=2)
+                    Tooltip(btn_b2t, "Extracts this bridge into its own dedicated scene card.")
+
+                if idx < history_len - 1:
+                    btn_t2b = ctk.CTkButton(self.bridge_tools, text="↔ Turn to Bridge", width=100, height=24, font=("Arial", 11), fg_color="#7B1FA2", hover_color="#4A148C", command=lambda: self._trigger_surgery("turn_to_bridge", idx))
+                    btn_t2b.pack(side="right", padx=2)
+                    Tooltip(btn_t2b, "Collapses this scene forward into the next turn's narrative bridge.")
 
             self.story_tools.pack(fill="x", pady=(5, 5))
             ctk.CTkLabel(self.story_tools, text="Story:", font=("Arial", 11, "bold"), text_color="white", width=40).pack(side="left")
@@ -432,39 +453,36 @@ class StoryTab(ctk.CTkFrame):
             if idx == history_len - 1:
                 btn_redo = ctk.CTkButton(self.story_tools, text="⟳ Redo Turn", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=self._trigger_redo)
                 btn_redo.pack(side="left", padx=2)
-                Tooltip(btn_redo, "Reroll this entire scene from scratch.")
                 
             btn_rc = ctk.CTkButton(self.story_tools, text="⟳ Choices", width=60, height=24, font=("Arial", 11), fg_color="#0288D1", hover_color="#01579B", command=lambda: self._trigger_redo_choices(idx))
             btn_rc.pack(side="left", padx=2)
-            Tooltip(btn_rc, "Keep text, but get new choices.")
             
             btn_exp = ctk.CTkButton(self.story_tools, text="✨ Expand", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F", command=lambda: self._trigger_expansion(idx))
             btn_exp.pack(side="left", padx=2)
-            Tooltip(btn_exp, "AI Expansion: Add sensory depth to this scene.")
 
             btn_cond = ctk.CTkButton(self.story_tools, text="✨ Condense", width=60, height=24, font=("Arial", 11), fg_color="#3F51B5", hover_color="#303F9F", command=lambda: self._trigger_condense(idx))
             btn_cond.pack(side="left", padx=2)
-            Tooltip(btn_cond, "AI Edit: Make this prose shorter and punchier.")
             
             btn_pol = ctk.CTkButton(self.story_tools, text="✨ Polish", width=60, height=24, font=("Arial", 11), fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: self._trigger_polish(idx))
             btn_pol.pack(side="left", padx=2)
-            Tooltip(btn_pol, "AI Copy-Edit: Fix grammar/flow of this scene.")
             
             if cheats_allowed:
                 btn_fix = ctk.CTkButton(self.story_tools, text="✨ Fix...", width=60, height=24, font=("Arial", 11), fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(idx))
                 btn_fix.pack(side="left", padx=2)
-                Tooltip(btn_fix, "Instruct AI to change a specific detail.")
                 
-            # Right-aligned buttons (Packed in reverse order: Undo on the far right, Edit next to it)
-            if cheats_allowed and idx == history_len - 1 and history_len > 1:
-                btn_undo = ctk.CTkButton(self.story_tools, text="↶ Undo Turn", width=100, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=self.on_undo)
-                btn_undo.pack(side="right", padx=2)
-                Tooltip(btn_undo, "Revert the game state to the previous turn.")
-                
+            # --- STORY CONTENT TOOLS (Right-Aligned on Story Row) ---
             if cheats_allowed:
                 btn_edit_card = ctk.CTkButton(self.story_tools, text="✎ Edit Scene", width=90, height=24, fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_edit_dialog(idx))
                 btn_edit_card.pack(side="right", padx=2)
-                Tooltip(btn_edit_card, "Open the Narrative Editor to manually type changes.")
+                
+            if actual_turn > 1:
+                is_start_of_chapter = active_chap.get("start_turn") == actual_turn
+                if is_start_of_chapter:
+                    btn_merge = ctk.CTkButton(self.story_tools, text="← Merge Chapter", width=100, height=24, font=("Arial", 11), fg_color="#4CAF50", hover_color="#388E3C", command=lambda: self._trigger_surgery("merge", idx))
+                    btn_merge.pack(side="right", padx=2)
+                else:
+                    btn_split = ctk.CTkButton(self.story_tools, text="✂ Split Chapter", width=100, height=24, font=("Arial", 11), fg_color="#00BCD4", hover_color="#0097A7", command=lambda: self._trigger_surgery("split", idx))
+                    btn_split.pack(side="right", padx=2)
 
         # Build Choices Area
         for w in self.choices_frame.winfo_children(): w.destroy()
@@ -736,6 +754,71 @@ class StoryTab(ctk.CTkFrame):
             self.after(0, update_ui)
         threading.Thread(target=worker, daemon=True).start()
 
+    def _trigger_surgery(self, action, turn_idx):
+        if action == "delete":
+            warn = f"Are you sure you want to permanently delete Turn {self.engine.history[turn_idx].get('turn')}?\n\nThis will shift all future turns backwards."
+            if messagebox.askyesno("Delete Turn", warn, icon="warning"):
+                self._lock_ui("Deleting turn...")
+                def worker():
+                    self.engine.delete_turn(turn_idx)
+                    
+                    # If we deleted the very last turn, we must retreat the UI cursor safely
+                    new_len = len(self.engine.history)
+                    if self.current_turn_idx >= new_len:
+                        self.current_turn_idx = new_len - 1
+                        
+                    self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+        elif action == "insert":
+            self._lock_ui("Inserting blank turn...")
+            def worker():
+                self.engine.insert_blank_turn(turn_idx)
+                
+                # Automatically advance the UI to the newly created blank card!
+                self.current_turn_idx = turn_idx
+                self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        elif action == "turn_to_bridge":
+            self._lock_ui("Collapsing turn into bridge...")
+            def worker():
+                self.engine.convert_turn_to_bridge(turn_idx)
+                
+                # Because the turn deleted itself, the NEXT turn instantly shifted left
+                # and occupies this exact index. The cursor stays exactly where it is!
+                self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        elif action == "bridge_to_turn":
+            self._lock_ui("Expanding bridge into turn...")
+            def worker():
+                self.engine.convert_bridge_to_turn(turn_idx)
+                self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        elif action == "split":
+            self._lock_ui("Splitting chapter boundaries...")
+            def worker():
+                self.engine.split_chapter(turn_idx)
+                self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        elif action == "merge":
+            c_num = next((c.get("chapter_number") for c in self.engine.chapters if c.get("start_turn") == self.engine.history[turn_idx].get("turn")), None)
+            if c_num:
+                self._lock_ui("Merging chapter boundaries...")
+                def worker():
+                    self.engine.merge_chapter_up(c_num)
+                    self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+            
     def on_undo(self):
         self._lock_ui("Undoing last choice...")
         def worker():

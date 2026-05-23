@@ -182,7 +182,25 @@ class ChapterTab(ctk.CTkFrame):
                     btn_help.configure(command=lambda u=uid, w=var, t=label_text: parent_tab.codex_tab._show_field_guide(u, w, t))
 
         # Core Chapter Definitions
-        add_core_field("Chapter Title:", "title", "CHAP_TITLE", show_ai=True)
+        # Custom Title Renamer that instantly saves and re-renders the left navigation list
+        hdr = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+        hdr.pack(fill="x", padx=10, pady=(10, 2))
+        ctk.CTkLabel(hdr, text="Chapter Title:", font=("Arial", 14, "bold")).pack(side="left")
+        
+        var_title = ctk.StringVar(value=chap.get("title", ""))
+        entry_title = ctk.CTkEntry(self.editor_frame, textvariable=var_title, font=("Arial", 14))
+        entry_title.pack(fill="x", padx=10)
+        self.chapter_fields["title"] = var_title
+        
+        def on_title_lost_focus(e):
+            new_title = var_title.get().strip()
+            if new_title and new_title != chap.get("title"):
+                self._save_chapter() # Triggers an automatic left-list refresh
+                
+        entry_title.bind("<FocusOut>", on_title_lost_focus)
+        entry_title.bind("<Return>", on_title_lost_focus)
+        
+        
         add_core_field("Base Setting (Fallback location):", "setting", "CHAP_SETTING", show_ai=True)
         add_core_field("Base POV (Fallback character):", "pov", "CHAP_POV", show_ai=False)
         add_core_field("Time Jump (e.g., 'Two days later...'):", "time", "CHAP_TIME", show_ai=True)

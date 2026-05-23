@@ -754,6 +754,217 @@ class BaseEngine:
 
 
     # ---------------------------------------------------------
+    # NARRATIVE SURGERY (THE TIMELINE EDITOR)
+    # ---------------------------------------------------------
+
+    def insert_blank_turn(self, target_index):
+        """Right-shifts history and inserts a blank card at the target index."""
+        if target_index < 0 or target_index > len(self.history): return False
+        
+        target_turn_val = self.history[target_index].get("turn", target_index + 1) if target_index < len(self.history) else len(self.history) + 1
+        
+        # 1. Right-shift all future turns (+1)
+        for i in range(target_index, len(self.history)):
+            self.history[i]["turn"] = self.history[i].get("turn", i) + 1
+            
+        # 2. Re-Index Chapter Boundaries and Invalidate affected Plot Ledgers
+        affected_chapters = set()
+        for c in self.chapters:
+            s_turn = c.get("start_turn")
+            e_turn = c.get("end_turn")
+            
+            if s_turn is not None and e_turn is not None:
+                # If the insertion lands INSIDE this chapter, it is affected
+                if s_turn <= target_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
+                
+            if s_turn is not None and s_turn > target_index: c["start_turn"] += 1
+            if e_turn is not None and e_turn >= target_index: c["end_turn"] += 1
+                
+        # Invalidate the RAG summaries for the affected chapters so the user is forced to recompile cleanly
+        if affected_chapters:
+            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
+            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
+                
+        # 3. Create and inject the blank turn
+        prev_turn = self.history[target_index - 1] if target_index > 0 else {}
+        blank_turn = {
+            "turn": target_turn_val,
+            "location": prev_turn.get("location", "Unknown"),
+            "pov_character": prev_turn.get("pov_character", "Unknown"),
+            "story_text": "[ Blank Turn inserted by Director. Click 'Edit Scene' to write content. ]",
+            "choices": ["Proceed forward."],
+            "input_type": "choice",
+            "is_game_over": False,
+            "player_choice": None,
+            "narrative_bridge": ""
+        }
+        
+        if self.track_inventory:
+            blank_turn["inventory_and_state"] = prev_turn.get("inventory_and_state", "")
+            
+        self.history.insert(target_index, blank_turn)
+        self.save_state()
+        return True
+
+    def delete_turn(self, target_index):
+        """Deletes a turn and left-shifts history."""
+        if target_index < 0 or target_index >= len(self.history): return False
+        
+        # 1. Remove the turn
+        deleted_turn = self.history.pop(target_index)
+        deleted_turn_val = deleted_turn.get("turn", target_index + 1)
+        
+        # 2. Left-shift all future turns (-1)
+        for i in range(target_index, len(self.history)):
+            self.history[i]["turn"] = self.history[i].get("turn", i + 2) - 1
+            
+        # 3. Heal Chapter Boundaries and Invalidate affected Plot Ledgers
+        affected_chapters = set()
+        for c in self.chapters:
+            s_turn = c.get("start_turn")
+            e_turn = c.get("end_turn")
+            
+            if s_turn is not None and e_turn is not None:
+                # If the deletion lands INSIDE this chapter, it is affected
+                if s_turn <= deleted_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
+            
+            if s_turn == deleted_turn_val:
+                c["start_turn"] = s_turn if target_index < len(self.history) else None
+            elif s_turn is not None and s_turn > deleted_turn_val:
+                c["start_turn"] -= 1
+                
+            if e_turn is not None and e_turn >= deleted_turn_val:
+                if e_turn == deleted_turn_val and e_turn == s_turn:
+                    c["end_turn"] = None
+                    c["start_turn"] = None
+                else:
+                    c["end_turn"] -= 1
+                    
+        # Invalidate the RAG summaries
+        if affected_chapters:
+            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
+            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
+                
+        self.save_state()
+        return True
+
+    def convert_turn_to_bridge(self, target_index):
+        """
+        Collapses the target turn FORWARD into the NEXT turn's narrative bridge.
+        The target turn is then deleted, shifting the timeline left.
+        """
+        # Cannot collapse the very last turn, because there is no "next" turn to push the bridge into!
+        if target_index < 0 or target_index >= len(self.history) - 1: return False
+        
+        curr_turn = self.history[target_index]
+        next_turn = self.history[target_index + 1]
+        
+        b1 = curr_turn.get("narrative_bridge", "").strip()
+        s1 = curr_turn.get("story_text", "").strip()
+        b2 = next_turn.get("narrative_bridge", "").strip()
+        
+        parts = []
+        if b1 and b1 not in ["[OK]", "[FAILED]"]: parts.append(b1)
+        if s1: parts.append(s1)
+        if b2 and b2 not in ["[OK]", "[FAILED]"]: parts.append(b2)
+        
+        next_turn["narrative_bridge"] = "\n\n".join(parts)
+            
+        # The target turn is now fully absorbed into the next turn. 
+        # Delete it and left-shift history.
+        return self.delete_turn(target_index)
+
+    def convert_bridge_to_turn(self, target_index):
+        """
+        Extracts the target turn's narrative bridge and expands it into its own dedicated Turn.
+        The timeline is right-shifted.
+        """
+        if target_index <= 0 or target_index >= len(self.history): return False
+        
+        target_turn = self.history[target_index]
+        bridge_text = target_turn.get("narrative_bridge", "").strip()
+        
+        if not bridge_text or bridge_text in ["[OK]", "[FAILED]"]: return False
+        
+        # 1. Right-shift history by inserting a blank turn exactly AT the target index.
+        # This pushes the current turn (target_index) forward to target_index + 1.
+        self.insert_blank_turn(target_index)
+        
+        # 2. Populate the newly inserted turn with the bridge text
+        new_turn = self.history[target_index]
+        new_turn["story_text"] = bridge_text
+        
+        # The old choice that led into this bridge is completely safe in target_index - 1!
+        # We just need to give the newly created turn a filler choice so it leads into the next turn cleanly.
+        new_turn["player_choice"] = "[ Timeline Expanded ]"
+        
+        # 3. Clear the bridge from the shifted turn to prevent duplication
+        self.history[target_index + 1]["narrative_bridge"] = ""
+        
+        self.save_state()
+        return True
+        
+    def split_chapter(self, target_index):
+        """Splits the active chapter in two at the specified target_index turn."""
+        if target_index <= 0 or target_index >= len(self.history): return False
+        
+        target_turn_val = self.history[target_index].get("turn", target_index + 1)
+        
+        # 1. Find the active chapter containing this turn
+        active_c = None
+        for i, c in enumerate(self.chapters):
+            s = c.get("start_turn")
+            e = c.get("end_turn") if c.get("end_turn") is not None else len(self.history)
+            if s is not None and s <= target_turn_val <= e:
+                active_c = c
+                break
+                
+        if not active_c: return False
+        
+        # 2. Modify the old chapter to end BEFORE the split
+        old_end = active_c.get("end_turn")
+        active_c["end_turn"] = target_turn_val - 1
+        
+        # 3. Create the new chapter
+        new_c = active_c.copy()
+        new_c["chapter_number"] = len(self.chapters) + 1
+        new_c["title"] = f"{active_c.get('title', 'Chapter')} (Split)"
+        new_c["start_turn"] = target_turn_val
+        new_c["end_turn"] = old_end
+        
+        # 4. Insert and Re-Index all chapter numbers
+        self.chapters.insert(i + 1, new_c)
+        for idx, ch in enumerate(self.chapters):
+            ch["chapter_number"] = idx + 1
+            
+        self.save_state()
+        return True
+        
+    def merge_chapter_up(self, chapter_number):
+        """Merges a chapter backwards into the chapter immediately preceding it."""
+        if chapter_number <= 1 or chapter_number > len(self.chapters): return False
+        
+        idx = chapter_number - 1
+        target_c = self.chapters[idx]
+        prev_c = self.chapters[idx - 1]
+        
+        # Extend the previous chapter's end boundary to encompass the merged chapter
+        prev_c["end_turn"] = target_c.get("end_turn")
+        
+        # Delete the target chapter and re-index
+        self.chapters.pop(idx)
+        for i, ch in enumerate(self.chapters):
+            ch["chapter_number"] = i + 1
+            
+        # Invalidate the RAG summaries for the newly merged super-chapter
+        affected = [prev_c["chapter_number"], target_c["chapter_number"]]
+        self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected]
+        self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected]
+            
+        self.save_state()
+        return True
+        
+    # ---------------------------------------------------------
     # THE LLM GENERATION PIPELINE
     # ---------------------------------------------------------
 
