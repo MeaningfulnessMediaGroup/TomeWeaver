@@ -205,11 +205,18 @@ If you do not have a dedicated GPU, TomeWeaver supports cloud providers seamless
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
-*   **Python 3.10+** (Ensure Python is added to your system PATH)
 *   **An LLM Provider** (Local via LM Studio, or Cloud via an API key).
 
-### Option A: Windows (Automated Setup)
-We provide an automated setup script that creates an isolated virtual environment, installs the UI dependencies, and generates your Master Launcher.
+### Option A: Download Executable (Recommended)
+The easiest way to run TomeWeaver. No Python installation or command-line knowledge is required. We provide pre-built, portable executables for Windows, macOS, and Linux.
+
+1.  Navigate to the **[Latest Releases](https://github.com/dobrado76/TomeWeaver/releases/latest)** page on GitHub.
+2.  Download the `.zip` file for your operating system.
+3.  Extract the folder anywhere on your computer.
+4.  Double-click the `TomeWeaver` executable to launch the app!
+
+### Option B: Windows (Automated Source Setup)
+If you prefer running from source, we provide an automated setup script that creates an isolated virtual environment and installs the UI dependencies. *(Requires Python 3.10+ installed and added to PATH)*.
 
 1.  **Clone or Download the Repo:**
     ```cmd
@@ -221,7 +228,7 @@ We provide an automated setup script that creates an isolated virtual environmen
 3.  **Launch the Engine:**
     Double-click the newly generated `Start_TomeWeaver.bat`. This will boot the main Graphical Interface.
 
-### Option B: macOS / Linux / Manual Setup
+### Option C: macOS / Linux / Manual Source Setup
 If you are on a UNIX-based system or prefer setting up your environment manually:
 
 1.  **Clone the Repo:**
