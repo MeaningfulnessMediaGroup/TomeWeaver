@@ -47,7 +47,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         opt_menu = ctk.CTkOptionMenu(
             header, 
             variable=self.opt_var, 
-            values=["Generate Recap", "Generate Missing Bridges", "Export Story", "Restart Story"], 
+            values=["Generate Recap", "Generate Missing Bridges", "Slice Chapters...", "Export Story", "Restart Story"], 
             width=200,
             command=self._handle_options_menu
         )
@@ -65,27 +65,32 @@ class WorkspaceFrame(ctk.CTkFrame):
 
         self.t_story = self.tabs.add("Story Mode")
         self.t_console = self.tabs.add("Developer Console")
-        self.t_codex = self.tabs.add("World Builder")
+        
+        if self.engine.is_universe_thread:
+            self.t_univ = self.tabs.add("Universe")
+            
+        self.t_codex = self.tabs.add("Story World")
         self.t_memory = self.tabs.add("Memory & Lore") 
         
         if self.engine.is_campaign:
             self.t_chapters = self.tabs.add("Chapter Outline")
 
         # --- Initialize Tabs ---
-        # We create a thread-safe callback to pass engine prints to the UI status bar
         def safe_status_update(msg):
             if hasattr(self, 'story_tab'):
-                # Must use after(0) because stdout writes happen in a background thread
                 self.after(0, lambda: self.story_tab.status_var.set(msg))
 
-        # Initialize console first so it catches stdout immediately
         self.console_tab = ConsoleTab(self.t_console, self.engine, status_callback=safe_status_update) 
         self.console_tab.pack(fill="both", expand=True)
         
         self.story_tab = StoryTab(self.t_story, self.engine, self)
         self.story_tab.pack(fill="both", expand=True)
+        
+        if self.engine.is_universe_thread:
+            from ui.tab_universe import UniverseTab
+            self.univ_tab = UniverseTab(self.t_univ, self.engine)
+            self.univ_tab.pack(fill="both", expand=True)
 
-        # Stage 3: The World Builder
         self.codex_tab = CodexTab(self.t_codex, self.engine)
         self.codex_tab.pack(fill="both", expand=True)
         
@@ -128,6 +133,8 @@ class WorkspaceFrame(ctk.CTkFrame):
             self._generate_missing_bridges()
         elif choice == "Export Story":
             self._export_dialog()
+        elif choice == "Slice Chapters...":
+            self._show_slice_dialog()
         elif choice == "Restart Story":
             self._restart_story()
 
@@ -390,3 +397,92 @@ class WorkspaceFrame(ctk.CTkFrame):
         else:
             self.btn_test.configure(text="▶︎ Auto-Play", fg_color="#4A4A4A", hover_color="#333333")
             
+            
+    def _show_slice_dialog(self):
+        """Spawns the checklist modal to extract specific chapters into a new thread."""
+        if not self.engine.chapters or len(self.engine.history) == 0:
+            messagebox.showinfo("Fork Thread", "You need to play some turns before you can slice the timeline!")
+            return
+            
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Fork Timeline Thread")
+        dialog.geometry("600x550")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text="Extract Chapters to New Thread", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
+        ctk.CTkLabel(dialog, text="Select the chapters you want to extract. They will be seamlessly glued together into a brand new, sequential story inside this folder's parent directory.", wraplength=500, text_color="gray").pack(pady=(0, 15))
+
+        # --- Details Form ---
+        f_top = ctk.CTkFrame(dialog, fg_color="transparent")
+        f_top.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(f_top, text="New Thread Title:", font=("Arial", 12, "bold")).pack(side="left")
+        v_title = ctk.StringVar(value=f"{self.engine.setup_data.get('title')} (Fork)")
+        ctk.CTkEntry(f_top, textvariable=v_title, font=("Arial", 14), width=250).pack(side="left", padx=10)
+        
+        ctk.CTkLabel(f_top, text="Author:", font=("Arial", 12, "bold")).pack(side="left")
+        v_author = ctk.StringVar(value=self.engine.setup_data.get('author', 'Anonymous'))
+        ctk.CTkEntry(f_top, textvariable=v_author, font=("Arial", 14), width=100).pack(side="left", padx=10)
+
+        # --- Chapter Checklist ---
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color="#2B2B2B")
+        scroll.pack(fill="both", expand=True, padx=20, pady=10)
+
+        checkbox_vars = {}
+        for c in self.engine.chapters:
+            if c.get("start_turn") is None: continue # Skip unplayed chapters
+                
+            c_num = c.get("chapter_number")
+            c_title = c.get("title", f"Chapter {c_num}")
+            t_start = c.get("start_turn")
+            t_end = c.get("end_turn", "Ongoing")
+            
+            # Find the POV for this chapter to help the user choose
+            c_pov = "Unknown POV"
+            for t in self.engine.history:
+                if t.get("turn") == t_start:
+                    c_pov = t.get("pov_character", "Unknown POV")
+                    break
+
+            row = ctk.CTkFrame(scroll, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            
+            var = ctk.BooleanVar(value=False)
+            checkbox_vars[c_num] = var
+            
+            lbl_text = f"Chapter {c_num}: {c_title}  (Turns {t_start} - {t_end}) | {c_pov}"
+            ctk.CTkCheckBox(row, text=lbl_text, variable=var, font=("Arial", 13)).pack(anchor="w", padx=10, pady=5)
+
+        def on_confirm():
+            selected = [c_num for c_num, var in checkbox_vars.items() if var.get()]
+            if not selected:
+                messagebox.showwarning("Error", "You must select at least one chapter to extract.")
+                return
+                
+            new_title = v_title.get().strip()
+            if not new_title: return
+            
+            from api import TomeWeaverAPI
+            success, msg = TomeWeaverAPI.slice_thread(self.folder_name, selected, new_title, v_author.get().strip())
+            
+            if success:
+                dialog.destroy()
+                messagebox.showinfo("Fork Successful", f"Thread successfully forked!\n\nThe new story is located at:\n{msg}")
+                
+                # CRITICAL REFRESH: The slicing operation modified the Source story's history.json
+                # and chapters.json on disk. We must completely close and reload the current workspace 
+                # to prevent the UI's old RAM state from corrupting the newly healed files.
+                self.app.clear_container()
+                self.app.open_workspace(self.folder_name, target_tab="Story Mode")
+                
+            else:
+                messagebox.showerror("Error", f"Failed to fork thread: {msg}")
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=15)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left")
+        ctk.CTkButton(btn_frame, text="Extract & Fork", width=140, font=("Arial", 14, "bold"), fg_color="#1F6AA5", hover_color="#144870", command=on_confirm).pack(side="right")

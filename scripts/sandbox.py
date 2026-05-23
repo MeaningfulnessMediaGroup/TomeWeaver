@@ -37,7 +37,22 @@ class SandboxEngine(BaseEngine):
         
         # Clone setup data for destructive formatting
         active_setup = self.setup_data.copy()
+        
+        # --- UNIVERSE LORE MERGE ---
+        # Dynamically prepend global universe rules to the local story rules
+        if getattr(self, "is_universe_thread", False) and hasattr(self, "master_setup_data"):
+            g_lore = self.master_setup_data.get("lore_and_rules", "").strip()
+            l_lore = active_setup.get("lore_and_rules", "").strip()
+            if g_lore:
+                active_setup["lore_and_rules"] = f"[GLOBAL UNIVERSE LORE]:\n{g_lore}\n\n[LOCAL STORY LORE]:\n{l_lore}".strip()
+                
+            g_tone = self.master_setup_data.get("tone", "").strip()
+            l_tone = active_setup.get("tone", "").strip()
+            if g_tone:
+                active_setup["tone"] = f"{g_tone}, {l_tone}".strip()
+                
         edit_idx = getattr(self, 'backup_turn_idx', -1)
+        
         completed_history = [
             t for i, t in enumerate(self.history) 
             if t.get("player_choice") is not None and i != edit_idx
@@ -113,56 +128,34 @@ class SandboxEngine(BaseEngine):
             for p in active_plot_ledger: 
                 memory_str += f"- {p.get('summary', '')}\n"
                 
-        char_ledger = self.memory.get("character_ledger", {})
-        if char_ledger:
-            memory_str += "\nACTIVE CHARACTERS & LORE BIBLE:\n"
-            for k, data in char_ledger.items():
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+        def append_lore(ledger_key, title):
+            res = ""
+            ledger = self.memory.get(ledger_key, {})
+            # MAGIC TRICK: Dict unpacking naturally overwrites matching keys.
+            # By unpacking 'global' first, and 'local' second, Local entities perfectly shadow Global ones!
+            combined = {**ledger.get("global", {}), **ledger.get("local", {})}
             
-        loc_ledger = self.memory.get("location_ledger", {})
-        if loc_ledger:
-            memory_str += "\nACTIVE LOCATIONS & LORE BIBLE:\n"
-            for k, data in loc_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
-                    
-        art_ledger = self.memory.get("artifact_ledger", {})
-        if art_ledger:
-            memory_str += "\nACTIVE ARTIFACTS / KEY ITEMS:\n"
-            for k, data in art_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
-                    
-        fac_ledger = self.memory.get("faction_ledger", {})
-        if self.setup_data.get("track_factions", False) and fac_ledger:
-            memory_str += "\nACTIVE FACTIONS & ORGANIZATIONS:\n"
-            for k, data in fac_ledger.items(): 
-                if isinstance(data, list): memory_str += f"- {k}: {' '.join(data)}\n"
-                else:
-                    if data.get("state", "active") == "archived": continue
-                    traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
-                    events = " ".join(data.get("ledger", []))
-                    notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
-                    memory_str += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+            if combined:
+                res += f"\nACTIVE {title}:\n"
+                for k, data in combined.items():
+                    if isinstance(data, list): res += f"- {k}: {' '.join(data)}\n"
+                    else:
+                        if data.get("state", "active") == "archived": continue
+                        traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
+                        events = " ".join(data.get("ledger", []))
+                        notes = f" | Author Notes: {data.get('author_notes', '')}" if data.get("author_notes") else ""
+                        res += f"- {k} | Traits: [{traits}] | Recent Events: {events}{notes}\n"
+            return res
+
+        memory_str += append_lore("character_ledger", "CHARACTERS & LORE BIBLE")
+        memory_str += append_lore("location_ledger", "LOCATIONS & LORE BIBLE")
+        memory_str += append_lore("artifact_ledger", "ARTIFACTS / KEY ITEMS")
+        if self.setup_data.get("track_factions", False):
+            memory_str += append_lore("faction_ledger", "FACTIONS & ORGANIZATIONS")
                 
         if memory_str:
             system_content += "\n\nLONG-TERM MEMORY:\n" + memory_str
+                
 
         system_content += f"\n\nACTIVE CHAPTER (Chapter {active_chapter['chapter_number']}: {active_chapter['title']})\n"
         if active_chapter.get('setting'): system_content += f"Setting Override: {active_chapter['setting']}\n"

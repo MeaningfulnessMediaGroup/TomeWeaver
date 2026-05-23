@@ -23,6 +23,7 @@ class DashboardFrame(ctk.CTkFrame):
         self.app = app_controller
 
         # --- STATE VARIABLES ---
+        self.current_dir = initial_dir # CRITICAL FIX: Define this first!
         self.all_stories = []          # The master list of all metadata dictionaries loaded from disk
         self.filtered_stories = []     # The subset of stories currently matching the search/filter criteria
         self.current_page = 1
@@ -38,10 +39,16 @@ class DashboardFrame(ctk.CTkFrame):
         # New Feature: The Split Dropdown Button
         self.new_story_var = ctk.StringVar(value="+ Create New Story")
         
-        # We calculate the initial values
-        menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
+        from config import find_universe_root
         from api import ADV_DIR
-        if not (ADV_DIR / "Samples").exists():
+        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        self.new_story_var.set("+ Create Thread" if is_univ else "+ Create New Story")
+        
+        menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
+        if not is_univ:
+            menu_values.append("Create Universe...")
+            
+        if not (ADV_DIR / "Samples").exists() and self.current_dir == "":
             menu_values.append("Download Samples...")
 
         self.btn_new = ctk.CTkOptionMenu(
@@ -160,6 +167,22 @@ class DashboardFrame(ctk.CTkFrame):
         self.current_dir = new_dir
         self.search_var.set("") 
         self.update_breadcrumbs()
+        
+        # Dynamic Menu Update (Check if we stepped inside a Universe)
+        from config import find_universe_root
+        from api import ADV_DIR
+        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        
+        menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
+        if not is_univ:
+            menu_values.append("Create Universe...")
+            
+        if not (ADV_DIR / "Samples").exists() and self.current_dir == "":
+            menu_values.append("Download Samples...")
+            
+        self.btn_new.configure(values=menu_values)
+        self.new_story_var.set("+ Create Thread" if is_univ else "+ Create New Story")
+        
         self.apply_search()
 
 
@@ -179,9 +202,14 @@ class DashboardFrame(ctk.CTkFrame):
                 ctk.CTkButton(self.breadcrumb_frame, text=p, width=50, fg_color="transparent", 
                               hover_color="#333333", command=lambda path=accumulated: self.change_dir(path)).pack(side="left")
                               
-        # Add the + New Folder button on the far right
+        # Tools placed on the far right
         btn_folder = ctk.CTkButton(self.breadcrumb_frame, text="+ New Folder", width=90, fg_color="#4A4A4A", hover_color="#333333", command=self.show_create_folder_dialog)
         btn_folder.pack(side="right")
+        
+        btn_refresh = ctk.CTkButton(self.breadcrumb_frame, text="⟳ Refresh", width=70, fg_color="transparent", hover_color="#333333", text_color="#00BCD4", command=self.force_index_refresh)
+        btn_refresh.pack(side="right", padx=(0, 10))
+        from ui.tooltip import Tooltip
+        Tooltip(btn_refresh, "Clears the cache and forces a deep read of the hard drive.")
                               
     # ---------------------------------------------------------
     # DATA AND PAGINATION LOGIC
@@ -213,7 +241,20 @@ class DashboardFrame(ctk.CTkFrame):
                 self.after(0, lambda: self._on_data_loaded(data))
             
         threading.Thread(target=worker, daemon=True).start()
-
+        
+    def force_index_refresh(self):
+        """Nukes the index.json cache file and triggers a deep reload of the OS."""
+        if getattr(self, 'is_loading', False): return
+        
+        from api import INDEX_FILE
+        if INDEX_FILE.exists():
+            try:
+                INDEX_FILE.unlink()
+            except Exception:
+                pass # If OS locked, the indexer will just overwrite it anyway
+                
+        self.load_data()
+        
     def _on_data_loaded(self, data):
         """Callback executed on the main thread when file reading is complete."""
         self.all_stories = data
@@ -231,7 +272,10 @@ class DashboardFrame(ctk.CTkFrame):
         status_filter = self.status_var.get()
         
         temp_list = []
-        folders_found = {} # Tracks sub-folders and their item counts
+        folders_found = {} # Tracks sub-folders
+        
+        # Build a set of all explicit folder paths (Universes and Stories) to prevent Ghost Duplicates
+        known_entities = {s['folder_name'] for s in self.all_stories}
 
         # --- 1. GATHER PHYSICAL FOLDERS ---
         # Discover physical directories in the current path so empty folders show up
@@ -240,12 +284,15 @@ class DashboardFrame(ctk.CTkFrame):
             active_os_path = ADV_DIR / self.current_dir
             if active_os_path.exists():
                 for item in active_os_path.iterdir():
-                    # Only add if it's NOT a story cartridge itself AND not a hidden file
-                    if item.is_dir() and not (item / "setup.json").exists() and not item.name.startswith("."):
+                    # Only add if it's NOT a story cartridge, NOT a Universe root, AND not a hidden file
+                    if item.is_dir() and not (item / "setup.json").exists() and not (item / "master_setup.json").exists() and not item.name.startswith("."):
                         f_path = item.relative_to(ADV_DIR).as_posix()
                         folders_found[f_path] = 0
 
         # --- 2. GATHER STORIES & TALLY COUNTS ---
+        folder_children = {} # Tracks unique immediate children: f_path -> set()
+        universe_counts = {} # Tracks deep counts for Universes: u_path -> int
+        
         for s in self.all_stories:
             if query and query not in s.get('search_blob', s['title'].lower()): continue
             
@@ -259,16 +306,42 @@ class DashboardFrame(ctk.CTkFrame):
                 temp_list.append(s)
                 continue
                 
-            # Folder Navigation Logic
-            s_dir = os.path.dirname(s['folder_name']).replace('\\', '/')
+            # Path parsing logic
+            s_path = s['folder_name']
+            s_dir = os.path.dirname(s_path).replace('\\', '/')
+            
             if s_dir == self.current_dir:
+                # The entity lives exactly in the current directory
                 temp_list.append(s)
-            elif s_dir.startswith(self.current_dir + "/") or (self.current_dir == "" and s_dir != ""):
-                rel = s_dir[len(self.current_dir):].strip('/')
-                imm_sub = rel.split('/')[0]
-                if imm_sub:
-                    f_path = f"{self.current_dir}/{imm_sub}" if self.current_dir else imm_sub
-                    folders_found[f_path] = folders_found.get(f_path, 0) + 1
+            else:
+                # Does this entity live deeper inside the current directory?
+                prefix = self.current_dir + "/" if self.current_dir else ""
+                if s_path.startswith(prefix):
+                    rel = s_path[len(prefix):]
+                    parts = rel.split('/')
+                    imm_sub = parts[0]
+                    if imm_sub:
+                        f_path = prefix + imm_sub
+                        # Is this immediate sub-directory a known Universe?
+                        if f_path in known_entities:
+                            # Tally deep counts for Universes
+                            if s.get("type") == "story":
+                                universe_counts[f_path] = universe_counts.get(f_path, 0) + 1
+                        else:
+                            # It's a standard generic folder
+                            if f_path not in folders_found:
+                                folders_found[f_path] = 0
+                            if len(parts) > 1:
+                                folder_children.setdefault(f_path, set()).add(parts[1])
+
+        # Apply the unique child counts to the physical generic folders
+        for f_path, children in folder_children.items():
+            folders_found[f_path] += len(children)
+            
+        # Inject Universe deep counts into their dictionaries so render_page can read them
+        for s in temp_list:
+            if s.get("type") == "universe":
+                s["thread_count"] = universe_counts.get(s["folder_name"], 0)
 
         # --- 3. BUILD FINAL LIST ---
         final_list = []
@@ -409,23 +482,80 @@ class DashboardFrame(ctk.CTkFrame):
                 refs["f_count_lbl"].configure(text="(Parent Directory)")
                 refs["f_opt_menu"].pack_forget()
                 
-            elif item.get("is_folder"):
-                refs["current_target"] = item["folder_name"] # State
+            elif item.get("is_folder") or item.get("type") == "universe":
+                refs["current_target"] = item["folder_name"] 
                 
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
-                refs["f_icon_lbl"].configure(text="📁", text_color="#FFCA28") 
-                refs["f_title_lbl"].configure(text=item["title"])
-                cnt = item["count"]
-                refs["f_count_lbl"].configure(text=f"({cnt} item{'s' if cnt != 1 else ''})")
+                
+                # --- IMAGE LOGIC (FOLDERS/UNIVERSES) ---
+                from api import ADV_DIR
+                from PIL import Image
+                
+                icon_path = ADV_DIR / item["folder_name"] / "icon.jpg"
+                fallback_emoji = "🌌" if item.get("type") == "universe" else "📁"
+                fallback_color = "#B39DDB" if item.get("type") == "universe" else "#FFCA28"
+                
+                # FLUSH CACHE: Create a 1x1 transparent image to forcefully erase any bleeding images
+                empty_img = ctk.CTkImage(Image.new("RGBA", (1, 1), (255, 255, 255, 0)), size=(1, 1))
+                
+                if icon_path.exists():
+                    try:
+                        img = Image.open(icon_path)
+                        refs["img_cache"] = ctk.CTkImage(light_image=img, dark_image=img, size=(38, 38))
+                        refs["f_icon_lbl"].configure(image=refs["img_cache"], text="")
+                    except Exception:
+                        refs["img_cache"] = empty_img
+                        refs["f_icon_lbl"].configure(image=empty_img, text=fallback_emoji, text_color=fallback_color)
+                else:
+                    refs["img_cache"] = empty_img
+                    refs["f_icon_lbl"].configure(image=empty_img, text=fallback_emoji, text_color=fallback_color)
+
+                if item.get("type") == "universe":
+                    refs["f_mode_lbl"].configure(text="UNIVERSE", text_color="#FF9800")
+                    # CRITICAL FIX: Force Tkinter to pack this specifically BEFORE the title,
+                    # otherwise pack_forget will cause it to spawn on the far right.
+                    refs["f_mode_lbl"].pack(before=refs["f_title_lbl"], side="left", padx=(0, 10))
+                    
+                    refs["f_title_lbl"].configure(text=item["title"])
+                    cnt = item.get("thread_count", 0)
+                    refs["f_count_lbl"].configure(text=f"({cnt} thread{'s' if cnt != 1 else ''})", text_color="gray", font=("Arial", 12, "italic"))
+                else:
+                    refs["f_mode_lbl"].pack_forget()
+                    
+                    refs["f_title_lbl"].configure(text=item["title"])
+                    cnt = item.get("count", 0)
+                    refs["f_count_lbl"].configure(text=f"({cnt} item{'s' if cnt != 1 else ''})", text_color="gray", font=("Arial", 12, "italic"))
+                    
+                refs["f_opt_menu"].configure(values=["Options...", "Customize Icon...", "Rename", "Move...", "Delete", "Browse Here"])
                 refs["f_opt_menu"].pack(side="right", padx=15)
                 
             else:
-                refs["current_target"] = item["folder_name"] # State
-                refs["is_playable"] = item['mode'] != "error" # State
+                refs["current_target"] = item["folder_name"] 
+                refs["is_playable"] = item['mode'] != "error" 
                 
                 refs["folder_container"].pack_forget()
                 refs["story_container"].pack(fill="both", expand=True)
+                
+                # --- IMAGE LOGIC (STORIES) ---
+                from api import ADV_DIR
+                from PIL import Image
+                
+                icon_path = ADV_DIR / item["folder_name"] / "icon.jpg"
+                fallback_emoji = "📖"
+                empty_img = ctk.CTkImage(Image.new("RGBA", (1, 1), (255, 255, 255, 0)), size=(1, 1))
+                
+                if icon_path.exists():
+                    try:
+                        img = Image.open(icon_path)
+                        refs["img_cache"] = ctk.CTkImage(light_image=img, dark_image=img, size=(38, 38))
+                        refs["s_icon_lbl"].configure(image=refs["img_cache"], text="")
+                    except Exception:
+                        refs["img_cache"] = empty_img
+                        refs["s_icon_lbl"].configure(image=empty_img, text=fallback_emoji, text_color="white")
+                else:
+                    refs["img_cache"] = empty_img
+                    refs["s_icon_lbl"].configure(image=empty_img, text=fallback_emoji, text_color="white")
                 
                 mode_color = "#2196F3" if item['mode'] == "sandbox" else "#9C27B0"
                 refs["mode_lbl"].configure(text=item['mode'].upper(), text_color=mode_color)
@@ -443,7 +573,7 @@ class DashboardFrame(ctk.CTkFrame):
                 state = "normal" if refs["is_playable"] else "disabled"
                 refs["btn_play"].configure(state=state)
                 
-                opt_values = ["Options...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"]
+                opt_values = ["Options...", "Customize Icon...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"]
                 refs["opt_menu"].configure(values=opt_values)
             
             refs["frame"].pack(fill="x", pady=4, padx=10)
@@ -475,8 +605,13 @@ class DashboardFrame(ctk.CTkFrame):
         
         f_icon_lbl = ctk.CTkLabel(folder_content, text="📁", font=("Segoe UI Emoji", 26), cursor="hand2")
         f_icon_lbl.pack(side="left", padx=(20, 15), pady=10)
+        
+        f_mode_lbl = ctk.CTkLabel(folder_content, text="", font=("Arial", 10, "bold"), cursor="hand2")
+        f_mode_lbl.pack(side="left", padx=(0, 10))
+        
         f_title_lbl = ctk.CTkLabel(folder_content, text="", font=("Arial", 16, "bold"), cursor="hand2")
         f_title_lbl.pack(side="left", pady=10)
+        
         f_count_lbl = ctk.CTkLabel(folder_content, text="", font=("Arial", 12, "italic"), text_color="gray", cursor="hand2")
         f_count_lbl.pack(side="left", padx=10, pady=10)
         
@@ -488,6 +623,20 @@ class DashboardFrame(ctk.CTkFrame):
         folder_content.bind("<Button-1>", on_f_click)
         for c in folder_content.winfo_children():
             c.bind("<Button-1>", on_f_click)
+        
+       # --- RECURSIVE CLICK BINDER ---
+        def bind_recursive(widget, handler):
+            """Applies the click event to the widget and every single child inside it."""
+            widget.bind("<Button-1>", handler)
+            for child in widget.winfo_children():
+                bind_recursive(child, handler)
+
+        # Bind Folder Click
+        def on_f_click(e):
+            if refs["current_target"] is not None:
+                self.change_dir(refs["current_target"])
+                
+        bind_recursive(folder_content, on_f_click)
         
         # Bind Folder Menu
         f_opt_menu = ctk.CTkOptionMenu(folder_container, values=["Options...", "Rename", "Delete", "Browse Here"], width=110)
@@ -505,7 +654,15 @@ class DashboardFrame(ctk.CTkFrame):
         content_frame = ctk.CTkFrame(story_container, fg_color="transparent", cursor="hand2")
         content_frame.pack(side="left", fill="both", expand=True, padx=15, pady=8)
 
-        line1 = ctk.CTkFrame(content_frame, fg_color="transparent", cursor="hand2")
+        # The Story Icon Placeholder
+        s_icon_lbl = ctk.CTkLabel(content_frame, text="📖", font=("Segoe UI Emoji", 26), cursor="hand2")
+        s_icon_lbl.pack(side="left", padx=(5, 15))
+
+        # We wrap the text in a vertical stack so it sits neatly next to the icon
+        text_stack = ctk.CTkFrame(content_frame, fg_color="transparent", cursor="hand2")
+        text_stack.pack(side="left", fill="both", expand=True)
+
+        line1 = ctk.CTkFrame(text_stack, fg_color="transparent", cursor="hand2")
         line1.pack(fill="x")
         mode_lbl = ctk.CTkLabel(line1, text="", font=("Arial", 10, "bold"), cursor="hand2")
         mode_lbl.pack(side="left", padx=(0, 10))
@@ -514,7 +671,7 @@ class DashboardFrame(ctk.CTkFrame):
         auth_lbl = ctk.CTkLabel(line1, text="", font=("Arial", 11, "italic"), text_color="#A0A0A0", cursor="hand2")
         auth_lbl.pack(side="right")
 
-        line2 = ctk.CTkFrame(content_frame, fg_color="transparent", cursor="hand2")
+        line2 = ctk.CTkFrame(text_stack, fg_color="transparent", cursor="hand2")
         line2.pack(fill="x", pady=(2, 0))
         meta_lbl = ctk.CTkLabel(line2, text="", font=("Arial", 12), text_color="gray", cursor="hand2")
         meta_lbl.pack(side="left")
@@ -524,12 +681,7 @@ class DashboardFrame(ctk.CTkFrame):
             if refs["current_target"] and refs["is_playable"]:
                 self.app.open_workspace(refs["current_target"])
                 
-        content_frame.bind("<Button-1>", on_s_click)
-        for c in content_frame.winfo_children():
-            c.bind("<Button-1>", on_s_click)
-            if isinstance(c, ctk.CTkFrame):
-                for sub in c.winfo_children():
-                    sub.bind("<Button-1>", on_s_click)
+        bind_recursive(content_frame, on_s_click)
 
         btn_frame = ctk.CTkFrame(story_container, fg_color="transparent")
         btn_frame.pack(side="right", padx=15)
@@ -538,7 +690,7 @@ class DashboardFrame(ctk.CTkFrame):
         btn_play.pack(side="left", padx=5)
         btn_play.configure(command=lambda: self.app.open_workspace(refs["current_target"]) if refs["is_playable"] else None)
         
-        opt_menu = ctk.CTkOptionMenu(btn_frame, values=["Options...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"], width=110)
+        opt_menu = ctk.CTkOptionMenu(btn_frame, values=["Options...", "Customize Icon...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"], width=110)
         opt_menu.pack(side="left", padx=5)
         
         def on_s_opt(choice):
@@ -549,8 +701,8 @@ class DashboardFrame(ctk.CTkFrame):
         # Store component references in the state dictionary
         refs.update({
             "folder_container": folder_container, "folder_content": folder_content,
-            "f_icon_lbl": f_icon_lbl, "f_title_lbl": f_title_lbl, "f_count_lbl": f_count_lbl, "f_opt_menu": f_opt_menu,
-            "story_container": story_container, "content_frame": content_frame,
+            "f_icon_lbl": f_icon_lbl, "f_mode_lbl": f_mode_lbl, "f_title_lbl": f_title_lbl, "f_count_lbl": f_count_lbl, "f_opt_menu": f_opt_menu,
+            "story_container": story_container, "content_frame": content_frame, "s_icon_lbl": s_icon_lbl,
             "mode_lbl": mode_lbl, "title_lbl": title_lbl, "auth_lbl": auth_lbl, "meta_lbl": meta_lbl,
             "btn_play": btn_play, "opt_menu": opt_menu
         })
@@ -560,9 +712,12 @@ class DashboardFrame(ctk.CTkFrame):
     # ACTION HANDLERS
     # ---------------------------------------------------------
 
+    # ---------------------------------------------------------
+    # ACTION HANDLERS
+    # ---------------------------------------------------------
+
     def handle_card_option(self, choice, folder_name, current_title):
         """Routes actions from the 'Options...' dropdown on individual story cards."""
-        
         if choice == "Restart":
             warn_msg = (
                 f"Are you sure you want to RESTART '{current_title}'?\n\n"
@@ -585,171 +740,17 @@ class DashboardFrame(ctk.CTkFrame):
                 else: messagebox.showerror("Export Failed", msg)
 
         elif choice == "Rename":
-            # Custom dialog to allow pre-filling the current title
-            dialog = ctk.CTkToplevel(self)
-            dialog.title("Rename Story")
-            dialog.geometry("400x200")
-            dialog.attributes("-topmost", True)
-            dialog.grab_set()
-
-            ctk.CTkLabel(dialog, text="Enter new title:", font=("Arial", 14, "bold")).pack(pady=(20, 10))
+            self._show_rename_dialog(folder_name, current_title, is_folder=False)
             
-            new_title_var = ctk.StringVar(value=current_title)
-            entry = ctk.CTkEntry(dialog, textvariable=new_title_var, width=300, font=("Arial", 14))
-            entry.pack(pady=10)
-            entry.focus()
-            
-            # Select all text so the user can immediately type over it or use arrow keys to fix a typo
-            entry.select_range(0, 'end')
-
-            def on_rename():
-                new_title = new_title_var.get().strip()
-                if not new_title or new_title == current_title:
-                    dialog.destroy()
-                    return
-                
-                # CRITICAL: Destroy the top-level dialog BEFORE calling the API, 
-                # so the resulting messagebox doesn't get buried/deadlocked behind it.
-                dialog.destroy()
-                
-                success, msg = TomeWeaverAPI.rename_story(folder_name, new_title)
-                
-                if success:
-                    messagebox.showinfo("Rename Successful", f"Story renamed to '{new_title}'")
-                    # A hard disk-read is required because renaming the physical folder breaks the GUI's internal path references
-                    self.is_loading = False 
-                    self.load_data()
-                else:
-                    messagebox.showerror("Rename Failed", msg)
-
-            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            btn_frame.pack(pady=20)
-            
-            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=10)
-            ctk.CTkButton(btn_frame, text="Rename", width=100, fg_color="#2E7D32", hover_color="#1B5E20", command=on_rename).pack(side="right", padx=10)
-
         elif choice == "Move...":
-            dialog = ctk.CTkToplevel(self)
-            dialog.title("Move Item")
-            dialog.geometry("450x450")
-            dialog.attributes("-topmost", True)
-            dialog.grab_set()
+            self._show_move_dialog(folder_name, current_title)
 
-            ctk.CTkLabel(dialog, text=f"Move '{current_title}'", font=("Arial", 16, "bold")).pack(pady=(15, 5))
-            
-            dialog_path_lbl = ctk.CTkLabel(dialog, text=f"Destination: /{self.current_dir}", font=("Arial", 12, "italic"), text_color="#00ACC1")
-            dialog_path_lbl.pack(pady=(0, 10))
-
-            scroll = ctk.CTkScrollableFrame(dialog)
-            scroll.pack(fill="both", expand=True, padx=20, pady=5)
-            
-            state = {"active_dir": self.current_dir, "selected_dir": self.current_dir}
-            ui_rows = [] # Safely track the frame objects to prevent winfo_children crashes
-
-            def render_folders():
-                for w in scroll.winfo_children(): w.destroy()
-                ui_rows.clear()
-                
-                from api import ADV_DIR
-                import os
-                
-                # Render "Up" Directory
-                if state["active_dir"] != "":
-                    parent = os.path.dirname(state["active_dir"]).replace('\\', '/')
-                    _build_dialog_row(parent, "[ .. ] Go Up", is_up=True)
-                    
-                # Render Sub-Directories
-                active_os_path = ADV_DIR / state["active_dir"]
-                available_folders = []
-                
-                if active_os_path.exists():
-                    for item in active_os_path.iterdir():
-                        if item.is_dir() and not (item / "setup.json").exists() and not item.name.startswith("."):
-                            rel_path = item.relative_to(ADV_DIR).as_posix()
-                            if rel_path != folder_name:
-                                available_folders.append(rel_path)
-                                
-                for f_path in sorted(available_folders):
-                    _build_dialog_row(f_path, os.path.basename(f_path), is_up=False)
-                    
-            def _build_dialog_row(target_path, display_name, is_up):
-                row = ctk.CTkFrame(scroll, fg_color="#2B2B2B" if state["selected_dir"] == target_path else "transparent", corner_radius=6, cursor="hand2")
-                row.pack(fill="x", pady=2, padx=2)
-                ui_rows.append((target_path, row)) # Cache the row for safe color updating
-                
-                icon = "🔙" if is_up else "📁"
-                color = "white" if is_up else "#FFCA28"
-                ctk.CTkLabel(row, text=icon, font=("Segoe UI Emoji", 20), text_color=color, cursor="hand2").pack(side="left", padx=10, pady=8)
-                ctk.CTkLabel(row, text=display_name, font=("Arial", 14, "bold"), cursor="hand2").pack(side="left", pady=8)
-                
-                # Custom Double-Click Engine
-                import time
-                row.last_click_time = 0
-                
-                def on_click(e, t_path=target_path, r_widget=row):
-                    current_time = time.time()
-                    
-                    # Detect Double Click (two clicks within 300ms)
-                    if current_time - r_widget.last_click_time < 0.3:
-                        state["active_dir"] = t_path
-                        state["selected_dir"] = t_path
-                        dialog_path_lbl.configure(text=f"Destination: /{t_path}")
-                        render_folders()
-                        return
-                        
-                    r_widget.last_click_time = current_time
-                    
-                    # Single Click Selection
-                    state["selected_dir"] = t_path
-                    dialog_path_lbl.configure(text=f"Destination: /{t_path}")
-                    
-                    # Update UI safely using our tracked list instead of winfo_children
-                    for path, r in ui_rows:
-                        r.configure(fg_color="#2B2B2B" if path == t_path else "transparent")
-                        
-                row.bind("<Button-1>", on_click)
-                for child in row.winfo_children():
-                    child.bind("<Button-1>", on_click)
-
-            def on_confirm_move():
-                target = state["selected_dir"]
-                import os
-                current_parent = os.path.dirname(folder_name).replace('\\', '/')
-                
-                normalized_target = target.strip('/')
-                normalized_parent = current_parent.strip('/')
-                
-                if normalized_parent == normalized_target:
-                    # Stripped parent=dialog to prevent hidden messageboxes
-                    messagebox.showinfo("Move", "The item is already in that folder.")
-                    return
-                    
-                dialog.destroy()
-                
-                from api import ADV_DIR
-                if (ADV_DIR / folder_name / "setup.json").exists():
-                    success, msg = TomeWeaverAPI.move_story(folder_name, target)
-                else:
-                    success, msg = TomeWeaverAPI.move_folder(folder_name, target)
-                    
-                if success:
-                    messagebox.showinfo("Moved", f"'{current_title}' successfully moved.")
-                    self.is_loading = False 
-                    self.load_data() 
-                else:
-                    messagebox.showerror("Move Failed", msg)
-
-            render_folders()
-
-            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            btn_frame.pack(fill="x", padx=20, pady=20)
-            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left")
-            ctk.CTkButton(btn_frame, text="Move Here", width=100, fg_color="#1F6AA5", hover_color="#144870", command=on_confirm_move).pack(side="right")
+        elif choice == "Customize Icon...":
+            self._prompt_custom_icon(folder_name)
 
         elif choice == "Delete":
             if messagebox.askyesno("Confirm Delete", f"Are you sure you want to permanently delete '{current_title}'?"):
                 success, msg = TomeWeaverAPI.delete_story(folder_name)
-                
                 if success: 
                     messagebox.showinfo("Deleted", f"'{current_title}' has been successfully deleted.")
                     self.is_loading = False 
@@ -762,48 +763,22 @@ class DashboardFrame(ctk.CTkFrame):
             TomeWeaverAPI.browse_path(folder_name)
 
     def handle_folder_option(self, choice, folder_path, current_title):
-        """Routes actions from the 'Options...' dropdown on physical folder cards."""
+        """Routes actions from the 'Options...' dropdown on physical folder cards and Universes."""
         if choice == "Browse Here":
             TomeWeaverAPI.browse_path(folder_path)
             
-        elif choice == "Rename":
-            dialog = ctk.CTkToplevel(self)
-            dialog.title("Rename Folder")
-            dialog.geometry("400x200")
-            dialog.attributes("-topmost", True)
-            dialog.grab_set()
-
-            ctk.CTkLabel(dialog, text="Enter new folder name:", font=("Arial", 14, "bold")).pack(pady=(20, 10))
+        elif choice == "Customize Icon...":
+            self._prompt_custom_icon(folder_path)
             
-            new_title_var = ctk.StringVar(value=current_title)
-            entry = ctk.CTkEntry(dialog, textvariable=new_title_var, width=300, font=("Arial", 14))
-            entry.pack(pady=10)
-            entry.focus()
-            entry.select_range(0, 'end')
-
-            def on_rename():
-                new_title = new_title_var.get().strip()
-                if not new_title or new_title == current_title:
-                    dialog.destroy()
-                    return
-                
-                dialog.destroy()
-                success, msg = TomeWeaverAPI.rename_folder(folder_path, new_title)
-                
-                if success:
-                    self.is_loading = False 
-                    self.load_data() # Full disk reload required because paths have physically changed
-                else:
-                    messagebox.showerror("Rename Failed", msg)
-
-            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            btn_frame.pack(pady=20)
-            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=10)
-            ctk.CTkButton(btn_frame, text="Rename", width=100, fg_color="#2E7D32", hover_color="#1B5E20", command=on_rename).pack(side="right", padx=10)
+        elif choice == "Rename":
+            self._show_rename_dialog(folder_path, current_title, is_folder=True)
+            
+        elif choice == "Move...":
+            self._show_move_dialog(folder_path, current_title)
 
         elif choice == "Delete":
             warn_msg = (
-                f"Are you sure you want to permanently delete the folder '{current_title}'?\n\n"
+                f"Are you sure you want to permanently delete '{current_title}'?\n\n"
                 "WARNING: This will recursively delete EVERY STORY inside this folder. "
                 "This action cannot be undone!"
             )
@@ -816,6 +791,188 @@ class DashboardFrame(ctk.CTkFrame):
                 else:
                     messagebox.showerror("Delete Failed", msg)
 
+    # --- REUSABLE UTILITY MODALS ---
+
+    def _prompt_custom_icon(self, rel_path):
+        """Opens a file dialog to select an image, processes it via API, and redraws the UI."""
+        path = filedialog.askopenfilename(
+            title="Select Custom Icon",
+            filetypes=[("Image Files", "*.jpg *.jpeg *.png *.webp")]
+        )
+        if path:
+            success, msg = TomeWeaverAPI.set_custom_icon(rel_path, path)
+            if success:
+                self.is_loading = False
+                self.load_data() # Force disk-reload so the new image is cached
+            else:
+                messagebox.showerror("Icon Error", f"Failed to set custom icon: {msg}")
+
+    def _show_rename_dialog(self, path, current_title, is_folder):
+        """Unified rename modal for stories and folders."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"Rename {'Folder' if is_folder else 'Story'}")
+        dialog.geometry("400x200")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="Enter new name:", font=("Arial", 14, "bold")).pack(pady=(20, 10))
+        
+        new_title_var = ctk.StringVar(value=current_title)
+        entry = ctk.CTkEntry(dialog, textvariable=new_title_var, width=300, font=("Arial", 14))
+        entry.pack(pady=10)
+        entry.focus()
+        entry.select_range(0, 'end')
+
+        def on_rename():
+            new_title = new_title_var.get().strip()
+            if not new_title or new_title == current_title:
+                dialog.destroy()
+                return
+            
+            dialog.destroy()
+            if is_folder:
+                success, msg = TomeWeaverAPI.rename_folder(path, new_title)
+            else:
+                success, msg = TomeWeaverAPI.rename_story(path, new_title)
+            
+            if success:
+                self.is_loading = False 
+                self.load_data()
+            else:
+                messagebox.showerror("Rename Failed", msg)
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Rename", width=100, fg_color="#2E7D32", hover_color="#1B5E20", command=on_rename).pack(side="right", padx=10)
+
+    def _show_move_dialog(self, source_path, current_title):
+        """Unified Move modal allowing any folder, universe, or story to be moved safely."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Move Item")
+        dialog.geometry("450x450")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text=f"Move '{current_title}'", font=("Arial", 16, "bold")).pack(pady=(15, 5))
+        
+        dialog_path_lbl = ctk.CTkLabel(dialog, text=f"Destination: /{self.current_dir}", font=("Arial", 12, "italic"), text_color="#00ACC1")
+        dialog_path_lbl.pack(pady=(0, 10))
+
+        scroll = ctk.CTkScrollableFrame(dialog)
+        scroll.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        state = {"active_dir": self.current_dir, "selected_dir": self.current_dir}
+        ui_rows = [] 
+
+        def render_folders():
+            for w in scroll.winfo_children(): w.destroy()
+            ui_rows.clear()
+            
+            from api import ADV_DIR
+            import os
+            from config import find_universe_root
+            
+            # Determine if the item we are moving is a Universe itself
+            is_moving_universe = (ADV_DIR / source_path / "master_setup.json").exists()
+            
+            if state["active_dir"] != "":
+                parent = os.path.dirname(state["active_dir"]).replace('\\', '/')
+                _build_dialog_row(parent, "[ .. ] Go Up", is_up=True)
+                
+            active_os_path = ADV_DIR / state["active_dir"]
+            available_folders = []
+            
+            if active_os_path.exists():
+                for item in active_os_path.iterdir():
+                    # Identify valid container folders (Standard folders AND Universes)
+                    if item.is_dir() and not (item / "setup.json").exists() and not item.name.startswith("."):
+                        rel_path = item.relative_to(ADV_DIR).as_posix()
+                        
+                        # --- PARADOX PREVENTION ---
+                        # 1. You cannot move a folder into itself.
+                        # 2. You cannot move a folder into one of its own children/grandchildren!
+                        if rel_path == source_path or rel_path.startswith(source_path + "/"):
+                            continue
+                            
+                        # --- UNIVERSE CONTAINMENT ENFORCEMENT ---
+                        # You cannot move a Universe inside another Universe.
+                        if is_moving_universe and find_universe_root(item):
+                            continue
+                            
+                        available_folders.append(rel_path)
+                            
+            for f_path in sorted(available_folders):
+                # Optionally add a visual indicator in the move dialog if it's a Universe
+                display_name = f"🌌 {os.path.basename(f_path)}" if (ADV_DIR / f_path / "master_setup.json").exists() else os.path.basename(f_path)
+                _build_dialog_row(f_path, display_name, is_up=False)
+                
+                
+        def _build_dialog_row(target_path, display_name, is_up):
+            row = ctk.CTkFrame(scroll, fg_color="#2B2B2B" if state["selected_dir"] == target_path else "transparent", corner_radius=6, cursor="hand2")
+            row.pack(fill="x", pady=2, padx=2)
+            ui_rows.append((target_path, row))
+            
+            icon = "🔙" if is_up else "📁"
+            color = "white" if is_up else "#FFCA28"
+            ctk.CTkLabel(row, text=icon, font=("Segoe UI Emoji", 20), text_color=color, cursor="hand2").pack(side="left", padx=10, pady=8)
+            ctk.CTkLabel(row, text=display_name, font=("Arial", 14, "bold"), cursor="hand2").pack(side="left", pady=8)
+            
+            import time
+            row.last_click_time = 0
+            
+            def on_click(e, t_path=target_path, r_widget=row):
+                current_time = time.time()
+                if current_time - r_widget.last_click_time < 0.3:
+                    state["active_dir"] = t_path
+                    state["selected_dir"] = t_path
+                    dialog_path_lbl.configure(text=f"Destination: /{t_path}")
+                    render_folders()
+                    return
+                    
+                r_widget.last_click_time = current_time
+                state["selected_dir"] = t_path
+                dialog_path_lbl.configure(text=f"Destination: /{t_path}")
+                
+                for path, r in ui_rows:
+                    r.configure(fg_color="#2B2B2B" if path == t_path else "transparent")
+                    
+            row.bind("<Button-1>", on_click)
+            for child in row.winfo_children():
+                child.bind("<Button-1>", on_click)
+
+        def on_confirm_move():
+            target = state["selected_dir"]
+            import os
+            current_parent = os.path.dirname(source_path).replace('\\', '/')
+            
+            if current_parent.strip('/') == target.strip('/'):
+                messagebox.showinfo("Move", "The item is already in that folder.")
+                return
+                
+            dialog.destroy()
+            
+            from api import ADV_DIR
+            # Intelligent routing: if it has setup.json, it's a story. Otherwise it's a structural folder/universe.
+            if (ADV_DIR / source_path / "setup.json").exists():
+                success, msg = TomeWeaverAPI.move_story(source_path, target)
+            else:
+                success, msg = TomeWeaverAPI.move_folder(source_path, target)
+                
+            if success:
+                messagebox.showinfo("Moved", f"'{current_title}' successfully moved.")
+                self.is_loading = False 
+                self.load_data() 
+            else:
+                messagebox.showerror("Move Failed", msg)
+
+        render_folders()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left")
+        ctk.CTkButton(btn_frame, text="Move Here", width=100, fg_color="#1F6AA5", hover_color="#144870", command=on_confirm_move).pack(side="right")
+        
     def show_create_folder_dialog(self):
         """Spawns a modal to create a physical sub-directory."""
         dialog = ctk.CTkToplevel(self)
@@ -860,15 +1017,70 @@ class DashboardFrame(ctk.CTkFrame):
 
     def _handle_create_menu(self, choice):
         """Intercepts the dropdown selection and resets the button text."""
-        self.new_story_var.set("+ Create New Story")
+        from config import find_universe_root
+        from api import ADV_DIR
+        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        self.new_story_var.set("+ Create Thread" if is_univ else "+ Create New Story")
+        
         if choice == "Manual Setup...":
             self.show_create_dialog()
         elif choice == "Generate via AI...":
             self.show_ai_create_dialog()
         elif choice == "Guided Wizard...":
             self.show_wizard_dialog()
+        elif choice == "Create Universe...":
+            self._show_create_universe_dialog()
         elif choice == "Download Samples...":
             self._trigger_sample_download()
+
+    def _show_create_universe_dialog(self):
+        """Spawns the modal to create a new Shared Universe container."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Create Shared Universe")
+        dialog.geometry("450x450")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text="Create a Universe", font=("Arial", 18, "bold"), text_color="#B39DDB").pack(pady=(15, 5))
+        ctk.CTkLabel(dialog, text="A container where multiple stories share the same World Lore and Memory.", text_color="gray", wraplength=400).pack(pady=(0, 15))
+        
+        ctk.CTkLabel(dialog, text="Universe Name:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
+        v_title = ctk.StringVar()
+        ctk.CTkEntry(dialog, textvariable=v_title, font=("Arial", 14)).pack(fill="x", padx=20, pady=(2, 15))
+        
+        ctk.CTkLabel(dialog, text="Author Name:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
+        v_author = ctk.StringVar()
+        ctk.CTkEntry(dialog, textvariable=v_author, font=("Arial", 14), placeholder_text="Anonymous").pack(fill="x", padx=20, pady=(2, 15))
+        
+        ctk.CTkLabel(dialog, text="Global Tone & Atmosphere:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
+        v_tone = ctk.StringVar()
+        ctk.CTkEntry(dialog, textvariable=v_tone, font=("Arial", 14), placeholder_text="e.g. Gritty, high-fantasy, suspenseful").pack(fill="x", padx=20, pady=(2, 15))
+        
+        ctk.CTkLabel(dialog, text="Global Rules & Lore:", font=("Arial", 14, "bold")).pack(anchor="w", padx=20)
+        t_lore = ctk.CTkTextbox(dialog, height=80, wrap="word", font=("Arial", 14))
+        t_lore.pack(fill="x", padx=20, pady=(2, 15))
+
+        def on_create():
+            title = v_title.get().strip()
+            if not title: return
+            
+            success, msg = TomeWeaverAPI.create_universe(title, v_author.get(), v_tone.get(), t_lore.get("1.0", "end"), self.current_dir)
+            if success:
+                dialog.destroy()
+                self.is_loading = False
+                self.load_data()
+                # Auto-navigate into the newly created universe
+                self.after(500, lambda: self.change_dir(msg))
+            else:
+                messagebox.showerror("Creation Failed", msg)
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=10)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Create Universe", width=140, font=("Arial", 14, "bold"), fg_color="#673AB7", hover_color="#4A148C", command=on_create).pack(side="right", padx=10)
 
     def show_wizard_dialog(self):
         """Spawns the step-by-step guided narrative builder."""

@@ -9,16 +9,5 @@
         "time": null,
         "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
         "obstacles": "The guards are highly alert. Kaelen has no money for a bribe."
-    },
-    {
-        "chapter_number": 2,
-        "title": "The Noble's Estate",
-        "start_turn": null,
-        "end_turn": null,
-        "setting": "The courtyard of Lord Vane's massive estate.",
-        "pov": "Kaelen",
-        "time": "Later that night",
-        "goal": "Break into the manor and locate the safe holding the Ruby Skull.",
-        "obstacles": "Locked doors, patrolling guard dogs, trap runes on the windows."
     }
 ]

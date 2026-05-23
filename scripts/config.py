@@ -38,6 +38,24 @@ API_CONFIGS_DIR = USER_ROOT / "configs" / "API_configs"
 # Note: ROOT_DIR is used by some loaders, we should point it to USER_ROOT for safety
 ROOT_DIR = USER_ROOT
 
+
+def find_universe_root(start_path):
+    """
+    The Tree Walker: Climbs the directory tree from start_path up to the /adventures root.
+    Returns the Path to the Universe Root if master_setup.json is found,
+    otherwise returns None. This allows infinite folder nesting.
+    """
+    curr = Path(start_path).resolve()
+    limit = (USER_ROOT / "adventures").resolve()
+    
+    # Climb up until we hit the adventures folder or the system root
+    while curr != limit and curr.parent != curr:
+        if (curr / "master_setup.json").exists():
+            return curr
+        curr = curr.parent
+    return None
+
+
 def hydrate_user_directory():
     """
     The Bootstrapper: Copies the entire /configs folder from inside the EXE 

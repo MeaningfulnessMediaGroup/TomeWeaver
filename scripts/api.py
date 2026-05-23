@@ -31,6 +31,37 @@ class TomeWeaverAPI:
     # AUTONOMOUS INDEXING SYSTEM
     # ---------------------------------------------------------
 
+    # ---------------------------------------------------------
+    # AUTONOMOUS INDEXING SYSTEM
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _extract_universe_metadata(folder_path, rel_path):
+        """Reads master_setup.json to build metadata for a Shared Universe container."""
+        setup_file = folder_path / "master_setup.json"
+        try:
+            with open(setup_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return {
+                "folder_name": folder_path.name, "title": "CORRUPTED UNIVERSE", 
+                "mode": "universe", "type": "universe", "path": str(folder_path.resolve())
+            }
+            
+        search_blob = f"{data.get('universe_title', '')} {data.get('tone', '')} {data.get('lore_and_rules', '')} {folder_path.name}".lower()
+        
+        return {
+            "folder_name": rel_path,
+            "title": data.get("universe_title", folder_path.name),
+            "author": data.get("author", "Unknown"),
+            "mode": "universe",
+            "type": "universe", # UI Dashboard Identifier
+            "search_blob": search_blob,
+            "path": str(folder_path.resolve()),
+            "status": "Universe",
+            "turns": 0
+        }
+
     @staticmethod
     def _extract_story_metadata(folder_path, rel_path):
         """Reads the raw JSON files for a single story and builds its metadata dictionary."""
@@ -44,7 +75,7 @@ class TomeWeaverAPI:
             return {
                 "folder_name": folder_path.name, 
                 "title": "CORRUPTED JSON", 
-                "mode": "error", "turns": 0, "location": "", "status": "Error",
+                "mode": "error", "type": "story", "turns": 0, "location": "", "status": "Error",
                 "path": str(folder_path.resolve())
             }
             
@@ -57,25 +88,19 @@ class TomeWeaverAPI:
                 with open(history_file, "r", encoding="utf-8") as hf:
                     history = json.load(hf)
                     
-                    # Fix: Make sure it's actually a populated list, not just an empty [] from a Restart
                     if isinstance(history, list) and len(history) > 0:
-                        # Find the actual highest turn number recorded (handles Turn 0 correctly)
                         max_turn = max([int(t.get("turn", 0)) for t in history])
                         turns = max_turn
                         
                         last_turn = history[-1]
                         
-                        # Only inherit the location if it actually exists, otherwise fallback to setup
                         location = last_turn.get("location", location)
                         if not location or not location.strip():
                             location = data.get("setting", "Unknown")
                         
-                        # Safe boolean casting for game_over checks
                         is_over = str(last_turn.get("is_game_over", False)).lower() == "true"
                         is_victory = str(last_turn.get("chapter_goal_achieved", False)).lower() == "true"
                         
-                        # FIX: High-Priority Override. If we are on Turn 0, it is NOT started, 
-                        # even if history.json physically exists on disk.
                         if max_turn == 0:
                             status = "Not Started"
                         elif is_over:
@@ -90,7 +115,6 @@ class TomeWeaverAPI:
         else:
             status = "Not Started"
 
-        # Create a "Search Blob": a hidden field containing all metadata for fast searching
         search_parts = [
             data.get("title", ""),
             data.get("author", ""),
@@ -102,19 +126,226 @@ class TomeWeaverAPI:
         search_blob = " ".join(filter(None, search_parts)).lower()
 
         return {
-            "folder_name": rel_path, # This guarantees deep paths like 'Fantasy/Epic/MyStory' are preserved
+            "folder_name": rel_path, 
             "title": data.get("title", folder_path.name),
             "author": data.get("author", "Unknown"),
             "version": data.get("version", "1.0"),
             "creation_date": data.get("creation_date", "Unknown"),
             "mode": data.get("mode", "unknown"),
+            "type": "story", # UI Dashboard Identifier
             "turns": turns,
             "location": location,
             "status": status,
             "search_blob": search_blob,
             "path": str(folder_path.resolve())
         }
+        
+        
+    @staticmethod
+    def slice_thread(source_folder_name, selected_chapters, new_title, new_author):
+        """
+        Extracts specific chapters from a source story, deeply re-indexes them (including RAG memory strings), 
+        and moves them into a brand new standalone story or Universe Thread.
+        Removes the extracted chapters from the source story and safely heals the boundaries.
+        """
+        from config import load_json_safely, save_json_atomically
+        from api import ADV_DIR
+        import re
+        import shutil
+        
+        source_dir = ADV_DIR / source_folder_name
+        if not source_dir.exists(): return False, "Source folder not found."
+            
+        safe_title = sanitize_foldername(new_title)
+        if not safe_title: return False, "Invalid new title."
+            
+        target_dir = source_dir.parent / safe_title
+        if target_dir.exists(): return False, f"A folder named '{safe_title}' already exists."
+        
+        try:
+            target_dir.mkdir(parents=True)
+            
+            # 1. Load Source Files
+            source_setup = load_json_safely(source_dir / "setup.json", "setup.json")
+            source_history = load_json_safely(source_dir / "history.json", "history.json") if (source_dir / "history.json").exists() else []
+            source_chapters = load_json_safely(source_dir / "chapters.json", "chapters.json") if (source_dir / "chapters.json").exists() else []
+            source_memory = load_json_safely(source_dir / "memory.json", "memory.json") if (source_dir / "memory.json").exists() else {}
 
+            new_history = []
+            new_chapters = []
+            new_plot_ledger = []
+            new_chapter_ledger = []
+            
+            turn_map = {} 
+            extracted_turns_set = set()
+            new_master_turn = 1
+            
+            # 2. Slice and Re-Index the Target Data
+            for chap_num in sorted(selected_chapters):
+                orig_c = next((c for c in source_chapters if c.get("chapter_number") == chap_num), None)
+                if not orig_c or orig_c.get("start_turn") is None: continue
+                    
+                orig_start = orig_c["start_turn"]
+                orig_end = orig_c.get("end_turn") if orig_c.get("end_turn") is not None else len(source_history)
+                
+                # Clone Chapter Metadata
+                new_c = orig_c.copy()
+                new_chap_num = len(new_chapters) + 1
+                new_c["chapter_number"] = new_chap_num 
+                new_c["start_turn"] = new_master_turn
+                
+                # Clone and Re-Index History Turns
+                turns_in_chap = 0
+                for t in source_history:
+                    old_turn_val = t.get("turn", 0)
+                    if orig_start <= old_turn_val <= orig_end:
+                        extracted_turns_set.add(old_turn_val)
+                        
+                        new_t = t.copy()
+                        turn_map[old_turn_val] = new_master_turn 
+                        new_t["turn"] = new_master_turn
+                        new_history.append(new_t)
+                        new_master_turn += 1
+                        turns_in_chap += 1
+                        
+                new_c["end_turn"] = new_c["start_turn"] + turns_in_chap - 1 if orig_c.get("end_turn") is not None else None
+                new_chapters.append(new_c)
+                
+                # Extract and Deep-Patch the Target Plot Ledger Strings
+                for p in source_memory.get("plot_ledger", []):
+                    if p.get("chapter_number") == chap_num:
+                        new_p = p.copy()
+                        new_p["chapter_number"] = new_chap_num
+                        new_p["start_turn"] = turn_map.get(p.get("start_turn"), new_c["start_turn"])
+                        new_p["end_turn"] = turn_map.get(p.get("end_turn"), new_c["end_turn"])
+                        
+                        raw_summary = str(p.get("summary", ""))
+                        def replace_turn_string(match):
+                            try:
+                                old_t_int = int(match.group(1))
+                                if old_t_int in turn_map:
+                                    return f"Turn {turn_map[old_t_int]}"
+                            except ValueError: pass
+                            return match.group(0)
+                            
+                        new_p["summary"] = re.sub(r'Turn\s+(\d+)', replace_turn_string, raw_summary, flags=re.IGNORECASE)
+                        new_plot_ledger.append(new_p)
+                        
+                # Extract Chapter Ledger
+                for cl in source_memory.get("chapter_ledger", []):
+                    if cl.get("chapter_number") == chap_num:
+                        new_cl = cl.copy()
+                        new_cl["chapter_number"] = new_chap_num
+                        new_chapter_ledger.append(new_cl)
+                        
+            # 3. Clean, Heal, and Re-Index the Source Data
+            all_old_turns = [t.get("turn", 0) for t in source_history]
+            cleaned_source_history_raw = []
+            
+            for t in source_history:
+                old_turn = t.get("turn", 0)
+                if old_turn not in extracted_turns_set:
+                    new_t = t.copy()
+                    
+                    # --- BOUNDARY HEALING ---
+                    # If the NEXT turn in the original history was extracted, this turn is right before a gap.
+                    if (old_turn + 1) in extracted_turns_set:
+                        # Does the cleaned history have any turns after this one?
+                        has_future = any((ft > old_turn and ft not in extracted_turns_set) for ft in all_old_turns)
+                        
+                        if not has_future:
+                            # It became the last turn. Reset choice so player can act.
+                            new_t["player_choice"] = None
+                        else:
+                            # It's a gap in the middle of the timeline. Mark it.
+                            new_t["player_choice"] = "[Timeline Sliced]"
+                            
+                        new_t.pop("narrative_bridge", None)
+                        
+                    cleaned_source_history_raw.append(new_t)
+                    
+            # Re-Index the Source Master Clock to collapse the gap perfectly
+            cleaned_source_history = []
+            source_turn_map = {}
+            source_turn_counter = 1
+            
+            for t in cleaned_source_history_raw:
+                old_turn_val = t.get("turn", 0)
+                source_turn_map[old_turn_val] = source_turn_counter
+                t["turn"] = source_turn_counter
+                cleaned_source_history.append(t)
+                source_turn_counter += 1
+                
+            # Re-Index Source Chapters using the map
+            cleaned_source_chapters = [c for c in source_chapters if c.get("chapter_number") not in selected_chapters]
+            source_chap_counter = 1
+            for c in cleaned_source_chapters:
+                c["chapter_number"] = source_chap_counter
+                
+                old_s = c.get("start_turn")
+                if old_s in source_turn_map: c["start_turn"] = source_turn_map[old_s]
+                else: c["start_turn"] = next((nt for ot, nt in source_turn_map.items() if ot >= old_s), None)
+                    
+                old_e = c.get("end_turn")
+                if old_e is not None:
+                    if old_e in source_turn_map: c["end_turn"] = source_turn_map[old_e]
+                    else: c["end_turn"] = next((nt for ot, nt in reversed(source_turn_map.items()) if ot <= old_e), None)
+                source_chap_counter += 1
+                
+            # Re-Index and Patch the Source Plot Ledger
+            cleaned_source_plot = [p for p in source_memory.get("plot_ledger", []) if p.get("chapter_number") not in selected_chapters]
+            for p in cleaned_source_plot:
+                old_s = p.get("start_turn")
+                old_e = p.get("end_turn")
+                if old_s in source_turn_map: p["start_turn"] = source_turn_map[old_s]
+                if old_e in source_turn_map: p["end_turn"] = source_turn_map[old_e]
+                
+                raw_summary = str(p.get("summary", ""))
+                def replace_source_turn_string(match):
+                    try:
+                        old_t_int = int(match.group(1))
+                        if old_t_int in source_turn_map: return f"Turn {source_turn_map[old_t_int]}"
+                    except ValueError: pass
+                    return match.group(0)
+                    
+                p["summary"] = re.sub(r'Turn\s+(\d+)', replace_source_turn_string, raw_summary, flags=re.IGNORECASE)
+
+            cleaned_source_cl = [cl for cl in source_memory.get("chapter_ledger", []) if cl.get("chapter_number") not in selected_chapters]
+                        
+            # 4. Clone Setup & Write Target to Disk
+            new_setup = source_setup.copy()
+            new_setup["title"] = new_title
+            new_setup["author"] = new_author
+            new_setup["plot_outline"] = [c for c in new_setup.get("plot_outline", []) if c.get("title") in [ch["title"] for ch in new_chapters]]
+            
+            new_memory = source_memory.copy() 
+            new_memory["plot_ledger"] = new_plot_ledger
+            new_memory["chapter_ledger"] = new_chapter_ledger
+            
+            save_json_atomically(new_setup, target_dir / "setup.json")
+            save_json_atomically(new_history, target_dir / "history.json")
+            save_json_atomically(new_chapters, target_dir / "chapters.json")
+            save_json_atomically(new_memory, target_dir / "memory.json")
+            
+            if (source_dir / "prologue.txt").exists(): shutil.copy(source_dir / "prologue.txt", target_dir / "prologue.txt")
+            if (source_dir / "epilogue.txt").exists(): shutil.copy(source_dir / "epilogue.txt", target_dir / "epilogue.txt")
+            if (source_dir / "icon.jpg").exists(): shutil.copy(source_dir / "icon.jpg", target_dir / "icon.jpg")
+            if (source_dir / "system_prompt.txt").exists(): shutil.copy(source_dir / "system_prompt.txt", target_dir / "system_prompt.txt")
+
+            # 5. Overwrite Source on Disk
+            source_setup["plot_outline"] = [c for c in source_setup.get("plot_outline", []) if c.get("title") in [ch["title"] for ch in cleaned_source_chapters]]
+            save_json_atomically(source_setup, source_dir / "setup.json")
+            save_json_atomically(cleaned_source_history, source_dir / "history.json")
+            save_json_atomically(cleaned_source_chapters, source_dir / "chapters.json")
+            
+            source_memory["plot_ledger"] = cleaned_source_plot
+            source_memory["chapter_ledger"] = cleaned_source_cl
+            save_json_atomically(source_memory, source_dir / "memory.json")
+
+            return True, target_dir.relative_to(ADV_DIR).as_posix()
+        except Exception as e:
+            return False, str(e)
+            
     @staticmethod
     def get_available_stories():
         """
@@ -137,11 +368,32 @@ class TomeWeaverAPI:
         
         # 2. Deep Scan OS Directory
         for root, dirs, files in os.walk(ADV_DIR):
-            if "setup.json" in files:
-                # Convert absolute path to standard forward-slash relative path (e.g. 'Fantasy/MyStory')
-                rel_path = Path(root).relative_to(ADV_DIR).as_posix()
+            rel_path = Path(root).relative_to(ADV_DIR).as_posix()
+            if rel_path == ".": rel_path = ""
+            
+            is_universe_root = False
+            
+            # Check for Universe Root first
+            if "master_setup.json" in files:
                 current_folders.add(rel_path)
+                s_mtime = os.path.getmtime(Path(root) / "master_setup.json")
+                cached = index_data.get(rel_path)
                 
+                # Check cache for Universe updates
+                if not cached or cached.get("s_mtime") != s_mtime or cached.get("type") != "universe":
+                    index_data[rel_path] = {
+                        "s_mtime": s_mtime,
+                        "h_mtime": 0,
+                        "type": "universe",
+                        "meta": TomeWeaverAPI._extract_universe_metadata(Path(root), rel_path)
+                    }
+                    needs_save = True
+                
+                is_universe_root = True
+                    
+            # Check for Story only if this directory isn't ALREADY a Universe Root
+            if "setup.json" in files and not is_universe_root:
+                current_folders.add(rel_path)
                 setup_file = Path(root) / "setup.json"
                 history_file = Path(root) / "history.json"
                 
@@ -150,16 +402,20 @@ class TomeWeaverAPI:
                 
                 cached = index_data.get(rel_path)
                 
-                if not cached or cached.get("s_mtime") != s_mtime or cached.get("h_mtime") != h_mtime:
+                # Check cache for Story updates
+                if not cached or cached.get("s_mtime") != s_mtime or cached.get("h_mtime") != h_mtime or cached.get("type") != "story":
                     index_data[rel_path] = {
                         "s_mtime": s_mtime,
                         "h_mtime": h_mtime,
+                        "type": "story",
                         "meta": TomeWeaverAPI._extract_story_metadata(Path(root), rel_path)
                     }
                     needs_save = True
                 
-                # CRITICAL: Do not traverse deeper into an active story cartridge
-                dirs.clear()
+                # CRITICAL FIX: Only stop traversing if we are inside a sub-directory.
+                # If a loose setup.json is in the root /adventures folder, do NOT abort the scan!
+                if rel_path != "":
+                    dirs.clear()
 
         # 3. Clean up deleted folders from the index
         keys_to_remove = [k for k in index_data.keys() if k not in current_folders]
@@ -207,6 +463,11 @@ class TomeWeaverAPI:
                     setup_data["can_die"] = rules_cfg.get("can_die", False)
                     setup_data["allow_cheats"] = rules_cfg.get("allow_cheats", False)
                     
+                # Inject Universe Flag if this story is being born inside a Universe
+                from config import find_universe_root
+                if find_universe_root(target_dir):
+                    setup_data["is_universe_thread"] = True
+                    
                 # Inject the Wizard's narrative answers into the world file
                 if extra_data:
                     for k, v in extra_data.items():
@@ -221,6 +482,179 @@ class TomeWeaverAPI:
         except Exception as e:
             return False, str(e)
 
+    @staticmethod
+    def create_universe(title, author, tone, lore, parent_dir=""):
+        """Creates a new Shared Universe container."""
+        safe_title = sanitize_foldername(title)
+        if not safe_title: return False, "Invalid title. Contains illegal characters."
+            
+        target_dir = ADV_DIR / parent_dir / safe_title
+        if target_dir.exists(): return False, f"A folder named '{safe_title}' already exists."
+            
+        try:
+            target_dir.mkdir(parents=True)
+            master_setup = {
+                "universe_title": title,
+                "author": author.strip() if author.strip() else "Anonymous",
+                "tone": tone.strip(),
+                "lore_and_rules": lore.strip(),
+                "creation_date": datetime.datetime.now().strftime("%Y-%m-%d")
+            }
+            with open(target_dir / "master_setup.json", "w", encoding="utf-8") as f:
+                json.dump(master_setup, f, indent=4)
+                
+            # Initialize the empty World Bible
+            shared_mem = {
+                "character_ledger": {}, "location_ledger": {}, 
+                "artifact_ledger": {}, "faction_ledger": {}, 
+                "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
+            }
+            with open(target_dir / "shared_memory.json", "w", encoding="utf-8") as f:
+                json.dump(shared_mem, f, indent=4)
+                
+            return True, (Path(parent_dir) / safe_title).as_posix()
+        except Exception as e:
+            return False, str(e)
+            
+
+    @staticmethod
+    def analyze_migration(folder_name):
+        """Scans a newly dropped story to see if it needs Universe integration."""
+        from config import find_universe_root, load_json_safely
+        from api import ADV_DIR
+        
+        target_dir = ADV_DIR / folder_name
+        univ_root = find_universe_root(target_dir)
+        
+        if not univ_root:
+            return False, None, []
+            
+        setup_file = target_dir / "setup.json"
+        setup_data = load_json_safely(setup_file, "setup.json")
+        if setup_data.get("is_universe_thread", False):
+            return False, None, [] # Already integrated
+            
+        # It needs migration. Scan for name collisions.
+        local_mem = load_json_safely(target_dir / "memory.json", "memory.json") if (target_dir / "memory.json").exists() else {}
+        shared_mem = load_json_safely(univ_root / "shared_memory.json", "shared_memory.json") if (univ_root / "shared_memory.json").exists() else {}
+        
+        conflicts = []
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        for l in ledgers:
+            for entity in local_mem.get(l, {}).keys():
+                if entity in shared_mem.get(l, {}):
+                    conflicts.append({"ledger": l, "entity": entity})
+                    
+        return True, univ_root, conflicts
+
+
+    @staticmethod
+    def commit_migration(folder_name, univ_root, lore_strategy, resolutions):
+        """Transactionally splices the local memory into the Shared World Bible."""
+        from config import load_json_safely, save_json_atomically
+        from api import ADV_DIR
+        
+        target_dir = ADV_DIR / folder_name
+        setup_file = target_dir / "setup.json"
+        local_mem_file = target_dir / "memory.json"
+        shared_mem_file = univ_root / "shared_memory.json"
+        master_setup_file = univ_root / "master_setup.json"
+        
+        setup_data = load_json_safely(setup_file, "setup.json")
+        local_mem = load_json_safely(local_mem_file, "memory.json") if local_mem_file.exists() else {}
+        shared_mem = load_json_safely(shared_mem_file, "shared_memory.json") if shared_mem_file.exists() else {}
+        master_setup = load_json_safely(master_setup_file, "master_setup.json")
+        
+        # 1. Handle Global Lore Strategy
+        master_lore = master_setup.get("lore_and_rules", "").strip()
+        local_lore = setup_data.get("lore_and_rules", "").strip()
+        
+        if lore_strategy == "overwrite":
+            setup_data["lore_and_rules"] = master_lore
+        elif lore_strategy == "prepend":
+            setup_data["lore_and_rules"] = f"{master_lore}\n\n{local_lore}".strip()
+        elif lore_strategy == "append":
+            setup_data["lore_and_rules"] = f"{local_lore}\n\n{master_lore}".strip()
+        elif lore_strategy == "genesis":
+            master_setup["lore_and_rules"] = local_lore
+            setup_data["lore_and_rules"] = ""
+            save_json_atomically(master_setup, master_setup_file)
+            
+        setup_data["tone"] = master_setup.get("tone", setup_data.get("tone", ""))
+        
+        # 2. Splice Main Ledgers
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        for l_type in ledgers:
+            if l_type not in local_mem: continue
+            if l_type not in shared_mem: shared_mem[l_type] = {}
+            
+            for entity_name, local_data in list(local_mem[l_type].items()):
+                if isinstance(local_data, list):
+                    local_data = {"characteristics": {}, "ledger": local_data, "author_notes": "", "state": "active"}
+                    
+                target_name = entity_name
+                res_key = f"{l_type}::{entity_name}"
+                
+                # Check if this specific entity had a collision resolution
+                if res_key in resolutions:
+                    res = resolutions[res_key]
+                    if res["action"] == "rename":
+                        target_name = res["new_name"]
+                        shared_mem[l_type][target_name] = local_data
+                    elif res["action"] == "merge":
+                        master = shared_mem[l_type][entity_name]
+                        if isinstance(master, list):
+                            master = {"characteristics": {}, "ledger": master, "author_notes": "", "state": "active"}
+                            shared_mem[l_type][entity_name] = master
+                            
+                        # Append traits and events with zero data loss
+                        for tk, tv in local_data.get("characteristics", {}).items():
+                            if tk not in master["characteristics"]:
+                                master["characteristics"][tk] = tv
+                            else:
+                                if str(tv).lower() not in str(master["characteristics"][tk]).lower():
+                                    master["characteristics"][tk] = f"{master['characteristics'][tk]}, {tv}"
+                        
+                        master["ledger"].extend(local_data.get("ledger", []))
+                        
+                        m_notes = master.get("author_notes", "").strip()
+                        s_notes = local_data.get("author_notes", "").strip()
+                        if s_notes and s_notes not in m_notes:
+                            master["author_notes"] = f"{m_notes}\n\n{s_notes}".strip()
+                else:
+                    shared_mem[l_type][target_name] = local_data
+                    
+                # Permanently delete the entity from the local memory
+                del local_mem[l_type][entity_name]
+                
+        # 2.5 Splice Aliases (With Smart Target Routing)
+        local_aliases = local_mem.get("aliases", {})
+        shared_aliases = shared_mem.setdefault("aliases", {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}})
+        
+        for l_type, alias_map in local_aliases.items():
+            if not isinstance(alias_map, dict): continue
+            if l_type not in shared_aliases: shared_aliases[l_type] = {}
+            
+            for alias, master in alias_map.items():
+                # If the master entity was renamed during collision resolution, point the alias to the new name!
+                res_key = f"{l_type}::{master}"
+                target_master = master
+                if res_key in resolutions and resolutions[res_key]["action"] == "rename":
+                    target_master = resolutions[res_key]["new_name"]
+                
+                shared_aliases[l_type][alias] = target_master
+                
+        if "aliases" in local_mem: 
+            del local_mem["aliases"]
+                
+        # 3. Commit Atomic Writes
+        setup_data["is_universe_thread"] = True
+        save_json_atomically(setup_data, setup_file)
+        if local_mem: save_json_atomically(local_mem, local_mem_file)
+        save_json_atomically(shared_mem, shared_mem_file)
+        
+        return True, ""    
+        
     # ---------------------------------------------------------
     # ZIP CARTRIDGE SYSTEM
     # ---------------------------------------------------------
@@ -1004,6 +1438,93 @@ class TomeWeaverAPI:
             
         except Exception as e:
             return False, f"Failed to apply overhaul: {str(e)}"
+     
+    @staticmethod
+    def overhaul_active_universe(engine, prompt_text):
+        """
+        AI Overhaul Generator (Universe Edition). 
+        Dynamically generates global world data and safely injects it into master_setup_data.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json
+        import requests, re, time
+        
+        # USE THE NEW UNIVERSE-SPECIFIC PROMPTS
+        sys_prompt = PROMPTS.get("SYS_UNIVERSE_GEN", "You are a master world-builder. Output ONLY valid JSON.")
+        
+        schema = "{\n"
+        schema += '  "universe_title": "A catchy, compelling name for this entire universe",\n'
+        schema += '  "tone": "Brief description of the atmosphere and genre",\n'
+        schema += '  "lore_and_rules": "Key facts about the world, magic, or technology"\n'
+        schema += "}"
+        
+        title_str = f"TITLE: {engine.master_setup_data.get('universe_title', 'Universe')}\n"
+        
+        user_msg = PROMPTS.get("USER_UNIVERSE_GEN", "")
+        user_msg = user_msg.replace("{prompt_text}", prompt_text)
+        user_msg = user_msg.replace("{title}", title_str)
+        user_msg = user_msg.replace("{schema}", schema)
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        active_messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_msg}]
+        
+        data = None
+        err = None
+        
+        for attempt in range(3):
+            if attempt > 0 and err:
+                active_messages.append({"role": "user", "content": f"Invalid JSON. Error: {err}. Please return valid JSON."})
+                
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": active_messages,
+                "temperature": 0.8,
+                "max_tokens": 1500
+            }
+            
+            try:
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = f"API Error {resp.status_code}"
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not match:
+                    err = "No JSON object found."
+                    continue
+                    
+                clean_json = sanitize_json(match.group(0))
+                data = json.loads(clean_json, strict=False)
+                break 
+                
+            except Exception as e:
+                err = str(e)
+                time.sleep(1)
+                continue
+
+        if not data:
+            return False, f"Failed to generate universe overhaul. Last error: {err}"
+            
+        try:
+            # Inject directly into the engine's active memory
+            keys_to_merge = ["universe_title", "tone", "lore_and_rules"]
+            for k in keys_to_merge:
+                if k in data:
+                    if isinstance(data[k], (dict, list)):
+                        engine.master_setup_data[k] = json.dumps(data[k])
+                    else:
+                        engine.master_setup_data[k] = data[k]
+                
+            from config import save_json_atomically
+            save_json_atomically(engine.master_setup_data, engine.master_setup_file)
+            return True, ""
+            
+        except Exception as e:
+            return False, f"Failed to apply overhaul: {str(e)}"
             
     @staticmethod
     def autofill_inventory_styles(inventory_dict):
@@ -1075,19 +1596,47 @@ class TomeWeaverAPI:
 
     @staticmethod
     def rename_folder(rel_path, new_name):
-        """Renames a physical directory and all contents inside it."""
+        """Renames a physical directory. If it is a Universe, safely updates its JSON title."""
+        import shutil
         source_dir = ADV_DIR / rel_path
         if not source_dir.exists(): return False, "Folder not found."
+        
         safe_new = sanitize_foldername(new_name)
         if not safe_new: return False, "Invalid name."
+        
+        # Target path remains in the same parent directory
         target_dir = source_dir.parent / safe_new
         
+        # Validation: Allow case-only renames (e.g. "my universe" -> "My Universe")
         is_case_change = (source_dir.name.lower() == safe_new.lower())
         if not is_case_change and target_dir.exists(): 
-            return False, f"A folder named '{safe_new}' already exists."
+            return False, f"A folder named '{safe_new}' already exists in this location."
             
         try:
-            source_dir.rename(target_dir)
+            # 1. Physical Rename (With fallback for stubborn OS file-locks)
+            if source_dir.name != safe_new:
+                try:
+                    source_dir.rename(target_dir)
+                except PermissionError:
+                    import time
+                    time.sleep(0.5) # Wait for OS handles to drop
+                    try:
+                        source_dir.rename(target_dir)
+                    except PermissionError:
+                        shutil.copytree(source_dir, target_dir)
+                        shutil.rmtree(source_dir)
+            
+            # 2. JSON Title Update (If it's a Universe)
+            master_file = target_dir / "master_setup.json"
+            if master_file.exists():
+                with open(master_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    
+                data["universe_title"] = new_name # Preserve the user's exact capitalization/spacing
+                
+                with open(master_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
+                    
             return True, target_dir.relative_to(ADV_DIR).as_posix()
         except Exception as e:
             return False, str(e)
@@ -1135,7 +1684,54 @@ class TomeWeaverAPI:
             return True, target_dir.relative_to(ADV_DIR).as_posix()
         except Exception as e:
             return False, str(e)
-
+            
+    @staticmethod
+    @staticmethod
+    def set_custom_icon(rel_path, source_image_path):
+        """Loads an image, crops it to a square, resizes to 64x64, and saves as icon.jpg."""
+        try:
+            from PIL import Image
+        except ImportError:
+            return False, "Python 'Pillow' library is missing. Please run: pip install pillow"
+            
+        target_dir = ADV_DIR / rel_path
+        if not target_dir.exists(): 
+            return False, "Target folder not found."
+            
+        try:
+            with Image.open(source_image_path) as img:
+                # 1. Crop to a perfect square based on the shortest edge (Center crop)
+                width, height = img.size
+                new_size = min(width, height)
+                left = (width - new_size) / 2
+                top = (height - new_size) / 2
+                right = (width + new_size) / 2
+                bottom = (height + new_size) / 2
+                img = img.crop((left, top, right, bottom))
+                
+                # 2. Resize to exactly 64x64 (Using LANCZOS for high-quality downsampling)
+                img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                
+                # 3. Convert to RGB (Strips alpha channel for safe JPEG compression)
+                img = img.convert("RGB")
+                
+                # 4. Save directly into the cartridge folder
+                icon_path = target_dir / "icon.jpg"
+                img.save(icon_path, "JPEG", quality=90)
+                
+            # 5. CACHE INVALIDATION: Artificially "touch" the setup JSON so the Dashboard Indexer
+            # knows this folder changed and forces a complete UI redraw of the image.
+            setup_file = target_dir / "setup.json"
+            master_file = target_dir / "master_setup.json"
+            import os, time
+            current_time = time.time()
+            if setup_file.exists(): os.utime(setup_file, (current_time, current_time))
+            if master_file.exists(): os.utime(master_file, (current_time, current_time))
+                
+            return True, ""
+        except Exception as e:
+            return False, f"Image processing failed: {str(e)}"
+            
     # ---------------------------------------------------------
     # ENGINE LAUNCHER
     # ---------------------------------------------------------

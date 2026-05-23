@@ -113,7 +113,20 @@ class CampaignEngine(BaseEngine):
         active_chapter = next((c for c in reversed(self.chapters) if c["start_turn"] is not None and c["start_turn"] <= target_turn), self.chapters[0])
         active_setup = self.setup_data.copy()
         
+        # --- UNIVERSE LORE MERGE ---
+        if getattr(self, "is_universe_thread", False) and hasattr(self, "master_setup_data"):
+            g_lore = self.master_setup_data.get("lore_and_rules", "").strip()
+            l_lore = active_setup.get("lore_and_rules", "").strip()
+            if g_lore:
+                active_setup["lore_and_rules"] = f"[GLOBAL UNIVERSE LORE]:\n{g_lore}\n\n[LOCAL STORY LORE]:\n{l_lore}".strip()
+                
+            g_tone = self.master_setup_data.get("tone", "").strip()
+            l_tone = active_setup.get("tone", "").strip()
+            if g_tone:
+                active_setup["tone"] = f"{g_tone}, {l_tone}".strip()
+        
         edit_idx = getattr(self, 'backup_turn_idx', -1)
+        
         completed_history = [
             t for i, t in enumerate(self.history) 
             if t.get("player_choice") is not None and i != edit_idx
@@ -185,9 +198,12 @@ class CampaignEngine(BaseEngine):
         def append_lore(ledger_key, title):
             res = ""
             ledger = self.memory.get(ledger_key, {})
-            if ledger:
+            # Merge global and local, with local shadowing global
+            combined = {**ledger.get("global", {}), **ledger.get("local", {})}
+            
+            if combined:
                 res += f"\nACTIVE {title}:\n"
-                for k, data in ledger.items():
+                for k, data in combined.items():
                     if isinstance(data, list): res += f"- {k}: {' '.join(data)}\n"
                     else:
                         if data.get("state", "active") == "archived": continue

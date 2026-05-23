@@ -52,34 +52,69 @@ class BaseEngine:
         with open(prompt_file, "r", encoding="utf-8") as f:
             self.system_prompt_text = f.read()
 
+
         # 1. Load History
         self.history = load_json_safely(self.history_file, "history.json") if self.history_file.exists() else []
+        
         
         # 2. Load Chapters (CRITICAL: Must happen before any save_state triggers)
         self.chapters = self.load_chapters()
         
-        # 3. Load Long-Term Memory (RAG)
-        self.memory_file = self.adv_dir / "memory.json"
-        if self.memory_file.exists():
-            self.memory = load_json_safely(self.memory_file, "memory.json")
-            
-            # Robustness Check: Ensure all expected ledgers exist to prevent KeyErrors
-            for ledger in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger", "chapter_ledger", "plot_ledger"]:
-                if ledger not in self.memory:
-                    self.memory[ledger] = [] if "plot" in ledger or "chapter" in ledger else {}
-            if "aliases" not in self.memory:
-                self.memory["aliases"] = {k: {} for k in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]}
-        else:
-            self.memory = {
-                "plot_ledger": [], 
-                "character_ledger": {}, 
-                "location_ledger": {},
-                "artifact_ledger": {},
-                "faction_ledger": {},
-                "chapter_ledger": [],
-                "aliases": {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
-            }
         
+        # 3. Load Long-Term Memory (RAG) (Split-Brain Architecture)
+        from config import find_universe_root
+        
+        univ_root = find_universe_root(self.adv_dir)
+        self.is_universe_thread = self.setup_data.get("is_universe_thread", False)
+        
+        # State Matrix Safety Net: Orphaned Thread Recovery
+        if self.is_universe_thread and not univ_root:
+            print(f"{Fore.YELLOW}Warning: Thread orphaned from universe. Reverting to standalone.{Style.RESET_ALL}")
+            self.is_universe_thread = False
+            self.setup_data["is_universe_thread"] = False # Will be saved next time save_state triggers
+            
+        self.local_memory_file = self.adv_dir / "memory.json"
+        
+        if self.is_universe_thread and univ_root:
+            self.shared_memory_file = univ_root / "shared_memory.json"
+            self.master_setup_file = univ_root / "master_setup.json"
+            
+            # --- MASTER SETUP SEPARATION ---
+            self.master_setup_data = {}
+            if self.master_setup_file.exists():
+                self.master_setup_data = load_json_safely(self.master_setup_file, "master_setup.json")
+                # We NO LONGER inject this into self.setup_data to prevent local save contamination.
+                # The LLM prompt builders will concatenate them dynamically at runtime.
+        else:
+            self.shared_memory_file = self.local_memory_file
+            self.master_setup_data = {}
+
+        # A. Load Local Memory (Flat JSON)
+        local_mem = load_json_safely(self.local_memory_file, "memory.json") if self.local_memory_file.exists() else {}
+        
+        # B. Load Shared World Bible (Flat JSON)
+        # If standalone, shared_mem is just empty, so the 'global' buckets will safely be empty.
+        shared_mem = load_json_safely(self.shared_memory_file, "shared_memory.json") if self.shared_memory_file.exists() and self.is_universe_thread else {}
+
+        # C. Construct the Dual-Tiered Runtime Object
+        self.memory = {
+            "plot_ledger": local_mem.get("plot_ledger", []),
+            "chapter_ledger": local_mem.get("chapter_ledger", [])
+        }
+        
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        for l in ledgers:
+            # In RAM, we nest them so the UI and Prompts can distinguish them
+            self.memory[l] = {
+                "local": local_mem.get(l, {}),
+                "global": shared_mem.get(l, {})
+            }
+            
+        self.memory["aliases"] = {
+            "local": local_mem.get("aliases", {}),
+            "global": shared_mem.get("aliases", {})
+        }
+
         # 4. Protect ledger integrity from manual file edits
         if self.history:
             self.resync_master_clock()
@@ -147,6 +182,7 @@ class BaseEngine:
             return initial_chapters
         return load_json_safely(chapters_file, "chapters.json")
 
+
     def save_state(self):
         """
         Commits the current history, chapters, and memory state to the disk using atomic writes, 
@@ -158,7 +194,31 @@ class BaseEngine:
         from config import save_json_atomically
         save_json_atomically(self.history, self.history_file)
         save_json_atomically(self.chapters, self.adv_dir / "chapters.json")
-        save_json_atomically(self.memory, self.memory_file)
+        
+        # Split-Brain Save: Flatten the runtime memory back into its physical files
+        local_mem = {
+            "plot_ledger": self.memory.get("plot_ledger", []),
+            "chapter_ledger": self.memory.get("chapter_ledger", [])
+        }
+        shared_mem = {}
+        
+        ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+        for l in ledgers:
+            # Strip the RAM buckets and write the flat dictionaries
+            local_mem[l] = self.memory.get(l, {}).get("local", {})
+            shared_mem[l] = self.memory.get(l, {}).get("global", {})
+            
+        local_mem["aliases"] = self.memory.get("aliases", {}).get("local", {})
+        shared_mem["aliases"] = self.memory.get("aliases", {}).get("global", {})
+        
+        if not self.is_universe_thread:
+            # Standalone: Write only the local memory file
+            save_json_atomically(local_mem, self.local_memory_file)
+        else:
+            # Universe Thread: Save Local entities locally, save Global entities globally
+            save_json_atomically(local_mem, self.local_memory_file)
+            save_json_atomically(shared_mem, self.shared_memory_file)
+            
 
     def get_next_turn_number(self):
         """Returns the next sequential turn number based on the history ledger."""
@@ -943,7 +1003,10 @@ class BaseEngine:
         if max_turn == 0: return
 
         ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
-        aliases_map = self.memory.get("aliases", {})
+        
+        # Merge global and local aliases for the sweep
+        combined_aliases = {l: {**self.memory.get("aliases", {}).get("global", {}).get(l, {}), 
+                                **self.memory.get("aliases", {}).get("local", {}).get(l, {})} for l in ledgers}
         
         # 1. Pre-compile regex patterns for lightning-fast scanning
         search_dict = {}
@@ -951,18 +1014,18 @@ class BaseEngine:
             search_dict[l_type] = {}
             if l_type not in self.memory: continue
             
-            l_aliases = aliases_map.get(l_type, {})
             reverse_aliases = {}
-            for alias, master in l_aliases.items():
+            for alias, master in combined_aliases[l_type].items():
                 reverse_aliases.setdefault(master, []).append(alias.lower())
                 
-            for entity_name, data in self.memory[l_type].items():
+            combined_entities = {**self.memory[l_type].get("global", {}), **self.memory[l_type].get("local", {})}
+            
+            for entity_name, data in combined_entities.items():
                 if isinstance(data, list): continue
                 terms = [entity_name.lower()] + reverse_aliases.get(entity_name, [])
                 patterns = [re.compile(rf'\b{re.escape(t)}\b') for t in terms]
                 search_dict[l_type][entity_name] = patterns
                 
-                # Default to 0 before the sweep
                 if "last_seen_turn" not in data:
                     data["last_seen_turn"] = 0
 
@@ -975,23 +1038,29 @@ class BaseEngine:
                 for entity_name, patterns in entities.items():
                     for p in patterns:
                         if p.search(text_to_scan):
-                            self.memory[l_type][entity_name]["last_seen_turn"] = t_num
+                            # Update it wherever it lives
+                            if entity_name in self.memory[l_type].get("local", {}):
+                                self.memory[l_type]["local"][entity_name]["last_seen_turn"] = t_num
+                            elif entity_name in self.memory[l_type].get("global", {}):
+                                self.memory[l_type]["global"][entity_name]["last_seen_turn"] = t_num
                             break
 
         # 3. Apply decay states based on true last_seen_turn
         changed = False
         for l_type in ledgers:
             if l_type not in self.memory: continue
-            for entity_name, data in self.memory[l_type].items():
-                if isinstance(data, list): continue
-                last_seen = data.get("last_seen_turn", 0)
-                current_state = data.get("state", "active")
-                
-                if current_state != "pinned":
-                    new_state = "archived" if (max_turn - last_seen) >= threshold else "active"
-                    if current_state != new_state:
-                        data["state"] = new_state
-                        changed = True
+            
+            for scope in ["local", "global"]:
+                for entity_name, data in self.memory[l_type].get(scope, {}).items():
+                    if isinstance(data, list): continue
+                    last_seen = data.get("last_seen_turn", 0)
+                    current_state = data.get("state", "active")
+                    
+                    if current_state != "pinned":
+                        new_state = "archived" if (max_turn - last_seen) >= threshold else "active"
+                        if current_state != new_state:
+                            data["state"] = new_state
+                            changed = True
 
         if changed:
             self.save_state()
@@ -1146,13 +1215,13 @@ class BaseEngine:
             force_entities_only = (compile_mode == "force")
             
             # --- PHASE 0: AUTO-SEEDER (Base Lore) ---
-            # Run if memory is completely empty, OR if the user explicitly requested it
-            is_empty = not self.memory.get("character_ledger") and not self.memory.get("location_ledger") and not self.memory.get("artifact_ledger")
+            local_chars = self.memory.get("character_ledger", {}).get("local", {})
+            global_chars = self.memory.get("character_ledger", {}).get("global", {})
+            is_empty = not local_chars and not global_chars
             
             if is_empty or compile_mode == "base":
                 if progress_callback: progress_callback("Seeding", "Base Lore")
                 
-                # We dynamically inject Prologue text and Start Turn seeds into the setup data for parsing
                 seed_data = self.setup_data.copy()
                 if self.prologue_content: seed_data["prologue_text"] = self.prologue_content
                 
@@ -1168,13 +1237,26 @@ class BaseEngine:
                 if succ_seed and isinstance(seed_res, dict):
                     def merge_seeds(extracted_dict, ledger_key):
                         if not isinstance(extracted_dict, dict): return
-                        for k, v in extracted_dict.items():
-                            if k not in self.memory[ledger_key]: 
-                                self.memory[ledger_key][k] = {"characteristics": {}, "ledger": []}
+                        
+                        local_dict = self.memory[ledger_key].get("local", {})
+                        global_dict = self.memory[ledger_key].get("global", {})
+                        local_aliases = self.memory.get("aliases", {}).get("local", {}).get(ledger_key, {})
+                        global_aliases = self.memory.get("aliases", {}).get("global", {}).get(ledger_key, {})
+                        
+                        for raw_k, v in extracted_dict.items():
+                            actual_k = local_aliases.get(raw_k, global_aliases.get(raw_k, raw_k))
+                            
+                            # Route to existing scope, default to Local
+                            if actual_k in local_dict: target_dict = local_dict
+                            elif actual_k in global_dict: target_dict = global_dict
+                            else: target_dict = local_dict
+                                
+                            if actual_k not in target_dict: 
+                                target_dict[actual_k] = {"characteristics": {}, "ledger": [], "author_notes": "", "state": "active"}
                             if isinstance(v, dict):
                                 traits = v.get("traits", {})
                                 if isinstance(traits, dict) and traits:
-                                    self._smart_merge_traits(self.memory[ledger_key][k]["characteristics"], traits)
+                                    self._smart_merge_traits(target_dict[actual_k]["characteristics"], traits)
                                     
                     merge_seeds(seed_res.get("Characters", {}), "character_ledger")
                     merge_seeds(seed_res.get("Locations", {}), "location_ledger")
@@ -1191,14 +1273,13 @@ class BaseEngine:
             if compile_mode == "verify":
                 if progress_callback: progress_callback("Verifying", "Checking logic and continuity")
                 
-                # Gather Plot Summaries
                 plot_ctx = "\n".join([f"Ch {p.get('chapter_number')}: {p.get('summary', '')}" for p in self.memory.get("plot_ledger", [])])
                 if not plot_ctx: plot_ctx = "No plot summaries exist yet."
                 
-                # Gather Lore Bible
                 def format_known(ledger):
                     res = ""
-                    for k, data in self.memory.get(ledger, {}).items():
+                    combined = {**self.memory.get(ledger, {}).get("global", {}), **self.memory.get(ledger, {}).get("local", {})}
+                    for k, data in combined.items():
                         if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
                         else:
                             t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
@@ -1215,9 +1296,6 @@ class BaseEngine:
                 from api import TomeWeaverAPI
                 succ_ver, report = TomeWeaverAPI.verify_memory_integrity(plot_ctx, lore_ctx)
                 verification_report = report if succ_ver else "Verification failed to complete."
-                
-                # We do NOT return yet. We allow it to fall through to Phase 2 (Reconciliation) 
-                # so the user's checkbox for Auto-Reconcile is honored.
             
             chunk_size = ENGINE_CONFIG.get("context_window", 15)
             target_chunks = []
@@ -1238,7 +1316,6 @@ class BaseEngine:
                 c_title = c.get("title", "Chapter")
                 
                 if is_finished:
-                    # User Math: Split completed chapters into perfectly equal parts
                     num_chunks = math.ceil(total_turns / chunk_size)
                     base_len = total_turns // num_chunks
                     rem = total_turns % num_chunks
@@ -1249,7 +1326,6 @@ class BaseEngine:
                         target_chunks.append({"start": curr, "end": curr + length - 1, "chap_num": c_num, "chap_title": c_title})
                         curr += length
                         
-                    # Cleanup: Delete mismatched legacy summaries for this chapter so they don't duplicate
                     if not force_entities_only:
                         valid_bounds = [(tc["start"], tc["end"]) for tc in target_chunks if tc["chap_num"] == c_num]
                         self.memory["plot_ledger"] = [
@@ -1257,27 +1333,20 @@ class BaseEngine:
                             if not (p.get("chapter_number") == c_num and (p.get("start_turn"), p.get("end_turn")) not in valid_bounds)
                         ]
                 else:
-                    # Ongoing Chapter: Standard strides so we don't accidentally summarize the active, unfinished chunk
                     curr = c_start
                     while (c_end - curr + 1) >= chunk_size:
                         target_chunks.append({"start": curr, "end": curr + chunk_size - 1, "chap_num": c_num, "chap_title": c_title})
                         curr += chunk_size
                         
-            # Determine which chunks actually need processing
             existing_plots = [(p.get("start_turn"), p.get("end_turn")) for p in self.memory.get("plot_ledger", [])]
             
-            if force_entities_only:
-                chunks_to_process = target_chunks
-            elif compile_mode == "verify":
-                chunks_to_process = [] # Verify skips historical raw-turn reading entirely
-            else:
-                chunks_to_process = [tc for tc in target_chunks if (tc["start"], tc["end"]) not in existing_plots]
+            if force_entities_only: chunks_to_process = target_chunks
+            elif compile_mode == "verify": chunks_to_process = []
+            else: chunks_to_process = [tc for tc in target_chunks if (tc["start"], tc["end"]) not in existing_plots]
                 
-            # Determine which chapters need high-level condensation
             condensed_nums = [c.get("chapter_number") for c in self.memory.get("chapter_ledger", [])]
             chapters_to_condense = [chap for chap in self.chapters if chap.get("end_turn") is not None and chap.get("chapter_number") not in condensed_nums]
                 
-            # Only abort if absolutely nothing needs to be done
             if not chunks_to_process and not chapters_to_condense and compile_mode != "verify" and not run_reconciliation:
                 if completion_callback: completion_callback(True, "All memories are already up to date!")
                 return
@@ -1285,9 +1354,7 @@ class BaseEngine:
             for i, tc in enumerate(chunks_to_process):
                 if progress_callback: progress_callback(i + 1, len(chunks_to_process))
                 
-                # Fetch turns safely using absolute turn values, completely ignoring list indices
                 chunk = [t for t in self.history if tc["start"] <= t.get("turn", 0) <= tc["end"]]
-                
                 if not chunk: continue
                 
                 turns_text = ""
@@ -1297,7 +1364,6 @@ class BaseEngine:
                 chap_title = tc["chap_title"]
                 chap_num = tc["chap_num"]
                 
-                # 1. Plot Summary (Skip if we are only backfilling entities)
                 succ_plot = False
                 if not force_entities_only:
                     succ_plot, plot_res = TomeWeaverAPI.generate_plot_summary(turns_text, chunk[0]["turn"], chunk[-1]["turn"], self.adv_dir)
@@ -1310,10 +1376,10 @@ class BaseEngine:
                                 "summary": plot_res
                             })
                     
-                # 2. Entity Status Extract (Auto-Detects New Entities & Traits)
                 def format_known(ledger):
                     res = ""
-                    for k, data in self.memory.get(ledger, {}).items():
+                    combined = {**self.memory.get(ledger, {}).get("global", {}), **self.memory.get(ledger, {}).get("local", {})}
+                    for k, data in combined.items():
                         if isinstance(data, list): res += f"- {k}: {', '.join(data)}\n"
                         else:
                             t = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
@@ -1330,32 +1396,42 @@ class BaseEngine:
                     format_known("faction_ledger") if track_facs else "",
                     track_factions=track_facs
                 )
+                
                 if succ_ent and isinstance(ent_res, dict):
                     def merge_entities(extracted_dict, ledger_key):
                         if not isinstance(extracted_dict, dict): return
-                        for k, v in extracted_dict.items():
+                        
+                        local_dict = self.memory[ledger_key].get("local", {})
+                        global_dict = self.memory[ledger_key].get("global", {})
+                        local_aliases = self.memory.get("aliases", {}).get("local", {}).get(ledger_key, {})
+                        global_aliases = self.memory.get("aliases", {}).get("global", {}).get(ledger_key, {})
+                        
+                        for raw_k, v in extracted_dict.items():
+                            actual_k = local_aliases.get(raw_k, global_aliases.get(raw_k, raw_k))
                             
-                            # THE ALIAS INTERCEPTOR: If 'k' is a known duplicate, redirect all data to the Master Entity
-                            actual_k = self.memory.get("aliases", {}).get(ledger_key, {}).get(k, k)
+                            # Route to existing scope, default to Local
+                            if actual_k in local_dict: target_dict = local_dict
+                            elif actual_k in global_dict: target_dict = global_dict
+                            else: target_dict = local_dict
                             
-                            # Auto-migrate old list format to complex dict format seamlessly
-                            if actual_k not in self.memory[ledger_key]: 
-                                self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": [], "author_notes": ""}
-                            elif isinstance(self.memory[ledger_key][actual_k], list):
-                                self.memory[ledger_key][actual_k] = {"characteristics": {}, "ledger": self.memory[ledger_key][actual_k], "author_notes": ""}
+                            if actual_k not in target_dict: 
+                                target_dict[actual_k] = {"characteristics": {}, "ledger": [], "author_notes": "", "state": "active"}
+                            elif isinstance(target_dict[actual_k], list):
+                                target_dict[actual_k] = {"characteristics": {}, "ledger": target_dict[actual_k], "author_notes": "", "state": "active"}
                                 
                             if isinstance(v, dict):
                                 event = v.get("event")
                                 traits = v.get("traits", {})
                                 if event and str(event).lower() != "null": 
-                                    self.memory[ledger_key][actual_k]["ledger"].append(str(event))
+                                    target_dict[actual_k]["ledger"].append(str(event))
                                 if isinstance(traits, dict) and traits:
-                                    self._smart_merge_traits(self.memory[ledger_key][actual_k]["characteristics"], traits)
+                                    self._smart_merge_traits(target_dict[actual_k]["characteristics"], traits)
                             elif isinstance(v, str):
-                                self.memory[ledger_key][actual_k]["ledger"].append(v) # Fallback if AI hallucinates string
+                                target_dict[actual_k]["ledger"].append(v)
                                 
                     merge_entities(ent_res.get("Locations", {}), "location_ledger")
                     merge_entities(ent_res.get("Artifacts", {}), "artifact_ledger")
+                    merge_entities(ent_res.get("Characters", {}), "character_ledger")
                     if track_facs: merge_entities(ent_res.get("Factions", {}), "faction_ledger")
                         
                 if succ_plot or succ_ent:
@@ -1381,37 +1457,34 @@ class BaseEngine:
             if run_reconciliation:
                 if progress_callback: progress_callback("Reconciling", "Merging duplicates")
                 
-                # Check all 4 ledgers independently
                 for l_type in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]:
                     if not self.memory.get(l_type): continue
                     
-                    # Compress data into a lightweight string to save tokens
                     ctx = ""
-                    for k, data in self.memory[l_type].items():
+                    combined = {**self.memory[l_type].get("global", {}), **self.memory[l_type].get("local", {})}
+                    for k, data in combined.items():
                         traits = ", ".join([f"{tk}: {tv}" for tk, tv in data.get("characteristics", {}).items()])
                         ctx += f"- {k} | Traits: {traits}\n"
                         
                     succ_recon, recon_res = TomeWeaverAPI.reconcile_aliases(ctx)
                     if succ_recon and isinstance(recon_res, dict):
                         for alias, master in recon_res.items():
-                            # Safety check: Ensure both exist and aren't literally the same string
-                            if alias in self.memory[l_type] and master in self.memory[l_type] and alias != master:
-                                m_data = self.memory[l_type][master]
-                                s_data = self.memory[l_type][alias]
+                            a_scope = "local" if alias in self.memory[l_type].get("local", {}) else ("global" if alias in self.memory[l_type].get("global", {}) else None)
+                            m_scope = "local" if master in self.memory[l_type].get("local", {}) else ("global" if master in self.memory[l_type].get("global", {}) else None)
+                            
+                            if a_scope and m_scope and alias != master:
+                                m_data = self.memory[l_type][m_scope][master]
+                                s_data = self.memory[l_type][a_scope][alias]
                                 
-                                # Perform the merge using our Zero Data Loss utility
                                 self._smart_merge_traits(m_data["characteristics"], s_data.get("characteristics", {}))
                                 m_data["ledger"].extend(s_data.get("ledger", []))
                                 
-                                # Log the alias and delete the duplicate
-                                self.memory.setdefault("aliases", {}).setdefault(l_type, {})[alias] = master
-                                del self.memory[l_type][alias]
+                                self.memory["aliases"][m_scope][l_type][alias] = master
+                                del self.memory[l_type][a_scope][alias]
                                 
                 self.save_state()
                 
             # --- PHASE 3: MASTER VISIBILITY SWEEP ---
-            # Now that all entities are extracted and merged, do a lightning-fast 
-            # pure Python sweep of the entire history.json to perfectly sync last_seen_turn and states.
             if progress_callback: progress_callback("Syncing", "Recalculating Last Seen timestamps")
             self._resync_all_visibility()
                     

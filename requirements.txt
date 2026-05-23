@@ -21,3 +21,6 @@ darkdetect>=0.8.0
 
 # Standard utility often required by UI frameworks for version parsing
 packaging>=23.1
+
+# For processing, cropping, and caching custom folder icons (JPG/PNG)
+Pillow>=10.2.0

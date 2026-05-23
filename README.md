@@ -1,4 +1,4 @@
-# TomeWeaver
+# TomeWeaver - Non-linear Narrative Orchestration Platform
 
 ![License](https://img.shields.io/badge/license-Polyform--NonCommercial-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)

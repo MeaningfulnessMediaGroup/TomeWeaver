@@ -26,7 +26,8 @@ class CodexTab(ctk.CTkFrame):
             "starting_inventory", "inventory_dictionary", "inventory_and_state", 
             "lore_and_rules", "track_inventory", "can_die", "allow_cheats", 
             "plot_outline", "narrative",
-            "track_factions", "last_compile_mode", "auto_reconcile", "fix_freedom"
+            "track_factions", "last_compile_mode", "auto_reconcile", "fix_freedom",
+            "is_universe_thread" # Exclude structural flag
         ]
 
         self.tabs = ctk.CTkTabview(self)
@@ -60,19 +61,32 @@ class CodexTab(ctk.CTkFrame):
         sticky_hdr = ctk.CTkFrame(self.tab_core, fg_color="transparent")
         sticky_hdr.pack(fill="x", padx=20, pady=(10, 0))
         
-        # We save a reference to the Save button so we can change its text during AI Inventory Styling
-        self.btn_save_core = ctk.CTkButton(sticky_hdr, text="Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core)
+        self.btn_save_core = ctk.CTkButton(sticky_hdr, text="💾 Save Core Settings", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=self._save_core)
         self.btn_save_core.pack(side="left")
         
-        btn_master_ai = ctk.CTkButton(sticky_hdr, text="✨ Generate World", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", command=self._show_master_ai_dialog)
+        # Dynamic centered title
+        is_univ = self.engine.is_universe_thread
+        mode_str = str(self.engine.setup_data.get('mode', 'sandbox')).capitalize()
+        mode_color = "#2196F3" if mode_str.lower() == "sandbox" else "#9C27B0"
+        
+        center_frame = ctk.CTkFrame(sticky_hdr, fg_color="transparent")
+        center_frame.pack(side="left", expand=True)
+        
+        hdr_title = "Local Story Settings" if is_univ else "Story Settings"
+        ctk.CTkLabel(center_frame, text=hdr_title, font=("Arial", 20, "bold")).pack()
+        
+        btn_master_ai = ctk.CTkButton(sticky_hdr, text="✨ Overhaul Story", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", command=self._show_master_ai_dialog)
         btn_master_ai.pack(side="right")
         Tooltip(btn_master_ai, "Completely overhaul this active story using a single AI prompt. (Warning: Destructive)")
         
         # --- SCROLLABLE FORM ---
         scroll = ctk.CTkScrollableFrame(self.tab_core, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
-        self.core_scroll_frame = scroll # Save global reference for auto-scrolling
+        self.core_scroll_frame = scroll 
         
+        if is_univ:
+            ctk.CTkLabel(scroll, text=f"Changes made here will only affect this local {mode_str} thread.", text_color=mode_color, font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 15))
+
         # Helper to create consistent labeled textboxes with tooltips
         def add_field(parent, label_text, key, uid, is_multiline=False, tooltip_text="", show_ai=False):
             hdr = ctk.CTkFrame(parent, fg_color="transparent")
@@ -152,12 +166,16 @@ class CodexTab(ctk.CTkFrame):
         self.core_vars["creation_date"] = ctk.StringVar(value=self.engine.setup_data.get("creation_date", "Unknown"))
         ctk.CTkEntry(date_frame, textvariable=self.core_vars["creation_date"], font=("Arial", 14), width=120).pack(fill="x")
 
-        self.core_vars["tone"] = add_field(scroll, "Atmosphere / Tone:", "tone", "TONE", tooltip_text="Instructs the AI on the writing style.", show_ai=True)
+        # --- DYNAMIC LABELS FOR UNIVERSES ---
+        l_tone = "Local Tone (Appended to Universe Tone):" if self.engine.is_universe_thread else "Atmosphere / Tone:"
+        l_lore = "Local Rules (Appended to Universe Rules):" if self.engine.is_universe_thread else "Global Rules & Lore:"
+
+        self.core_vars["tone"] = add_field(scroll, l_tone, "tone", "TONE", tooltip_text="Instructs the AI on the writing style.", show_ai=True)
         self.core_vars["main_character"] = add_field(scroll, "Main Character:", "main_character", "CHAR", True, tooltip_text="Name and brief description of the protagonist.", show_ai=True)
         self.core_vars["goal"] = add_field(scroll, "Overarching Goal:", "goal", "GOAL", True, tooltip_text="The ultimate motivation driving the protagonist.", show_ai=True)
         self.core_vars["setting"] = add_field(scroll, "Default Setting / Location:", "setting", "SETTING", True, tooltip_text="The initial environment where the story begins.", show_ai=True)
         self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", "COLD_OPEN", True, tooltip_text="Sets the immediate context for Turn 1.", show_ai=True)
-        self.core_vars["lore_and_rules"] = add_field(scroll, "Global Rules & Lore:", "lore_and_rules", "LORE", True, tooltip_text="Hard rules the AI must follow.", show_ai=True)
+        self.core_vars["lore_and_rules"] = add_field(scroll, l_lore, "lore_and_rules", "LORE", True, tooltip_text="Hard rules the AI must follow.", show_ai=True)
         
         # --- SETTINGS TOGGLES (Placed directly below Lore) ---
         settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")

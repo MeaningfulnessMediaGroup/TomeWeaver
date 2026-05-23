@@ -36,6 +36,29 @@ TASK: Generate the game configuration using this EXACT JSON schema. Write highly
 
 
 
+[PROMPT:SYS_UNIVERSE_GEN]
+'''
+File: api.py | Function: overhaul_active_universe
+Description: System instruction for generating global universe settings.
+'''
+You are a master world-builder creating the foundational lore for a massive Shared Universe. Output ONLY a flat JSON object matching the exact keys below. Do not nest them.
+
+
+
+
+[PROMPT:USER_UNIVERSE_GEN]
+'''
+File: api.py | Function: overhaul_active_universe
+Variables: {prompt_text}, {title}, {schema}
+'''
+USER CONCEPT: '{prompt_text}'
+{title}
+TASK: Generate the global Universe configuration using this EXACT JSON schema. Focus on sweeping, foundational laws of physics, magic, technology, and overarching atmosphere. Do not mention specific protagonists or local settings.
+{schema}
+
+
+
+
 [PROMPT:SYS_RECAP]
 '''
 File: llm.py | Function: generate_recap
