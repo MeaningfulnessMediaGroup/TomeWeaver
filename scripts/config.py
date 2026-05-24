@@ -411,7 +411,8 @@ def load_instance_config():
         "window_geometry": "1100x750",
         "window_state": "normal",
         "last_active_story": "",
-        "last_author": "Anonymous"
+        "last_author": "Anonymous",
+        "story_bookmarks": {} # Maps 'Rel/Path/To/Story': turn_index
     }
     
     # If missing entirely, create it

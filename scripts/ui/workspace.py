@@ -374,8 +374,10 @@ class WorkspaceFrame(ctk.CTkFrame):
             from logger import log_event
             log_event(self.engine.adv_dir, "Command: RESTART ADVENTURE")
             
-            # 1. Wipe History
+            # 1. Wipe History and Bookmarks
             self.engine.history.clear()
+            from config import INSTANCE_CONFIG
+            INSTANCE_CONFIG.get("story_bookmarks", {}).pop(self.folder_name, None)
             
             # 2. Reset Chapters (Completely rebuild the state tracker)
             if self.engine.is_campaign:

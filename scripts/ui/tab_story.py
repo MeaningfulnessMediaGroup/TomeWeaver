@@ -228,7 +228,15 @@ class StoryTab(ctk.CTkFrame):
         self.input_frame.pack(fill="x", padx=20, pady=(0, 10))
         
         if go_to_last:
-            self.current_turn_idx = history_len - 1
+            # Check for a saved bookmark for this specific story path
+            from config import INSTANCE_CONFIG
+            story_path = self.workspace.folder_name
+            bookmark = INSTANCE_CONFIG.get("story_bookmarks", {}).get(story_path)
+            
+            if bookmark is not None and 0 <= int(bookmark) < history_len:
+                self.current_turn_idx = int(bookmark)
+            else:
+                self.current_turn_idx = history_len - 1
             
         if history_len > 1:
             self.slider.configure(state="normal", from_=0, to=history_len - 1, number_of_steps=history_len - 1)
@@ -259,14 +267,25 @@ class StoryTab(ctk.CTkFrame):
                 btn.configure(state="disabled")
                 
         self._render_turn()
+        self._update_bookmark()
+
+    def _update_bookmark(self):
+        """Silently records the current turn index to the global instance config."""
+        from config import INSTANCE_CONFIG
+        story_path = self.workspace.folder_name
+        INSTANCE_CONFIG.setdefault("story_bookmarks", {})[story_path] = self.current_turn_idx
+        # We don't save to disk on every slider move to prevent lag; 
+        # the App will commit to disk when the workspace or app closes.
 
     def _on_slider_move(self, value):
         idx = int(value)
         if idx != self.current_turn_idx:
             self.current_turn_idx = idx
-            self.refresh_timeline(go_to_last=False)
+            self._update_bookmark() # Record the move
+            self._render_turn()
 
     def _navigate_timeline(self, direction):
+        
         if direction == "first": 
             self.current_turn_idx = 0
         elif direction == "prev" and self.current_turn_idx > 0: 
@@ -307,6 +326,7 @@ class StoryTab(ctk.CTkFrame):
             self.current_turn_idx = target_idx
 
         self.refresh_timeline(go_to_last=False)
+        self._update_bookmark()
 
 
     # ---------------------------------------------------------
@@ -405,16 +425,23 @@ class StoryTab(ctk.CTkFrame):
             raw_action = self.engine.history[idx-1].get("player_choice", "").strip()
             
             # --- SANDBOX IMMERSION FILTER ---
-            # Hide redundant/mechanical transition actions using strict chapter boundaries
-            hide_action = False
+            # Strictly hide transition headers on chapter boundaries (Start and End turns)
+            hide_header = False
             if not self.engine.is_campaign:
-                is_start_chap = (actual_turn == active_chap.get("start_turn"))
-                is_end_chap = (actual_turn == active_chap.get("end_turn"))
-                
-                if is_start_chap or is_end_chap:
-                    hide_action = True
-            
-            if not hide_action:
+                # Get boundaries as integers for absolute comparison
+                try:
+                    c_start = int(active_chap.get("start_turn", -1))
+                    c_end = active_chap.get("end_turn")
+                    c_end = int(c_end) if c_end is not None else -1
+                    
+                    current = int(actual_turn)
+                    
+                    if current == c_start or current == c_end:
+                        hide_header = True
+                except (ValueError, TypeError):
+                    pass
+
+            if not hide_header:
                 # Flatten to single line for the header display
                 flat_action = raw_action.replace("\n", " ").replace("\r", " ")
                 
@@ -1030,15 +1057,38 @@ class StoryTab(ctk.CTkFrame):
                 threading.Thread(target=worker, daemon=True).start()
                 
         elif action == "insert":
-            self._lock_ui("Inserting blank turn...")
-            def worker():
-                self.engine.insert_blank_turn(turn_idx)
-                
-                # Automatically advance the UI to the newly created blank card!
-                self.current_turn_idx = turn_idx
-                self.after(0, lambda: self.refresh_timeline(go_to_last=False))
-            import threading
-            threading.Thread(target=worker, daemon=True).start()
+            # Spawn a small decision dialog to determine the anchor point
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Insert Blank Turn")
+            dialog.geometry("350x150")
+            dialog.attributes("-topmost", True)
+            dialog.grab_set() # Force focus
+            
+            from ui.tooltip import center_window_on_parent
+            center_window_on_parent(dialog, self.winfo_toplevel())
+
+            t_num = self.engine.history[turn_idx].get('turn', '?')
+            ctk.CTkLabel(dialog, text=f"Where should the blank card be inserted relative to Turn {t_num}?", wraplength=300).pack(pady=15)
+
+            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            btn_frame.pack(pady=10)
+
+            def execute_insertion(final_idx):
+                dialog.destroy()
+                self._lock_ui("Inserting blank turn...")
+                def worker():
+                    self.engine.insert_blank_turn(final_idx)
+                    # Automatically advance the UI to the newly created blank card
+                    self.current_turn_idx = final_idx
+                    self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+
+            # "Before" uses the current index (everything right-shifts)
+            ctk.CTkButton(btn_frame, text="Insert Before", width=120, fg_color="#1F6AA5", command=lambda: execute_insertion(turn_idx)).pack(side="left", padx=10)
+            
+            # "After" uses index + 1 (everything after the current card right-shifts)
+            ctk.CTkButton(btn_frame, text="Insert After", width=120, fg_color="#2E7D32", hover_color="#1B5E20", command=lambda: execute_insertion(turn_idx + 1)).pack(side="left", padx=10)
             
         elif action == "turn_to_bridge":
             self._lock_ui("Collapsing turn into bridge...")
@@ -1076,6 +1126,8 @@ class StoryTab(ctk.CTkFrame):
                     self.after(0, lambda: self.refresh_timeline(go_to_last=False))
                 import threading
                 threading.Thread(target=worker, daemon=True).start()
+                
+        self._update_bookmark()
             
     def on_undo(self):
         self._lock_ui("Undoing last choice...")
@@ -1083,6 +1135,7 @@ class StoryTab(ctk.CTkFrame):
             self.engine.undo()
             self.after(0, lambda: self.refresh_timeline(go_to_last=True))
         threading.Thread(target=worker, daemon=True).start()
+        self._update_bookmark()
 
     def _trigger_redo(self):
         self._lock_ui("Generating alternative version...")

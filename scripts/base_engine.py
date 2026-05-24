@@ -922,53 +922,75 @@ class BaseEngine:
         for c in self.chapters:
             s_turn = c.get("start_turn")
             e_turn = c.get("end_turn")
-            
             if s_turn is not None and e_turn is not None:
-                # If the insertion lands INSIDE this chapter, it is affected
                 if s_turn <= target_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
-                
             if s_turn is not None and s_turn > target_index: c["start_turn"] += 1
             if e_turn is not None and e_turn >= target_index: c["end_turn"] += 1
                 
-        # Invalidate the RAG summaries for the affected chapters so the user is forced to recompile cleanly
         if affected_chapters:
             self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
             self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
                 
-        # 3. Create and inject the blank turn
-        prev_turn = self.history[target_index - 1] if target_index > 0 else {}
+        # 3. Handle Narrative Causality (Choice Migration)
+        is_at_end = (target_index == len(self.history))
+        new_turn_choice = None
+        
+        if not is_at_end and target_index > 0:
+            # We are inserting a turn between two existing turns.
+            # To maintain the link between the new turn and the old next turn,
+            # we 'steal' the choice from the previous turn.
+            prev_turn = self.history[target_index - 1]
+            new_turn_choice = prev_turn.get("player_choice")
+            prev_turn["player_choice"] = "[ Blank Turn ]"
+            # Clear previous bridge of the following turn as the prose context has changed
+            if target_index < len(self.history):
+                self.history[target_index].pop("narrative_bridge", None)
+
+        # 4. Create and inject the blank turn
+        anchor_turn = self.history[target_index - 1] if target_index > 0 else {}
         blank_turn = {
             "turn": target_turn_val,
-            "location": prev_turn.get("location", "Unknown"),
-            "pov_character": prev_turn.get("pov_character", "Unknown"),
+            "location": anchor_turn.get("location", "Unknown"),
+            "pov_character": anchor_turn.get("pov_character", "Unknown"),
             "story_text": "[ Blank Turn inserted by Director. Click 'Edit Scene' to write content. ]",
             "choices": ["Proceed forward."],
             "input_type": "choice",
             "is_game_over": False,
-            "player_choice": None,
+            "player_choice": new_turn_choice,
             "narrative_bridge": ""
         }
         
         if self.track_inventory:
-            blank_turn["inventory_and_state"] = prev_turn.get("inventory_and_state", "")
+            blank_turn["inventory_and_state"] = anchor_turn.get("inventory_and_state", "")
             
         self.history.insert(target_index, blank_turn)
         self.save_state()
         return True
 
     def delete_turn(self, target_index):
-        """Deletes a turn and left-shifts history."""
+        """Deletes a turn and left-shifts history, preserving choice continuity."""
         if target_index < 0 or target_index >= len(self.history): return False
         
-        # 1. Remove the turn
-        deleted_turn = self.history.pop(target_index)
+        # 1. Capture causality before removal
+        deleted_turn = self.history[target_index]
         deleted_turn_val = deleted_turn.get("turn", target_index + 1)
+        preserved_choice = deleted_turn.get("player_choice")
+
+        # 2. Restore choice to the preceding turn
+        if target_index > 0:
+            self.history[target_index - 1]["player_choice"] = preserved_choice
+            # Clear bridge of the turn that is about to shift into this position
+            if target_index + 1 < len(self.history):
+                self.history[target_index + 1].pop("narrative_bridge", None)
+
+        # 3. Remove the turn
+        self.history.pop(target_index)
         
-        # 2. Left-shift all future turns (-1)
+        # 4. Left-shift all future turns (-1)
         for i in range(target_index, len(self.history)):
             self.history[i]["turn"] = self.history[i].get("turn", i + 2) - 1
             
-        # 3. Heal Chapter Boundaries and Invalidate affected Plot Ledgers
+        # 5. Heal Chapter Boundaries and Invalidate affected Plot Ledgers
         affected_chapters = set()
         for c in self.chapters:
             s_turn = c.get("start_turn")
