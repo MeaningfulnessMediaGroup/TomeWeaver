@@ -550,7 +550,27 @@ class MemoryTab(ctk.CTkFrame):
             ctk.CTkLabel(tags_frame, text="Tags:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
             
             tags_var = ctk.StringVar(value=", ".join(chunk.get("tags", [])))
-            ctk.CTkEntry(tags_frame, textvariable=tags_var, font=("Arial", 12), fg_color="transparent", border_width=0).pack(side="left", fill="x", expand=True, padx=5)
+            ctk.CTkEntry(tags_frame, textvariable=tags_var, font=("Arial", 13)).pack(side="left", fill="x", expand=True, padx=10)
+            
+            def reroll_tags(b=box, t_var=tags_var):
+                self.winfo_toplevel().configure(cursor="watch")
+                def worker():
+                    current_summary = b.get("1.0", "end").strip()
+                    from api import TomeWeaverAPI
+                    succ, res = TomeWeaverAPI.generate_chapter_tags(current_summary, self.engine.setup_data)
+                    def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        if succ and isinstance(res, list):
+                            t_var.set(", ".join(res))
+                        else:
+                            messagebox.showerror("Error", res)
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_reroll_tags = ctk.CTkButton(tags_frame, text="⟳ Tags", width=60, height=24, font=("Arial", 11), fg_color="#7B1FA2", hover_color="#4A148C", command=reroll_tags)
+            btn_reroll_tags.pack(side="right")
+            Tooltip(btn_reroll_tags, "Regenerate only the thematic tags based on the current summary text.")
 
             def get_source_text(c_num):
                 parts = [p.get('summary', '') for p in self.engine.memory.get("plot_ledger", []) if p.get("chapter_number") == c_num]

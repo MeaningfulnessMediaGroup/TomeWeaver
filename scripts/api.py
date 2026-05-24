@@ -1762,6 +1762,51 @@ class TomeWeaverAPI:
         else: return SandboxEngine(target_dir, setup_data)
         
         
+    @staticmethod
+    def infer_location(scene_text, previous_location=None):
+        """
+        Reads a block of prose and asks the AI to deduce the protagonist's current location.
+        Uses previous_location as a geographic anchor if provided.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit
+        import requests, time
+        
+        sys_prompt = PROMPTS.get("SYS_LOCATION_INFER", "")
+        user_prompt = PROMPTS.get("USER_LOCATION_INFER", "")
+        
+        loc_str = ""
+        if previous_location:
+            loc_str = f"GEOGRAPHIC ANCHOR: The previous scene took place at '{previous_location}'. If the protagonist moved, use this anchor to provide a hierarchical location (e.g., if they moved to a kitchen, output '{previous_location} - Kitchen')."
+            
+        user_prompt = user_prompt.replace("{scene_text}", scene_text)
+        user_prompt = user_prompt.replace("{prev_loc_context}", loc_str)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.2, 
+                "max_tokens": 50
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    raw = raw.strip('"\'')
+                    if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
+                    return True, raw
+            except Exception:
+                time.sleep(1)
+                
+        return False, "Failed to infer location."
+
         
     @staticmethod
     def edit_narrative_bridge(engine, turn_idx, bridge_text, edit_type):
@@ -2052,7 +2097,50 @@ class TomeWeaverAPI:
                 err = translate_api_error(exception=e)
                 time.sleep(2)
         return False, f"Chapter Condensation Failed:\n{err}"
+        
+        
+    @staticmethod
+    def generate_chapter_tags(summary_text, setup_data):
+        """
+        Targeted RAG Phase: Extracts only tags from an existing chapter summary.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_CHAPTER_TAGS", "")
+        
+        custom_tags_raw = setup_data.get("chapter_tags", "")
+        if custom_tags_raw and str(custom_tags_raw).strip():
+            tag_str = f"When extracting tags, prioritize using these standard categories if they apply:\n[{str(custom_tags_raw).strip()}]\n"
+        else:
+            tag_str = "When extracting tags, prioritize using standard literary categories (e.g., Combat, Romance, Puzzle, Lore).\n"
+            
+        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER_TAGS", "")
+        user_prompt = user_prompt.replace("{summary_text}", summary_text)
+        user_prompt = user_prompt.replace("{tag_list}", tag_str)
 
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.4,  "max_tokens": 300
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, list): return True, data
+            except Exception: time.sleep(1)
+        return False, "Failed to generate tags."
+        
+        
     @staticmethod
     def validate_chapter_chunk(raw_text, summary_text):
         from config import ENGINE_CONFIG, PROMPTS

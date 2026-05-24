@@ -47,7 +47,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         opt_menu = ctk.CTkOptionMenu(
             header, 
             variable=self.opt_var, 
-            values=["Generate Recap", "Generate Missing Bridges", "Slice Chapters...", "Export Story", "Restart Story"], 
+            values=["Generate Recap", "Generate Missing Bridges", "Fork Thread (Slice Chapters)...", "Import Turns...", "Export Story", "Restart Story"], 
             width=200,
             command=self._handle_options_menu
         )
@@ -201,9 +201,11 @@ class WorkspaceFrame(ctk.CTkFrame):
             self._generate_recap()
         elif choice == "Generate Missing Bridges":
             self._generate_missing_bridges()
+        elif choice == "Import Turns...":
+            self._show_import_dialog()
         elif choice == "Export Story":
             self._export_dialog()
-        elif choice == "Slice Chapters...":
+        elif choice == "Fork Thread (Slice Chapters)...":
             self._show_slice_dialog()
         elif choice == "Restart Story":
             self._restart_story()
@@ -455,6 +457,91 @@ class WorkspaceFrame(ctk.CTkFrame):
             self.btn_test.configure(text="▶︎ Auto-Play", fg_color="#4A4A4A", hover_color="#333333")
             
             
+    def _show_import_dialog(self):
+        """Spawns a modal allowing the user to paste raw text to be parsed into turns."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Import External Story")
+        dialog.geometry("800x650")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text="Mass Import Turns", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
+        
+        help_text = (
+            "Paste a linear story from MS Word, AI Dungeon, or ChatGPT below.\n"
+            "The engine will automatically split it into Turn Cards. Use a chevron '>' at the start of a line to indicate a player action.\n\n"
+            "Example:\n"
+            "> walk in the cavern\n"
+            "The knight walked into the dark cavern.\n"
+            "> Light the torch\n"
+            "The cavern illuminated, revealing a goblin horde!"
+        )
+        ctk.CTkLabel(dialog, text=help_text, wraplength=700, text_color="gray", justify="left").pack(padx=20, pady=(0, 10))
+
+        # Anchor Context Info
+        insert_idx = self.story_tab.current_turn_idx if hasattr(self, 'story_tab') and self.story_tab else len(self.engine.history) - 1
+        t_num = self.engine.history[insert_idx].get("turn", 0) if insert_idx >= 0 and self.engine.history else 0
+        ctk.CTkLabel(dialog, text=f"Data will be appended immediately after Turn {t_num}.", font=("Arial", 12, "bold"), text_color="#F57C00").pack(anchor="w", padx=20)
+
+        box = ctk.CTkTextbox(dialog, wrap="word", font=("Arial", 14))
+        box.pack(fill="both", expand=True, padx=20, pady=10)
+
+        def on_import():
+            raw_text = box.get("1.0", "end").strip()
+            if not raw_text: return
+            
+            dialog.destroy()
+            
+            if hasattr(self, 'story_tab') and self.story_tab:
+                self.story_tab._lock_ui("Parsing and importing turns...")
+                
+            def worker():
+                success, msg = self.engine.import_turns(raw_text, insert_idx)
+                
+                def update_ui():
+                    from tkinter import messagebox
+                    
+                    if success:
+                        messagebox.showinfo("Import Successful", msg)
+                        if hasattr(self, 'story_tab') and self.story_tab:
+                            self.story_tab.refresh_timeline(go_to_last=True)
+                            
+                        # --- CRITICAL RAG TRIGGER ---
+                        # Because we just injected bulk history, we almost certainly crossed a chunk threshold.
+                        # We trigger the compiler silently in the background!
+                        def on_progress(current, total, s_turn=None, e_turn=None):
+                            if current == "Seeding": stat = "Extracting Base Lore..."
+                            elif current == "Condensing": stat = f"{total}..."
+                            elif current == "Reconciling": stat = "Merging duplicates..."
+                            elif current == "Syncing": stat = "Recalculating Timestamps..."
+                            else: stat = f"Processing Chunk {current}/{total}..."
+                            if hasattr(self, 'story_tab') and self.story_tab:
+                                self.after(0, lambda: self.story_tab.status_var.set(f"Background Task: {stat}"))
+                                
+                        def on_complete(s, m):
+                            if hasattr(self, 'story_tab') and self.story_tab:
+                                self.after(0, lambda: self.story_tab.status_var.set("Ready."))
+
+                        self.engine._trigger_memory_compilation(progress_callback=on_progress, completion_callback=on_complete)
+                    else:
+                        if hasattr(self, 'story_tab') and self.story_tab:
+                            self.story_tab._unlock_ui("Ready.")
+                        messagebox.showerror("Import Failed", msg)
+                        
+                self.after(0, update_ui)
+                
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=15)
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left")
+        ctk.CTkButton(btn_frame, text="Import & Splice Timeline", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=on_import).pack(side="right")
+
+        
     def _show_slice_dialog(self):
         """Spawns the checklist modal to extract specific chapters into a new thread."""
         if not self.engine.chapters or len(self.engine.history) == 0:

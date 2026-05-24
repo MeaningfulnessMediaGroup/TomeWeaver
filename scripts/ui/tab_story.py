@@ -131,27 +131,40 @@ class StoryTab(ctk.CTkFrame):
         self.story_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
         self.choices_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
 
-       # ==========================================
+        # ==========================================
         # 2. THE TIMELINE BAR (Bottom, Fixed)
         # ==========================================
         self.timeline_frame = ctk.CTkFrame(self, fg_color="transparent")
         
-        # Center the slider vertically within its frame by adding matching top/bottom padding
+        # Consistent padx=2 between ALL buttons in a group, and padx=10 framing the slider
+        
         self.btn_first = ctk.CTkButton(self.timeline_frame, text="|<<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("first"))
         self.btn_first.pack(side="left", padx=2, pady=5)
+        Tooltip(self.btn_first, "Jump to the First Turn of the Story")
+        
+        self.btn_prev_chap = ctk.CTkButton(self.timeline_frame, text="<|", width=35, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("prev_chapter"))
+        self.btn_prev_chap.pack(side="left", padx=2, pady=5)
+        Tooltip(self.btn_prev_chap, "Jump to Previous Chapter")
         
         self.btn_prev = ctk.CTkButton(self.timeline_frame, text="<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("prev"))
         self.btn_prev.pack(side="left", padx=(2, 10), pady=5)
+        Tooltip(self.btn_prev, "Go to Previous Turn")
         
         self.slider = ctk.CTkSlider(self.timeline_frame, command=self._on_slider_move)
         self.slider.pack(side="left", fill="x", expand=True, padx=10, pady=5)
-        
+               
         self.btn_next = ctk.CTkButton(self.timeline_frame, text=">", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("next"))
         self.btn_next.pack(side="left", padx=(10, 2), pady=5)
+        Tooltip(self.btn_next, "Go to the Next Turn")
+        
+        self.btn_next_chap = ctk.CTkButton(self.timeline_frame, text="|>", width=35, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("next_chapter"))
+        self.btn_next_chap.pack(side="left", padx=2, pady=5)
+        Tooltip(self.btn_next_chap, "Jump to Next Chapter")
         
         self.btn_last = ctk.CTkButton(self.timeline_frame, text=">>|", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("last"))
         self.btn_last.pack(side="left", padx=2, pady=5)
-
+        Tooltip(self.btn_last, "Jump to the Last Turn of the Story")
+        
         # ==========================================
         # 3. THE INPUT BAR (Bottom, Fixed)
         # ==========================================
@@ -225,12 +238,24 @@ class StoryTab(ctk.CTkFrame):
             self.btn_prev.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
             self.btn_next.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
             self.btn_last.configure(state="normal" if self.current_turn_idx < history_len - 1 else "disabled")
+            
+            # --- DYNAMIC CHAPTER BOUNDARY CHECKS ---
+            curr_turn_val = self.engine.history[self.current_turn_idx].get("turn", 0)
+            
+            has_prev_chap = any(c.get("start_turn") is not None and c.get("start_turn") < curr_turn_val for c in self.engine.chapters)
+            has_next_chap = any(c.get("start_turn") is not None and c.get("start_turn") > curr_turn_val for c in self.engine.chapters)
+            
+            # Prologue logic: Turn 0 acts as the ultimate previous chapter boundary
+            if not has_prev_chap and curr_turn_val > 0: has_prev_chap = True
+            
+            self.btn_prev_chap.configure(state="normal" if has_prev_chap else "disabled")
+            self.btn_next_chap.configure(state="normal" if has_next_chap else "disabled")
+            
         else:
-            # FIX: CustomTkinter crashes if 'from' and 'to' are identical. Provide safe dummy bounds.
             self.slider.configure(from_=0, to=1, number_of_steps=1)
             self.slider.set(0)
             self.slider.configure(state="disabled")
-            for btn in [self.btn_first, self.btn_prev, self.btn_next, self.btn_last]:
+            for btn in [self.btn_first, self.btn_prev, self.btn_prev_chap, self.btn_next_chap, self.btn_next, self.btn_last]:
                 btn.configure(state="disabled")
                 
         self._render_turn()
@@ -242,10 +267,45 @@ class StoryTab(ctk.CTkFrame):
             self.refresh_timeline(go_to_last=False)
 
     def _navigate_timeline(self, direction):
-        if direction == "first": self.current_turn_idx = 0
-        elif direction == "prev" and self.current_turn_idx > 0: self.current_turn_idx -= 1
-        elif direction == "next" and self.current_turn_idx < len(self.engine.history) - 1: self.current_turn_idx += 1
-        elif direction == "last": self.current_turn_idx = len(self.engine.history) - 1
+        if direction == "first": 
+            self.current_turn_idx = 0
+        elif direction == "prev" and self.current_turn_idx > 0: 
+            self.current_turn_idx -= 1
+        elif direction == "next" and self.current_turn_idx < len(self.engine.history) - 1: 
+            self.current_turn_idx += 1
+        elif direction == "last": 
+            self.current_turn_idx = len(self.engine.history) - 1
+        elif direction == "prev_chapter":
+            curr_turn_val = self.engine.history[self.current_turn_idx].get("turn", 0)
+            
+            # Find the closest chapter start_turn that is STRICTLY LESS than the current turn
+            target_idx = 0 # Default to the very first turn (Prologue)
+            for c in reversed(self.engine.chapters):
+                s_turn = c.get("start_turn")
+                if s_turn is not None and s_turn < curr_turn_val:
+                    # Found it! Now map the turn value back to an array index
+                    for i, t in enumerate(self.engine.history):
+                        if t.get("turn") == s_turn:
+                            target_idx = i
+                            break
+                    break
+            self.current_turn_idx = target_idx
+            
+        elif direction == "next_chapter":
+            curr_turn_val = self.engine.history[self.current_turn_idx].get("turn", 0)
+            
+            # Find the closest chapter start_turn that is STRICTLY GREATER than the current turn
+            target_idx = len(self.engine.history) - 1 # Default to the very last turn
+            for c in self.engine.chapters:
+                s_turn = c.get("start_turn")
+                if s_turn is not None and s_turn > curr_turn_val:
+                    for i, t in enumerate(self.engine.history):
+                        if t.get("turn") == s_turn:
+                            target_idx = i
+                            break
+                    break
+            self.current_turn_idx = target_idx
+
         self.refresh_timeline(go_to_last=False)
 
 
@@ -343,20 +403,30 @@ class StoryTab(ctk.CTkFrame):
         has_action = False
         if idx > 0 and self.engine.history[idx-1].get("player_choice"):
             raw_action = self.engine.history[idx-1].get("player_choice", "").strip()
-            # Flatten to single line for the header display
-            flat_action = raw_action.replace("\n", " ").replace("\r", " ")
             
-            # 1. Pack button to the far RIGHT first so it stays fixed
-            self.btn_action_more.pack(side="right", padx=(10, 0))
-            self.btn_action_more.configure(command=lambda a=raw_action: self._show_full_action(a))
-            
-            # 2. Pack label to the LEFT and allow it to expand into the remaining middle space
-            self.lbl_action.pack(side="left", fill="x", expand=True)
-            # We provide the full text and set anchor="w" (West/Left). 
-            # CustomTkinter will naturally clip the text at the button's margin.
-            self.lbl_action.configure(text=f"❯ {flat_action}", anchor="w")
+            # --- SANDBOX IMMERSION FILTER ---
+            # Hide redundant/mechanical transition actions using strict chapter boundaries
+            hide_action = False
+            if not self.engine.is_campaign:
+                is_start_chap = (actual_turn == active_chap.get("start_turn"))
+                is_end_chap = (actual_turn == active_chap.get("end_turn"))
                 
-            has_action = True
+                if is_start_chap or is_end_chap:
+                    hide_action = True
+            
+            if not hide_action:
+                # Flatten to single line for the header display
+                flat_action = raw_action.replace("\n", " ").replace("\r", " ")
+                
+                # 1. Pack button to the far RIGHT first so it stays fixed
+                self.btn_action_more.pack(side="right", padx=(10, 0))
+                self.btn_action_more.configure(command=lambda a=raw_action: self._show_full_action(a))
+                
+                # 2. Pack label to the LEFT and allow it to expand into the remaining middle space
+                self.lbl_action.pack(side="left", fill="x", expand=True)
+                self.lbl_action.configure(text=f"❯ {flat_action}", anchor="w")
+                    
+                has_action = True
 
         self._render_inventory(turn)
 
@@ -661,6 +731,11 @@ class StoryTab(ctk.CTkFrame):
             
         self.text_input.delete(0, 'end') 
         
+        # --- AUTO-RESET DROPDOWN ---
+        # Instantly revert the dropdown to Standard Action so the next turn's input is safe
+        if not self.engine.is_campaign:
+            self.cmd_dropdown.set("Standard Action")
+        
         # --- UNIVERSAL INTERCEPTOR (Dropdown + Shorthand) ---
         is_force_chap = False
         chap_title = ""
@@ -670,7 +745,7 @@ class StoryTab(ctk.CTkFrame):
             chap_title = raw_text
         elif raw_text.lower().startswith("chapter:"):
             is_force_chap = True
-            chap_title = raw_text[8:].strip() # Strip the prefix to get the title
+            chap_title = raw_text[8:].strip() 
             
         if is_force_chap:
             self._show_force_chapter_dialog(chap_title)
@@ -1273,7 +1348,53 @@ class StoryTab(ctk.CTkFrame):
         
         ctk.CTkLabel(meta_grid, text="Location:", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
         loc_var = ctk.StringVar(value=turn.get("location", ""))
-        ctk.CTkEntry(meta_grid, textvariable=loc_var, width=350, font=("Arial", 13)).grid(row=1, column=0, padx=(0, 20), sticky="w")
+        
+        # Wrap the entry and button in a sub-frame so they sit nicely in the grid cell
+        loc_frame = ctk.CTkFrame(meta_grid, fg_color="transparent")
+        loc_frame.grid(row=1, column=0, padx=(0, 20), sticky="w")
+        
+        ctk.CTkEntry(loc_frame, textvariable=loc_var, width=320, font=("Arial", 13)).pack(side="left")
+        
+        def infer_loc_async():
+            # Grab the current, LIVE text from the prose box (and bridge if it exists)
+            current_prose = story_box.get("1.0", "end").strip()
+            if bridge_box is not None:
+                br = bridge_box.get("1.0", "end").strip()
+                if br: current_prose = f"{br}\n\n{current_prose}"
+                
+            if not current_prose: return
+                
+            # Determine if we should pass a geographic anchor
+            prev_loc = None
+            if turn_idx > 0:
+                # Is this the start of a chapter?
+                is_start = False
+                for c in self.engine.chapters:
+                    if c.get("start_turn") == turn.get("turn"):
+                        is_start = True
+                        break
+                # If it is NOT a hard chapter cut, pass the previous turn's location
+                if not is_start:
+                    prev_loc = self.engine.history[turn_idx - 1].get("location", "")
+                
+            btn_loc_infer.configure(state="disabled", text="...")
+            self.winfo_toplevel().configure(cursor="watch")
+            
+            def worker():
+                from api import TomeWeaverAPI
+                succ, res = TomeWeaverAPI.infer_location(current_prose, prev_loc)
+                def update_ui():
+                    self.winfo_toplevel().configure(cursor="")
+                    btn_loc_infer.configure(state="normal", text="⟳")
+                    if succ and res:
+                        loc_var.set(res)
+                self.after(0, update_ui)
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_loc_infer = ctk.CTkButton(loc_frame, text="⟳", width=25, height=24, fg_color="#F57C00", hover_color="#E65100", command=infer_loc_async)
+        btn_loc_infer.pack(side="left", padx=(5, 0))
+        Tooltip(btn_loc_infer, "Read the story prose and automatically determine the location.")
         
         ctk.CTkLabel(meta_grid, text="POV:", font=("Arial", 12, "bold")).grid(row=0, column=1, sticky="w")
         pov_var = ctk.StringVar(value=turn.get("pov_character", ""))
@@ -1528,10 +1649,23 @@ class StoryTab(ctk.CTkFrame):
 
         def on_save(close_dialog):
             try:
-                # 1. Apply UI data directly to the RAM dictionary (No manual escaping needed!)
+                # 1. Apply UI data directly to the RAM dictionary
                 self.engine.history[turn_idx]["location"] = loc_var.get().strip()
                 self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
-                self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip()
+                
+                import re
+                raw_story = story_box.get("1.0", "end").strip()
+                
+                # Un-escape double quotes (Artifact of pasting raw JSON or external text)
+                raw_story = raw_story.replace('\\"', '"')
+                
+                # Intelligent Spacing: Converts single newlines into proper double-newline paragraphs.
+                if '\n' in raw_story and '\n\n' not in raw_story:
+                    raw_story = raw_story.replace('\n', '\n\n')
+                # Clean up any chaotic spacing
+                raw_story = re.sub(r'\n{3,}', '\n\n', raw_story)
+                
+                self.engine.history[turn_idx]["story_text"] = raw_story
                 
                 if "choices" in turn: 
                     self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in choice_rows if v.get().strip()]
@@ -1540,8 +1674,15 @@ class StoryTab(ctk.CTkFrame):
                     self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
                     
                 if bridge_box is not None:
-                    b_text = bridge_box.get("1.0", "end").strip()
-                    if b_text: self.engine.history[turn_idx]["narrative_bridge"] = b_text
+                    raw_bridge = bridge_box.get("1.0", "end").strip()
+                    
+                    raw_bridge = raw_bridge.replace('\\"', '"')
+                    
+                    if '\n' in raw_bridge and '\n\n' not in raw_bridge:
+                        raw_bridge = raw_bridge.replace('\n', '\n\n')
+                    raw_bridge = re.sub(r'\n{3,}', '\n\n', raw_bridge)
+                    
+                    if raw_bridge: self.engine.history[turn_idx]["narrative_bridge"] = raw_bridge
                     elif "narrative_bridge" in self.engine.history[turn_idx]: del self.engine.history[turn_idx]["narrative_bridge"]
                 
                 # 2. Sync RAG visibility and commit physically to disk
@@ -1724,6 +1865,9 @@ class StoryTab(ctk.CTkFrame):
         # 1. Clone the chapters array into memory for transactional editing
         working_chapters = [c.copy() for c in self.engine.chapters]
         
+        # CRITICAL FIX: Preserve the true original titles to prevent auto-saves from blinding the Patcher
+        original_titles = {c.get("chapter_number"): c.get("title", "") for c in self.engine.chapters}
+        
         # Find the active chapter index based on the current turn
         curr_turn = self.engine.history[turn_idx].get("turn", 1)
         active_c_idx = 0
@@ -1833,7 +1977,49 @@ class StoryTab(ctk.CTkFrame):
         
         def on_save():
             save_current_view() # Flush the active UI state to the array
-            self.engine.chapters = working_chapters # Overwrite engine state
+            
+            # --- THE BOUNDARY PATCHER ---
+            # Compare the final submitted titles against the original preserved titles
+            for new_c in working_chapters:
+                c_num = new_c.get("chapter_number")
+                s_turn = new_c.get("start_turn")
+                new_title = new_c.get("title", "").strip()
+                
+                orig_title = original_titles.get(c_num, "").strip()
+                
+                if orig_title != new_title and s_turn and s_turn > 1:
+                    
+                    # Safely locate the boundary turn by its actual turn integer, rather than array index
+                    target_turn_val = s_turn - 1
+                    b_turn = next((t for t in self.engine.history if t.get("turn") == target_turn_val), None)
+                    
+                    if b_turn:
+                        import re
+                        
+                        def patch_choice(text):
+                            if not text: return text
+                            # Only patch if it is actually the transition choice for THIS chapter
+                            if re.search(rf"^start\s*chapter\s*{c_num}\b", text, re.IGNORECASE):
+                                # Preserve narrative bridge suffix if present, e.g., "(He walked in.)"
+                                suffix = ""
+                                m = re.search(r"(\(.*?\))$", text)
+                                if m: suffix = f" {m.group(1)}"
+                                
+                                # DIRECT WHOLESALE REPLACEMENT
+                                return f"Start Chapter {c_num}: {new_title}{suffix}"
+                            return text
+
+                        # 1. Update the literal Player Choice
+                        pc = b_turn.get("player_choice", "")
+                        b_turn["player_choice"] = patch_choice(pc)
+                                
+                        # 2. Update the Green Button choices array
+                        choices = b_turn.get("choices", [])
+                        for i, choice in enumerate(choices):
+                            choices[i] = patch_choice(choice)
+                                    
+            # Overwrite engine state and commit
+            self.engine.chapters = working_chapters 
             self.engine.save_state()
             dialog.destroy()
             self.refresh_timeline(go_to_last=False)

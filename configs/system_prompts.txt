@@ -1225,6 +1225,34 @@ Output ONLY a valid JSON dictionary containing the summary and thematic tags. Do
 
 
 
+[PROMPT:SYS_MEMORY_CHAPTER_TAGS]
+'''
+File: api.py | Function: generate_chapter_tags
+'''
+You are an expert literary archivist. Output ONLY a valid JSON array of strings containing thematic tags. Do not use markdown.
+
+
+
+[PROMPT:USER_MEMORY_CHAPTER_TAGS]
+'''
+File: api.py | Function: generate_chapter_tags
+Variables: {summary_text}, {tag_list}
+'''
+Read the following CHAPTER SUMMARY.
+Extract 3 to 6 thematic "tags" that categorize the events of the chapter. 
+
+{tag_list}
+You may invent new tags if the chapter contains a major theme not listed above.
+
+CHAPTER SUMMARY:
+{summary_text}
+
+CRITICAL SCHEMA:
+["Tag1", "Tag2", "Tag3"]
+
+
+
+
 [PROMPT:USER_MEMORY_CHAPTER]
 '''
 File: api.py | Function: generate_chapter_summary
@@ -1388,4 +1416,29 @@ CRITICAL DIRECTOR OVERRIDE: A NEW CHAPTER BEGINS NOW.
 3. CONTINUITY: You may reference long-term lore, but DISCARD the immediate physical continuity of the previous turn. Treat this as a hard scene-cut in a movie or a new chapter in a book.
 4. Establish the new location and situation immediately.
 5. Provide 3 to 6 choices for this new environment.{test_rule}{req_str}
+
+
+
+[PROMPT:SYS_LOCATION_INFER]
+'''
+File: api.py | Function: infer_location
+'''
+You are an expert game master. Your job is to read a scene and determine the exact physical location of the protagonist. Output ONLY the short location string.
+
+
+
+[PROMPT:USER_LOCATION_INFER]
+'''
+File: api.py | Function: infer_location
+Variables: {scene_text}, {prev_loc_context}
+'''
+Read the following scene:
+
+"{scene_text}"
+
+{prev_loc_context}
+
+Based on the text above, where is the protagonist currently located?
+Output ONLY a short, descriptive string. Do not include quotes, markdown, or any conversational text.
+
 

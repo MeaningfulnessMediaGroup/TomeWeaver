@@ -795,6 +795,118 @@ class BaseEngine:
     # NARRATIVE SURGERY (THE TIMELINE EDITOR)
     # ---------------------------------------------------------
 
+    def import_turns(self, raw_text, insert_after_idx):
+        """
+        Parses a massive block of plaintext into structured TomeWeaver turns.
+        Automatically binds the first parsed action (or a dummy action) to the anchor turn 
+        to ensure continuity.
+        """
+        import re
+        lines = raw_text.replace('\r', '').split('\n')
+        new_turns = []
+        current_story = []
+        
+        # Inherit metadata from the anchor turn
+        base_turn = self.history[insert_after_idx] if insert_after_idx >= 0 and self.history else {}
+        curr_loc = base_turn.get("location", "Unknown")
+        curr_pov = base_turn.get("pov_character", "Unknown")
+        curr_inv = base_turn.get("inventory_and_state", "") if self.track_inventory else ""
+        
+        def format_prose(text_list):
+            raw = "\n".join(text_list).strip()
+            
+            # 1. Un-escape double quotes (Artifact of pasting raw JSON or external text)
+            raw = raw.replace('\\"', '"')
+            
+            # 2. Intelligent Spacing: Converts single newlines into proper double-newline paragraphs.
+            if '\n' in raw and '\n\n' not in raw: 
+                raw = raw.replace('\n', '\n\n')
+                
+            # 3. Clean up chaotic spacing
+            return re.sub(r'\n{3,}', '\n\n', raw)
+
+        # 1. Establish the Initial Hook (The action leading INTO the pasted text)
+        first_action = None
+        
+        # If the paste explicitly starts with a chevron or equals sign, capture it as the initial hook!
+        if lines and lines[0].strip().startswith(('>', '=')):
+            first_action = lines.pop(0).strip()[1:].strip()
+            
+        # If there is no explicit starting action, but we are appending to existing history,
+        # we MUST invent a dummy action to bridge the gap.
+        if not first_action and base_turn:
+            first_action = "[ Imported Text ]"
+
+        # Apply the hook to the anchor turn
+        if base_turn and first_action:
+            base_turn["player_choice"] = first_action
+            
+        # 2. Parse the remaining text into distinct turns
+        for line in lines:
+            if line.strip().startswith(('>', '=')):
+                # We hit an action! Finalize the current turn block.
+                action_text = line.strip()[1:].strip()
+                
+                new_turns.append({
+                    "location": curr_loc,
+                    "pov_character": curr_pov,
+                    "story_text": format_prose(current_story),
+                    "choices": [action_text] if action_text else [],
+                    "input_type": "choice",
+                    "is_game_over": False,
+                    "player_choice": action_text if action_text else None,
+                    "narrative_bridge": ""
+                })
+                if self.track_inventory: new_turns[-1]["inventory_and_state"] = curr_inv
+                current_story = []
+            else:
+                current_story.append(line)
+                
+        # 3. Catch the final trailing block of story text
+        if any(l.strip() for l in current_story):
+            new_turns.append({
+                "location": curr_loc,
+                "pov_character": curr_pov,
+                "story_text": format_prose(current_story),
+                "choices": ["Proceed forward."], 
+                "input_type": "choice",
+                "is_game_over": False,
+                "player_choice": None,
+                "narrative_bridge": ""
+            })
+            if self.track_inventory: new_turns[-1]["inventory_and_state"] = curr_inv
+                
+        if not new_turns: return False, "No valid content found to import."
+        
+        # --- SPLICE AND RE-INDEX ---
+        insert_pos = insert_after_idx + 1
+        shift_amount = len(new_turns)
+        
+        for i in range(insert_pos, len(self.history)):
+            self.history[i]["turn"] = self.history[i].get("turn", i) + shift_amount
+            
+        affected_chapters = set()
+        for c in self.chapters:
+            s_turn = c.get("start_turn")
+            e_turn = c.get("end_turn")
+            if s_turn is not None and e_turn is not None:
+                if s_turn <= (insert_pos + 1) <= e_turn: affected_chapters.add(c.get("chapter_number"))
+            if s_turn is not None and s_turn > insert_pos: c["start_turn"] += shift_amount
+            if e_turn is not None and e_turn >= insert_pos: c["end_turn"] += shift_amount
+            
+        if affected_chapters:
+            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
+            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
+            
+        start_t_val = self.history[insert_after_idx].get("turn", insert_after_idx + 1) + 1 if insert_after_idx >= 0 else 1
+        for idx, t in enumerate(new_turns):
+            t["turn"] = start_t_val + idx
+            
+        self.history[insert_pos:insert_pos] = new_turns
+        self.save_state()
+        
+        return True, f"Successfully imported {len(new_turns)} turns into the timeline!"
+        
     def insert_blank_turn(self, target_index):
         """Right-shifts history and inserts a blank card at the target index."""
         if target_index < 0 or target_index > len(self.history): return False
