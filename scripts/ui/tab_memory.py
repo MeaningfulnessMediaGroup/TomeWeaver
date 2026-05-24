@@ -4,6 +4,7 @@
     Provides a RAG (Retrieval-Augmented Generation) viewer for long-term memory.
     Displays the AI-generated Plot Summaries and the evolving Character/Location states.
 """
+import json
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
@@ -100,11 +101,9 @@ class MemoryTab(ctk.CTkFrame):
 
         def apply_compile():
             mode_selection = v_mode.get()
-            run_recon = v_recon.get()
             
             # Save preferences to setup.json so they persist
             self.engine.setup_data["last_compile_mode"] = mode_selection
-            self.engine.setup_data["auto_reconcile"] = run_recon
             from config import save_json_atomically
             save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
             
@@ -113,7 +112,7 @@ class MemoryTab(ctk.CTkFrame):
             self.winfo_toplevel().configure(cursor="watch")
             self.btn_compile.configure(state="disabled", text="Initializing...")
             
-            def on_progress(current, total):
+            def on_progress(current, total, start_t=None, end_t=None):
                 if current == "Seeding":
                     msg = "Extracting Base Lore..."
                 else:
@@ -128,6 +127,7 @@ class MemoryTab(ctk.CTkFrame):
                     if mode_selection == "verify":
                         self._show_verification_report(msg)
                     else:
+                        from tkinter import messagebox
                         messagebox.showinfo("Complete", msg)
                         
                     self._refresh_nav()
@@ -136,7 +136,6 @@ class MemoryTab(ctk.CTkFrame):
                 
             self.engine.compile_missing_memories(
                 compile_mode=mode_selection, 
-                run_reconciliation=run_recon,
                 progress_callback=on_progress, 
                 completion_callback=on_complete
             )
@@ -233,9 +232,14 @@ class MemoryTab(ctk.CTkFrame):
     def _refresh_nav(self):
         for w in self.nav_frame.winfo_children(): w.destroy()
         
-        def get_state_icon(data_obj):
+        def get_state_icon(data_obj, entity_name, scope):
             if not isinstance(data_obj, dict): return ""
-            s = data_obj.get("state", "active")
+            
+            if scope == "global" and self.engine.is_universe_thread:
+                s = self.engine.memory.get("global_states", {}).get(entity_name, {}).get("state", "archived")
+            else:
+                s = data_obj.get("state", "active")
+                
             if s == "pinned": return "📌 "
             if s == "archived": return "📦 "
             return ""
@@ -266,7 +270,7 @@ class MemoryTab(ctk.CTkFrame):
                     r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
                     r.pack(fill="x", pady=2)
                     
-                    s_icon = get_state_icon(data)
+                    s_icon = get_state_icon(data, name, scope)
                     
                     # Context-Aware Coloring: Only use colors if we are actually in a Universe!
                     if is_univ:
@@ -529,13 +533,102 @@ class MemoryTab(ctk.CTkFrame):
                     self._render_view()
                     
             btn_del = ctk.CTkButton(hdr, text="🗑️ Delete", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=delete_chunk)
-            btn_del.pack(side="right")
+            btn_del.pack(side="right", padx=(5, 0))
             
-            box = ctk.CTkTextbox(card, height=140, wrap="word", font=("Arial", 14))
+            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=(5, 0))
+            
+            btn_val = ctk.CTkButton(hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_val.pack(side="right")
+            
+            box = ctk.CTkTextbox(card, height=120, wrap="word", font=("Arial", 14))
             box.insert("1.0", chunk.get("summary", ""))
-            box.pack(fill="x", padx=15, pady=(0, 15))
+            box.pack(fill="x", padx=15, pady=(0, 5))
             
-            self.chap_ui_references.append((chunk, box))
+            tags_frame = ctk.CTkFrame(card, fg_color="transparent")
+            tags_frame.pack(fill="x", padx=15, pady=(0, 15))
+            ctk.CTkLabel(tags_frame, text="Tags:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
+            
+            tags_var = ctk.StringVar(value=", ".join(chunk.get("tags", [])))
+            ctk.CTkEntry(tags_frame, textvariable=tags_var, font=("Arial", 12), fg_color="transparent", border_width=0).pack(side="left", fill="x", expand=True, padx=5)
+
+            def get_source_text(c_num):
+                parts = [p.get('summary', '') for p in self.engine.memory.get("plot_ledger", []) if p.get("chapter_number") == c_num]
+                return "\n".join([f"Part {i+1}: {p}" for i, p in enumerate(parts)])
+                
+            def validate_chunk(c=chunk, b=box, t_var=tags_var, btn=btn_val):
+                orig_text = btn.cget("text")
+                btn.configure(state="disabled", text="...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
+                def worker():
+                    source_text = get_source_text(c.get("chapter_number"))
+                    current_json = json.dumps({"summary": b.get("1.0", "end").strip(), "tags": [t.strip() for t in t_var.get().split(",") if t.strip()]})
+                    
+                    from api import TomeWeaverAPI
+                    succ, res = TomeWeaverAPI.validate_chapter_chunk(source_text, current_json)
+                    
+                    def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        btn.configure(state="normal", text=orig_text)
+                        if succ:
+                            def trigger_patch(report_dialog):
+                                report_dialog.destroy()
+                                btn.configure(state="disabled", text="Patching...")
+                                self.winfo_toplevel().configure(cursor="watch")
+                                def patch_worker():
+                                    succ_patch, patched_data = TomeWeaverAPI.patch_chapter_chunk(source_text, current_json, res)
+                                    def post_patch_ui():
+                                        if succ_patch and isinstance(patched_data, dict):
+                                            b.delete("1.0", "end")
+                                            b.insert("1.0", patched_data.get("summary", ""))
+                                            t_var.set(", ".join(patched_data.get("tags", [])))
+                                            btn.configure(state="normal", text=orig_text)
+                                            self.winfo_toplevel().configure(cursor="")
+                                            btn.invoke() # Re-validate
+                                        else:
+                                            btn.configure(state="normal", text=orig_text)
+                                            self.winfo_toplevel().configure(cursor="")
+                                            messagebox.showerror("Patch Error", patched_data)
+                                    self.after(0, post_patch_ui)
+                                import threading
+                                threading.Thread(target=patch_worker, daemon=True).start()
+                            self._show_verification_report(res, patch_callback=trigger_patch)
+                        else:
+                            messagebox.showerror("Error", res)
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_val.configure(command=validate_chunk)
+            
+            def reroll_chunk(c=chunk, b=box, t_var=tags_var, btn=btn_reroll):
+                orig_text = btn.cget("text")
+                btn.configure(state="disabled", text="...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
+                def worker():
+                    source_text = get_source_text(c.get("chapter_number"))
+                    from api import TomeWeaverAPI
+                    
+                    # FIXED CALL:
+                    succ, res = TomeWeaverAPI.generate_chapter_summary(source_text, self.engine.setup_data)
+                    
+                    def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        btn.configure(state="normal", text=orig_text)
+                        if succ and isinstance(res, dict):
+                            b.delete("1.0", "end")
+                            b.insert("1.0", res.get("summary", ""))
+                            t_var.set(", ".join(res.get("tags", [])))
+                        else:
+                            messagebox.showerror("Error", str(res))
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+                
+            btn_reroll.configure(command=reroll_chunk)
+            self.chap_ui_references.append((chunk, box, tags_var))
 
 
     def _render_entity_editor(self, entity_name, scope, ledger_type):
@@ -558,7 +651,16 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=250, fg_color="transparent", border_width=1).pack(side="left", padx=10)
 
         # STATE TOGGLE
-        var_state = ctk.StringVar(value=active_data.get("state", "active"))
+        if scope == "global" and self.engine.is_universe_thread:
+            state_obj = self.engine.memory.get("global_states", {}).get(entity_name, {})
+            current_state = state_obj.get("state", "archived")
+            last_seen = state_obj.get("last_seen_turn", "?")
+        else:
+            current_state = active_data.get("state", "active")
+            last_seen = active_data.get("last_seen_turn", "?")
+
+        var_state = ctk.StringVar(value=current_state)
+        
         def update_state_color(*args):
             s = var_state.get()
             if s == "pinned": state_menu.configure(fg_color="#FBC02D", text_color="black")
@@ -570,7 +672,6 @@ class MemoryTab(ctk.CTkFrame):
         update_state_color()
         Tooltip(state_menu, "Active: Included in AI prompt.\nPinned: Guaranteed included in AI prompt.\nArchived: Hidden from AI to save tokens.")
         
-        last_seen = active_data.get("last_seen_turn", "?")
         btn_seen = ctk.CTkButton(
             hdr, text=f"🔍 Last Seen: Turn {last_seen}", font=("Arial", 12, "bold", "underline"),
             fg_color="transparent", text_color="#00BCD4", hover_color="#333333", height=24, width=80,
@@ -578,6 +679,7 @@ class MemoryTab(ctk.CTkFrame):
         )
         btn_seen.pack(side="left", padx=10)
 
+        
         # --- SCOPE TOGGLE (PROMOTION/DEMOTION) ---
         var_scope = ctk.StringVar(value=scope)
         is_univ = self.engine.is_universe_thread
@@ -684,75 +786,179 @@ class MemoryTab(ctk.CTkFrame):
 
         ctk.CTkButton(self.editor_frame, text="+ Add Event", fg_color="#4A4A4A", command=add_bullet).pack(pady=(5, 15))
 
+        
         # --- SAVE ENTITY BUTTON & SCOPE HANDLER ---
         def save_entity():
             target_name = entity_name
             new_name = var_entity_name.get().strip()
             new_scope = var_scope.get()
             
-            # --- SCOPE PROMOTION (LOCAL -> GLOBAL) COLLISION HANDLER ---
-            if scope == "local" and new_scope == "global":
-                if new_name in self.engine.memory[ledger_type].get("global", {}):
-                    # COLLISION DETECTED IN GLOBAL!
-                    dialog = ctk.CTkToplevel(self)
-                    dialog.title("Collision Detected")
-                    dialog.geometry("400x250")
-                    dialog.attributes("-topmost", True)
-                    dialog.grab_set()
+            is_rename = (new_name != entity_name)
+            is_promotion = (scope != new_scope)
+
+            # Abstract the Deep Rename logic so it can be called after any collision resolutions
+            def prompt_deep_rename(merged=False):
+                if is_rename:
+                    warn_msg = f"You renamed '{entity_name}' to '{new_name}'.\n\nWould you like to run a Deep Search & Replace to update all historical mentions of their old name across the actual STORY PROSE (history.json, setup.json, etc.)?"
+                    if new_scope == "global" or scope == "global": 
+                        warn_msg += "\n\n(WARNING: Because this involves a Global scope, this will scan EVERY story inside this Universe)."
                     
-                    from ui.tooltip import center_window_on_parent
-                    center_window_on_parent(dialog, self.winfo_toplevel())
+                    self.winfo_toplevel().configure(cursor="watch")
                     
-                    ctk.CTkLabel(dialog, text=f"'{new_name}' already exists in Global Memory.", font=("Arial", 14, "bold"), text_color="#F57C00").pack(pady=20)
-                    
-                    def do_merge():
-                        # Engine smart-merge
-                        master = self.engine.memory[ledger_type]["global"][new_name]
-                        local = self.engine.memory[ledger_type]["local"][entity_name]
-                        self.engine._smart_merge_traits(master["characteristics"], local.get("characteristics", {}))
-                        master["ledger"].extend(local.get("ledger", []))
-                        del self.engine.memory[ledger_type]["local"][entity_name]
-                        finalize_save(new_name, "global", merged=True)
-                        dialog.destroy()
+                    def worker():
+                        # Analyze using the OLD name to find mentions in the raw story text
+                        affected = self.engine.analyze_deep_rename(entity_name, new_scope)
                         
-                    def keep_both():
-                        # Cancel the scope change but save everything else
-                        var_scope.set("local")
-                        finalize_save(new_name, "local")
-                        dialog.destroy()
-                        
-                    ctk.CTkButton(dialog, text="Merge into Global", fg_color="#2E7D32", hover_color="#1B5E20", command=do_merge).pack(pady=5)
+                        def show_review_ui():
+                            self.winfo_toplevel().configure(cursor="")
+                            
+                            if not affected["ram"] and not affected["files"]:
+                                finalize_save(new_name, new_scope, merged)
+                                return
+                                
+                            dialog = ctk.CTkToplevel(self)
+                            dialog.title("Deep Rename Review (Story Text)")
+                            dialog.geometry("600x450")
+                            dialog.attributes("-topmost", True)
+                            dialog.grab_set()
+                            
+                            from ui.tooltip import center_window_on_parent
+                            center_window_on_parent(dialog, self.winfo_toplevel())
+                            
+                            ctk.CTkLabel(dialog, text=f"Replace '{entity_name}' -> '{new_name}' in Story", font=("Arial", 18, "bold"), text_color="#FF9800").pack(pady=(20, 10))
+                            ctk.CTkLabel(dialog, text="The engine found mentions of this name in the raw story text. Uncheck any files you do NOT want to physically modify.", wraplength=550, text_color="gray").pack(padx=20, pady=(0, 15))
+                            
+                            scroll = ctk.CTkScrollableFrame(dialog, fg_color="#2B2B2B", corner_radius=6)
+                            scroll.pack(fill="both", expand=True, padx=20, pady=5)
+                            
+                            ram_var = None
+                            if affected["ram"]:
+                                ram_var = ctk.BooleanVar(value=True)
+                                ctk.CTkCheckBox(scroll, text="Current Active Story (RAM & Local Files)", variable=ram_var, font=("Arial", 14, "bold"), text_color="#00BCD4").pack(anchor="w", padx=10, pady=10)
+                                
+                            file_vars = {}
+                            if affected["files"]:
+                                ctk.CTkLabel(scroll, text="Other Offline Stories in Universe:", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(15, 5))
+                                from api import ADV_DIR
+                                import os
+                                for f_path in affected["files"]:
+                                    var = ctk.BooleanVar(value=True)
+                                    file_vars[f_path] = var
+                                    rel_display = os.path.relpath(f_path, ADV_DIR)
+                                    ctk.CTkCheckBox(scroll, text=f"📁 {rel_display}", variable=var, font=("Arial", 13)).pack(anchor="w", padx=20, pady=5)
+                                    
+                            def execute_rename():
+                                auth_ram = ram_var.get() if ram_var else False
+                                auth_files = [f for f, var in file_vars.items() if var.get()]
+                                
+                                self.winfo_toplevel().configure(cursor="watch")
+                                dialog.destroy()
+                                
+                                def bg_exec():
+                                    self.engine.execute_deep_rename(entity_name, new_name, new_scope, auth_ram, auth_files)
+                                    self.after(0, lambda: [self.winfo_toplevel().configure(cursor=""), finalize_save(new_name, new_scope, merged)])
+                                import threading
+                                threading.Thread(target=bg_exec, daemon=True).start()
+                                
+                            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+                            btn_frame.pack(fill="x", padx=20, pady=15)
+                            
+                            # If they skip, it just finishes saving the RAG changes WITHOUT touching the story text
+                            ctk.CTkButton(btn_frame, text="Skip (Keep old name in story)", width=120, fg_color="#4A4A4A", hover_color="#333333", command=lambda: [dialog.destroy(), finalize_save(new_name, new_scope, merged)]).pack(side="left")
+                            ctk.CTkButton(btn_frame, text="Execute Rename", width=140, font=("Arial", 14, "bold"), fg_color="#E65100", hover_color="#BF360C", command=execute_rename).pack(side="right")
+                            
+                        self.after(0, show_review_ui)
+                    import threading
+                    threading.Thread(target=worker, daemon=True).start()
+                else:
+                    finalize_save(new_name, new_scope, merged)
+
+
+            # --- COLLISION HANDLER ---
+            if (is_rename or is_promotion) and new_name in self.engine.memory[ledger_type].get(new_scope, {}):
+                dialog = ctk.CTkToplevel(self)
+                dialog.title("Collision Detected")
+                dialog.geometry("400x250")
+                dialog.attributes("-topmost", True)
+                dialog.grab_set()
+                
+                from ui.tooltip import center_window_on_parent
+                center_window_on_parent(dialog, self.winfo_toplevel())
+                
+                ctk.CTkLabel(dialog, text=f"'{new_name}' already exists in {new_scope.capitalize()} Memory.", font=("Arial", 14, "bold"), text_color="#F57C00").pack(pady=20)
+                
+                def do_merge():
+                    target = self.engine.memory[ledger_type][new_scope][new_name]
+                    current = self.engine.memory[ledger_type][scope][entity_name]
+                    
+                    self.engine._smart_merge_traits(target["characteristics"], current.get("characteristics", {}))
+                    target["ledger"].extend(current.get("ledger", []))
+                    
+                    del self.engine.memory[ledger_type][scope][entity_name]
+                    dialog.destroy()
+                    # Trigger the Deep Rename on the story text now that RAG is merged!
+                    prompt_deep_rename(merged=True) 
+                    
+                def keep_both():
+                    var_scope.set("local")
+                    dialog.destroy()
+                    # It's still a rename, so trigger the prompt!
+                    prompt_deep_rename(merged=False) 
+                    
+                def overwrite_target():
+                    del self.engine.memory[ledger_type][new_scope][new_name]
+                    dialog.destroy()
+                    prompt_deep_rename(merged=False)
+                    
+                ctk.CTkButton(dialog, text="Merge into Existing", fg_color="#2E7D32", hover_color="#1B5E20", command=do_merge).pack(pady=5)
+                if is_promotion:
                     ctk.CTkButton(dialog, text="Keep Both (Local Override)", fg_color="#1F6AA5", hover_color="#144870", command=keep_both).pack(pady=5)
-                    ctk.CTkButton(dialog, text="Cancel Save", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(pady=5)
-                    return
+                ctk.CTkButton(dialog, text="Overwrite Existing", fg_color="#B71C1C", hover_color="#7F0000", command=overwrite_target).pack(pady=5)
+                ctk.CTkButton(dialog, text="Cancel Save", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(pady=5)
+                return
                     
-            # --- SCOPE DEMOTION (GLOBAL -> LOCAL) WARNING ---
             if scope == "global" and new_scope == "local":
                 if not messagebox.askyesno("Demote Entity", f"Moving '{new_name}' to Local means other stories in this Universe will no longer see them.\n\nProceed?"):
                     var_scope.set("global")
                     return
                     
-            # Proceed with normal save
-            finalize_save(new_name, new_scope)
+            prompt_deep_rename(merged=False)
 
         def finalize_save(new_name, final_scope, merged=False):
             if not merged:
-                # Move the object across dictionaries if scope or name changed
+                # Standard Move/Update
                 obj = self.engine.memory[ledger_type][scope].pop(entity_name)
                 self.engine.memory[ledger_type][final_scope][new_name] = obj
                 
-                # Apply data from UI
                 obj["characteristics"] = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
                 obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
                 obj["author_notes"] = var_notes.get("1.0", "end").strip()
-                obj["state"] = var_state.get()
+                
+                if final_scope == "global" and self.engine.is_universe_thread:
+                    self.engine.memory.setdefault("global_states", {}).setdefault(new_name, {})["state"] = var_state.get()
+                else:
+                    obj["state"] = var_state.get()
+            else:
+                # If merged, the target object already exists. We just need to apply any newly typed UI data to it!
+                target_obj = self.engine.memory[ledger_type][final_scope][new_name]
+                new_traits = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
+                self.engine._smart_merge_traits(target_obj["characteristics"], new_traits)
+                target_obj["ledger"].extend([v.get().strip() for v in bullet_vars if v.get().strip()])
+                
+                ui_notes = var_notes.get("1.0", "end").strip()
+                ex_notes = target_obj.get("author_notes", "").strip()
+                if ui_notes and ui_notes not in ex_notes:
+                    target_obj["author_notes"] = f"{ex_notes}\n\n{ui_notes}".strip()
+                    
+                if final_scope == "global" and self.engine.is_universe_thread:
+                    self.engine.memory.setdefault("global_states", {}).setdefault(new_name, {})["state"] = var_state.get()
+                else:
+                    target_obj["state"] = var_state.get()
 
             # Handle Aliases
             all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(final_scope, {}).setdefault(ledger_type, {})
-            # Remove old
             for k in list(all_aliases.keys()):
                 if all_aliases[k] == entity_name: del all_aliases[k]
-            # Add new
             for a in var_aliases.get().split(","):
                 clean_a = a.strip()
                 if clean_a: all_aliases[clean_a] = new_name
@@ -765,8 +971,55 @@ class MemoryTab(ctk.CTkFrame):
             
             messagebox.showinfo("Saved", f"'{new_name}' updated successfully.")
             self._refresh_nav()
+            self._render_view()
 
-        ctk.CTkButton(self.editor_frame, text="Save Entity Lore", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=save_entity).pack(pady=20)
+        # --- FOOTER BUTTONS ---
+        footer = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+        footer.pack(fill="x", pady=20)
+        
+        # Centering container
+        center_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        center_frame.pack(expand=True)
+
+        # 1. The Surgical Deep Scan Button
+        def trigger_deep_scan():
+            btn_scan.configure(state="disabled", text="Scanning...")
+            self.winfo_toplevel().configure(cursor="watch")
+            
+            def on_progress(current, total, start_t=None, end_t=None):
+                if start_t is not None and end_t is not None:
+                    msg = f"Scanning Turns {start_t}-{end_t}..."
+                else:
+                    msg = f"Scanning Part {current}/{total}..."
+                self.after(0, lambda: btn_scan.configure(text=msg))
+                
+            def worker():
+                succ, msg = self.engine.perform_surgical_deep_scan(entity_name, ledger_type, scope, progress_callback=on_progress)
+                def update_ui():
+                    self.winfo_toplevel().configure(cursor="")
+                    btn_scan.configure(state="normal", text="✨ Deep-Scan History")
+                    if succ:
+                        messagebox.showinfo("Deep Scan", msg)
+                        self._render_view() # Reload the UI to show the newly extracted traits/events
+                    else:
+                        messagebox.showerror("Error", msg)
+                self.after(0, update_ui)
+                
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
+            
+        btn_scan = ctk.CTkButton(
+            center_frame, text="✨ Deep-Scan History", font=("Arial", 14, "bold"),
+            fg_color="#00ACC1", hover_color="#00838F", height=36, command=trigger_deep_scan
+        )
+        btn_scan.pack(side="left", padx=10)
+        Tooltip(btn_scan, "Forces the AI to aggressively re-read every single turn of your entire history specifically searching for new lore about this entity.")
+
+        # 2. The Save Button
+        ctk.CTkButton(
+            center_frame, text="💾 Save Entity Lore", font=("Arial", 14, "bold"), 
+            fg_color="#2E7D32", hover_color="#1B5E20", height=36, command=save_entity
+        ).pack(side="left", padx=10)
         
         
     # ---------------------------------------------------------
@@ -871,8 +1124,9 @@ class MemoryTab(ctk.CTkFrame):
     def _save_chapter_ledger(self):
         """Internal logic to extract text from Chapter boxes and commit to engine."""
         if not hasattr(self, 'chap_ui_references') or not self.chap_ui_references: return
-        for chunk, box in self.chap_ui_references:
+        for chunk, box, tags_var in self.chap_ui_references:
             chunk["summary"] = box.get("1.0", "end").strip()
+            chunk["tags"] = [t.strip() for t in tags_var.get().split(",") if t.strip()]
         self.engine.save_state()
         messagebox.showinfo("Saved", "Chapter Summaries updated successfully.")
         self._render_view()

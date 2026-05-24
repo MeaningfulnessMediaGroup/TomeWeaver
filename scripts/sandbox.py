@@ -129,6 +129,7 @@ class SandboxEngine(BaseEngine):
                 memory_str += f"- {p.get('summary', '')}\n"
                 
         # Helper to format lore safely
+        # Helper to format lore safely
         def append_lore(ledger_key, title):
             res = ""
             ledger = self.memory.get(ledger_key, {})
@@ -138,12 +139,22 @@ class SandboxEngine(BaseEngine):
             if combined:
                 res += f"\nACTIVE {title}:\n"
                 for k, data in combined.items():
-                    # Extreme defensive casting: prevent UI/Save artifacts from crashing the LLM prompt
+                    # Extreme defensive casting
                     if not isinstance(data, dict): 
                         if isinstance(data, list): res += f"- {k}: {' '.join(str(i) for i in data)}\n"
                         continue
                         
-                    if data.get("state", "active") == "archived": continue
+                    # --- SCOPE-AWARE STATE CHECK ---
+                    # Determine if this entity is coming from the global bucket
+                    # If it is, read its state from the thread-local override map!
+                    is_global = k in ledger.get("global", {}) and k not in ledger.get("local", {})
+                    
+                    if is_global and getattr(self, "is_universe_thread", False):
+                        state = self.memory.get("global_states", {}).get(k, {}).get("state", "archived")
+                    else:
+                        state = data.get("state", "active")
+                        
+                    if state == "archived": continue
                     
                     traits_dict = data.get("characteristics", {})
                     if not isinstance(traits_dict, dict): traits_dict = {}
@@ -237,11 +248,9 @@ class SandboxEngine(BaseEngine):
                 expand_txt = last_action[7:].strip()
                 base_instruction = PROMPTS.get("FRAG_SANDBOX_EXPAND", "")
                 base_instruction = base_instruction.replace("{expand_txt}", expand_txt)
-            elif last_action.startswith("chapter:"):
-                # NEW: Force Chapter Tool
-                chapter_desc = last_action[8:].strip()
-                base_instruction = PROMPTS.get("FRAG_SANDBOX_FORCE_CHAPTER", "")
-                base_instruction = base_instruction.replace("{chapter_desc}", chapter_desc)
+            elif "DIRECTOR INSTRUCTION: Wrap up the current scene" in last_action:
+                # This explicitly handles the transition hook passed from the Force Chapter UI!
+                base_instruction = "Wrap up the current scene and resolve the current action cleanly. Do not start a new chapter."
             else:
                 # Standard Response
                 base_instruction = PROMPTS.get("FRAG_SANDBOX_TURN", "")
@@ -308,48 +317,42 @@ class SandboxEngine(BaseEngine):
     # HEADLESS API ENDPOINT: MANUAL CHAPTER WIZARD
     # ---------------------------------------------------------
     
-    def trigger_manual_chapter(self, prompt_desc):
+    def trigger_manual_chapter(self, chapter_data):
         """
         RESTORED CINEMATIC TRANSITION:
-        1. AI generates a catchy Title based on the prompt_desc.
-        2. Engine saves new chapter with the prompt_desc as the 'setting'.
+        1. Takes structured chapter data from the Director's UI.
+        2. Saves new chapter with explicit POV, Time, and Setting overrides.
         3. AI generates a Wrap-up for the OLD chapter with a single 'Start' choice.
         """
-        from api import TomeWeaverAPI
-        from colorama import Fore, Style
+        # --- SELF-HEALING GHOST CHAPTERS ---
+        # If the user previously forced a chapter but the AI failed to generate the transition,
+        # there might be a "ghost" chapter stuck in the array with no start_turn.
+        # We delete it so the Director's new command can proceed cleanly.
+        self.chapters = [c for c in self.chapters if c.get("start_turn") is not None]
         
-        pending = next((c for c in self.chapters if c.get("start_turn") is None), None)
-        if pending: return None
-            
-        print(f"{Fore.CYAN}Generating chapter title from setting...{Style.RESET_ALL}")
-        
-        # Step 1: Generate a punchy Title based on the user's description
-        success, generated_title = TomeWeaverAPI.generate_field_data(self.setup_data, "title", shorthand=prompt_desc)
-        if not success: 
-            generated_title = "The Next Chapter"
-        else:
-            # FORCE FLATTENING: Take only the first non-empty line and strip quotes/markdown
-            lines = [l.strip() for l in generated_title.split("\n") if l.strip()]
-            if lines:
-                generated_title = lines[0].replace('"', '').replace("'", "").replace("*", "").replace("#", "").strip()
-            else:
-                generated_title = "The Next Chapter"
-        
-        # Step 2: Store the metadata
         c_num = len(self.chapters) + 1
+        
+        # Combine Location and Synopsis into a rich setting block for the AI to parse
+        loc = chapter_data.get("location", "").strip()
+        syn = chapter_data.get("synopsis", "").strip()
+        full_setting = ""
+        if loc: full_setting += f"LOCATION: {loc}\n"
+        if syn: full_setting += f"SITUATION: {syn}"
+        
         new_chap = {
             "chapter_number": c_num,
-            "title": generated_title,
+            "title": chapter_data.get("title", f"Chapter {c_num}").strip(),
             "start_turn": None, 
-            "setting": prompt_desc, # User's raw text becomes the environment guide
-            "pov": None,
-            "time": None
+            "setting": full_setting.strip(),
+            "pov": chapter_data.get("pov", "").strip(),
+            "time": chapter_data.get("time", "").strip()
         }
+        
         self.chapters.append(new_chap)
         self.save_state()
         
-        # Step 3: Trigger the Wrap-up LLM Call
+        # Step 3: Trigger the Wrap-up LLM Call for the CURRENT scene
         # Note: We use a specific delimiter (Chapter X: Title) so our deduplication logic catches it
-        action_instruction = f"DIRECTOR INSTRUCTION: Wrap up the current scene. Provide exactly ONE choice in the 'choices' array: 'Start Chapter {c_num}: {generated_title}'"
+        action_instruction = f"DIRECTOR INSTRUCTION: Wrap up the current scene. Provide exactly ONE choice in the 'choices' array: 'Start Chapter {c_num}: {new_chap['title']}'"
         
         return self.submit_action(action_instruction)

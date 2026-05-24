@@ -67,15 +67,16 @@ class TomeWeaverApp(ctk.CTk):
     def _save_config_silently(self):
         """Helper to safely dump global config to disk."""
         try:
-            with open(ROOT_DIR / "configs" / "engine_config.json", "w", encoding="utf-8") as f:
-                json.dump(ENGINE_CONFIG, f, indent=4)
+            from config import save_json_atomically
+            save_json_atomically(ENGINE_CONFIG, ROOT_DIR / "configs" / "engine_config.json")
         except Exception:
             pass
+            
     def _save_instance_config_silently(self):
         """Helper to safely dump volatile session settings to disk."""
         try:
-            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
-                json.dump(INSTANCE_CONFIG, f, indent=4)
+            from config import save_json_atomically
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
         except Exception:
             pass
             

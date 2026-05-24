@@ -78,6 +78,22 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
         if "location" not in data:
             data["location"] = prev_turn.get("location", "Unknown")
             
+        # CHAPTER TRANSITION HEALER: 
+        pc = str(prev_turn.get("player_choice", ""))
+        if "DIRECTOR INSTRUCTION: Wrap up the current scene" in pc:
+            match = re.search(r"'(Start Chapter.*?)'", pc)
+            if match:
+                intended_choice = match.group(1)
+                # If 'choices' is missing, empty, or a hallucinated string, inject the array
+                if "choices" not in data or not isinstance(data.get("choices"), list) or not data.get("choices"):
+                    data["choices"] = [intended_choice]
+                    
+    # GENERAL MISSING CHOICES HEALER:
+    # If the AI completely forgot the choices array, inject an empty one. 
+    # It will pass validation and safely trigger the surgical Missing Choices Interceptor in base_engine.
+    if "choices" not in data or not isinstance(data.get("choices"), list):
+        data["choices"] = []
+            
     # Force Mortality rules regardless of hallucination
     if not can_die:
         data["is_game_over"] = False

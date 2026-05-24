@@ -1082,6 +1082,41 @@ Here is an example of structure to usage precisely (don't output these values, R
 
 
 
+
+[PROMPT:SYS_MEMORY_DEEP_SCAN]
+'''
+File: api.py | Function: deep_scan_entity
+'''
+You are an AI Memory Compiler performing a highly targeted extraction. Output ONLY a valid JSON dictionary containing the updated traits and events for the requested entity. Do not output conversational text.
+
+
+
+[PROMPT:USER_MEMORY_DEEP_SCAN]
+'''
+File: api.py | Function: deep_scan_entity
+Variables: {entity_name}, {current_profile}, {chunk_text}
+'''
+Read the following RAW GAMEPLAY LOG. 
+
+TASK:
+Identify any NEW significant events, or newly revealed static traits (appearance, personality, mechanics) that occurred SPECIFICALLY to the entity named "{entity_name}".
+CRITICAL: DO NOT GUESS. If a trait is not explicitly stated in the text, DO NOT invent one. Leave it out.
+Do NOT repeat traits or events already listed in the CURRENT PROFILE block below.
+
+CURRENT PROFILE FOR '{entity_name}':
+{current_profile}
+
+RAW GAMEPLAY LOG:
+{chunk_text}
+
+CRITICAL JSON SCHEMA:
+Output a single JSON object containing "event" (a 1-sentence update of what happened, or null) and "traits" (a dictionary of any NEWLY revealed static characteristics, or an empty dict {}).
+{
+  "event": "Broke his arm escaping the guards.",
+  "traits": {"Age": "34", "Appearance": "Wears a dark shadow cloak"}
+}
+
+
 [PROMPT:USER_MEMORY_SEED_FACTIONS]
 '''
 File: api.py | Function: seed_initial_memory
@@ -1185,7 +1220,8 @@ CRITICAL SCHEMA:
 '''
 File: api.py | Function: generate_chapter_summary
 '''
-You are an expert literary archivist. Your job is to read several granular "Part Summaries" of a completed chapter and condense them into a single, high-level Chapter Summary. Output ONLY the summary text.
+You are an expert literary archivist. Your job is to read several granular "Part Summaries" of a completed chapter and condense them into a single, high-level Chapter Summary. 
+Output ONLY a valid JSON dictionary containing the summary and thematic tags. Do not use markdown blocks.
 
 
 
@@ -1195,10 +1231,75 @@ File: api.py | Function: generate_chapter_summary
 Variables: {parts_text}
 '''
 Read the following Part Summaries that make up a single, completed chapter of the story.
-Write a concise, 1-to-2 paragraph high-level summary of the entire chapter. Focus on the major plot developments, key reveals, and the final state of the characters at the end of the chapter. Do not list granular turn-by-turn details.
+1. Write a concise, 1-to-2 paragraph high-level summary of the entire chapter. Focus on the major plot developments, key reveals, and the final state of the characters.
+2. Extract 3 to 6 thematic "tags" that categorize the chapter. 
+
+When extracting tags, remember to also check these standard categories if they apply:
+[{tag_list}]
+You may invent new tags if the chapter contains a major theme not listed above, but pay special attention to these pre-defined tags. Do not put a tag that is not relevant in the story.
 
 CHAPTER PARTS:
 {parts_text}
+
+CRITICAL SCHEMA:
+{
+  "summary": "The high level prose summary here.",
+  "tags": ["Tag1", "Tag2", "Tag3"]
+}
+
+
+
+[PROMPT:USER_MEMORY_CHAPTER_VALIDATE]
+'''
+File: api.py | Function: validate_chapter_chunk
+Variables: {raw_text}, {summary_text}
+'''
+Compare the CURRENT CHAPTER SUMMARY against the PLOT SUMMARIES. 
+
+PLOT SUMMARIES (Source of Truth):
+{raw_text}
+
+CURRENT CHAPTER SUMMARY AND TAGS (To be audited):
+{summary_text}
+
+TASK:
+Audit the chapter summary and tags for accuracy. You MUST ONLY use the events explicitly described in the PLOT SUMMARIES above. 
+Look for missing crucial details, fabricated details, or inaccurate details.
+
+CRITICAL JSON SCHEMA:
+Output a JSON dictionary with "score" (a string like "85/100") and "report" (a detailed, bulleted string explaining the discrepancies).
+{
+  "score": "85/100",
+  "report": "• Missing: [Detail]\n• Fabricated: [Detail]"
+}
+
+
+
+[PROMPT:USER_MEMORY_CHAPTER_PATCH]
+'''
+File: api.py | Function: patch_chapter_chunk
+Variables: {raw_text}, {current_summary}, {qa_report}
+'''
+Review the PLOT SUMMARIES, the CURRENT CHAPTER SUMMARY, and the QA REPORT.
+
+PLOT SUMMARIES (Source of Truth):
+{raw_text}
+
+CURRENT CHAPTER SUMMARY:
+{current_summary}
+
+QA REPORT:
+{qa_report}
+
+TASK:
+Rewrite the "summary" and "tags" to fix all the issues identified in the QA REPORT. 
+CRITICAL: You MUST ONLY use the events explicitly described in the PLOT SUMMARIES.
+
+CRITICAL SCHEMA:
+{
+  "summary": "The corrected high level prose summary here.",
+  "tags": ["CorrectedTag1", "CorrectedTag2"]
+}
 
 
 

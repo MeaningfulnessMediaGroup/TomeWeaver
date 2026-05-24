@@ -1302,7 +1302,7 @@ class TomeWeaverAPI:
         return False, f"Failed to generate chapter.\nReason: {err}"
         
     @staticmethod
-    def overhaul_active_story(engine, prompt_text, gen_pro, gen_epi):
+    def overhaul_active_story(engine, prompt_text, gen_pro, gen_epi, universe_lore=""):
         """
         AI Overhaul Generator. Dynamically generates world data and safely injects 
         it directly into an already-loaded engine's setup_data without touching the physical folder.
@@ -1337,9 +1337,15 @@ class TomeWeaverAPI:
         schema = schema.rstrip(",\n") + "\n}"
         
         title_str = f"TITLE: {engine.setup_data.get('title', 'Adventure')}\n"
+        
+        # Combine the user's prompt with the Universe Lore (if provided)
+        final_prompt_text = prompt_text
+        if universe_lore:
+            final_prompt_text = f"{universe_lore}\n\nUSER CONCEPT:\n{prompt_text}"
+            
         user_msg = PROMPTS.get("USER_WORLD_GEN", "")
         user_msg = user_msg.replace("{mode}", mode.upper())
-        user_msg = user_msg.replace("{prompt_text}", prompt_text)
+        user_msg = user_msg.replace("{prompt_text}", final_prompt_text)
         user_msg = user_msg.replace("{title}", title_str)
         user_msg = user_msg.replace("{schema}", schema)
         
@@ -2000,16 +2006,26 @@ class TomeWeaverAPI:
 
         
     @staticmethod
-    def generate_chapter_summary(parts_text):
+    def generate_chapter_summary(parts_text, setup_data):
         """
-        RAG Phase 1.5: Condenses multiple granular plot_ledger parts into a single Chapter Summary.
+        RAG Phase 1.5: Condenses multiple granular plot_ledger parts into a single Chapter Summary JSON with tags.
         """
         from config import ENGINE_CONFIG, PROMPTS
-        from llm import enforce_rate_limit, translate_api_error
-        import requests, time
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json
         
         sys_prompt = PROMPTS.get("SYS_MEMORY_CHAPTER", "")
-        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER", "").replace("{parts_text}", parts_text)
+        
+        # --- DYNAMIC TAG LIST INJECTION ---
+        custom_tags_raw = setup_data.get("chapter_tags", "")
+        if custom_tags_raw and str(custom_tags_raw).strip():
+            tag_str = f"When extracting tags, prioritize using these standard categories if they apply:\n[{str(custom_tags_raw).strip()}]\n"
+        else:
+            tag_str = "When extracting tags, prioritize using standard literary categories (e.g., Combat, Romance, Puzzle, Lore).\n"
+            
+        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER", "")
+        user_prompt = user_prompt.replace("{parts_text}", parts_text)
+        user_prompt = user_prompt.replace("{tag_list}", tag_str)
 
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
         headers = {"Content-Type": "application/json"}
@@ -2026,13 +2042,80 @@ class TomeWeaverAPI:
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
-                    raw = raw.strip('"\'')
-                    if raw.lower().startswith("here is"): raw = raw.split("\n", 1)[-1].strip()
-                    return True, raw
+                    
+                    # CRITICAL FIX: Route through the Fortress Sanitizer to guarantee clean JSON extraction!
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    
+                    if isinstance(data, dict): return True, data
             except Exception as e:
                 err = translate_api_error(exception=e)
                 time.sleep(2)
         return False, f"Chapter Condensation Failed:\n{err}"
+
+    @staticmethod
+    def validate_chapter_chunk(raw_text, summary_text):
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json, uuid
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_VALIDATE", "") + f"\n[ISOLATION_KEY: {uuid.uuid4()}]"
+        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER_VALIDATE", "")
+        user_prompt = user_prompt.replace("{raw_text}", raw_text)
+        user_prompt = user_prompt.replace("{summary_text}", summary_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.1, "max_tokens": ENGINE_CONFIG.get("max_tokens", 5000)
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict):
+                        return True, f"Fidelity Score: {data.get('score', '?/100')}\n\n{data.get('report', 'No report generated.')}"
+            except Exception: time.sleep(1)
+        return False, "Failed to connect to AI for validation."
+
+    @staticmethod
+    def patch_chapter_chunk(raw_text, current_summary, qa_report):
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit
+        import requests, time, json, uuid
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_CHAPTER", "") + f"\n[ISOLATION_KEY: {uuid.uuid4()}]"
+        user_prompt = PROMPTS.get("USER_MEMORY_CHAPTER_PATCH", "")
+        user_prompt = user_prompt.replace("{raw_text}", raw_text)
+        user_prompt = user_prompt.replace("{current_summary}", current_summary)
+        user_prompt = user_prompt.replace("{qa_report}", qa_report)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        for attempt in range(2):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.2, "max_tokens": ENGINE_CONFIG.get("max_tokens", 5000)
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
+                if resp.status_code == 200:
+                    raw = resp.json()['choices'][0]['message']['content'].strip()
+                    clean_json = sanitize_json(raw)
+                    data = json.loads(clean_json, strict=False)
+                    if isinstance(data, dict): return True, data
+            except Exception: time.sleep(2)
+        return False, "Patching Failed."
         
         
     @staticmethod
@@ -2097,6 +2180,63 @@ class TomeWeaverAPI:
                 continue
                 
         return False, f"Entity Extraction Failed:\n{err}"        
+        
+        
+    @staticmethod
+    def deep_scan_entity(entity_name, current_profile_str, turns_text):
+        """
+        Surgical RAG: Extracts updates for one specific entity from a block of text.
+        """
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import sanitize_json, enforce_rate_limit, translate_api_error
+        import requests, time, json
+        
+        sys_prompt = PROMPTS.get("SYS_MEMORY_DEEP_SCAN", "")
+        user_prompt = PROMPTS.get("USER_MEMORY_DEEP_SCAN", "")
+        
+        user_prompt = user_prompt.replace("{entity_name}", entity_name)
+        user_prompt = user_prompt.replace("{current_profile}", current_profile_str)
+        user_prompt = user_prompt.replace("{chunk_text}", turns_text)
+
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+            
+        err = "Unknown Error"
+        for attempt in range(3):
+            input_tokens = int(len(turns_text.split()) * 1.5)
+            dynamic_limit = min(ENGINE_CONFIG.get("max_tokens", 5000), max(500, input_tokens + 500))
+            
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages, "temperature": 0.2, "max_tokens": dynamic_limit
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
+                    time.sleep(2)
+                    continue
+                    
+                raw = resp.json()['choices'][0]['message']['content'].strip()
+                clean_json = sanitize_json(raw)
+                data = json.loads(clean_json, strict=False)
+                
+                # Validation
+                if isinstance(data, dict):
+                    if "event" not in data: data["event"] = None
+                    if "traits" not in data: data["traits"] = {}
+                    return True, data
+                    
+                err = "AI did not return a valid JSON Dictionary."
+                time.sleep(1)
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+                continue
+                
+        return False, f"Deep Scan Failed:\n{err}"
         
         
     @staticmethod

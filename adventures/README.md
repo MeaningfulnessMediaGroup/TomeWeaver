@@ -108,15 +108,17 @@ Proves the engine isn't just for fantasy and sci-fi! A perfect example of a cozy
 ## 🕹️ How to Play
 
 1. Open the TomeWeaver application.
-2. Look at the Library Dashboard.
-3. Click the **Play** button next to any of the adventures listed above.
+2. Find a story in your Library Dashboard.
+3. If it's empty, click the Download Samples button in the Dashboard or in the Create New Story drop-down menu.
+4. Click on the (**Play** button next to) any of the adventures listed above.
 
 ---
 
 ## 🏗️ Creating Your Own
 
-To start a brand new adventure, you **do not** need to create folders manually. 
+To start a brand new adventure: 
 
 1. On the Library Dashboard, click the green **+ Create New Story** dropdown in the top right.
-2. Choose **Guided Wizard** for a step-by-step setup, or **Manual** to fill out a blank template. 
-3. Once created, use the AI **🪄 Inspire** and **⟳ Reroll** buttons in the World Builder tab to flesh out your lore, characters, and settings before playing!
+2. Choose **Guided Wizard** for a step-by-step setup, **Manual** to fill out a blank template, or **Generate with AI** to start with a simple prompt. 
+3. Once created, use the AI **🪄 Inspire** and **⟳ Reroll** buttons in the World Builder tab to flesh out your lore, characters!
+4. Switch to the **Story Mode** tab to begin the adventure.

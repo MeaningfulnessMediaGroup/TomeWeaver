@@ -211,11 +211,11 @@ If you do not have a dedicated GPU, TomeWeaver supports cloud providers seamless
 The easiest way to run TomeWeaver. No Python installation or command-line knowledge is required. We provide pre-built, portable executables for Windows, macOS, and Linux.
 
 1.  Navigate to the **[Latest Releases](https://github.com/dobrado76/TomeWeaver/releases/latest)** page on GitHub.
-2.  Download the `.exe` or `.zip` file for your operating system.
+2.  Download the `.exe` file for your operating system.
 3.  The configurations will be saved along the .exe, it is recommended you create a folder for it.
 4.  Double-click the `TomeWeaver` executable to launch the app!
 
-### Option B: Windows (Automated Source Setup)
+### Option B: Windows (Run from Source Setup)
 If you prefer running from source, we provide an automated setup script that creates an isolated virtual environment and installs the UI dependencies. *(Requires Python 3.10+ installed and added to PATH)*.
 
 1a. Either **Clone the repo:**

@@ -194,7 +194,7 @@ class CampaignEngine(BaseEngine):
             for p in active_plot_ledger: 
                 memory_str += f"- {p.get('summary', '')}\n"
                 
-        # Helper to format lore safely
+        
         # Helper to format lore safely
         def append_lore(ledger_key, title):
             res = ""
@@ -205,12 +205,22 @@ class CampaignEngine(BaseEngine):
             if combined:
                 res += f"\nACTIVE {title}:\n"
                 for k, data in combined.items():
-                    # Extreme defensive casting: prevent UI/Save artifacts from crashing the LLM prompt
+                    # Extreme defensive casting
                     if not isinstance(data, dict): 
                         if isinstance(data, list): res += f"- {k}: {' '.join(str(i) for i in data)}\n"
                         continue
                         
-                    if data.get("state", "active") == "archived": continue
+                    # --- SCOPE-AWARE STATE CHECK ---
+                    # Determine if this entity is coming from the global bucket
+                    # If it is, read its state from the thread-local override map!
+                    is_global = k in ledger.get("global", {}) and k not in ledger.get("local", {})
+                    
+                    if is_global and getattr(self, "is_universe_thread", False):
+                        state = self.memory.get("global_states", {}).get(k, {}).get("state", "archived")
+                    else:
+                        state = data.get("state", "active")
+                        
+                    if state == "archived": continue
                     
                     traits_dict = data.get("characteristics", {})
                     if not isinstance(traits_dict, dict): traits_dict = {}

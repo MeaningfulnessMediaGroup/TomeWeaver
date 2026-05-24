@@ -270,7 +270,9 @@ class StoryTab(ctk.CTkFrame):
         idx = self.current_turn_idx
         turn = self.engine.history[idx]
         history_len = len(self.engine.history)
-        cheats_allowed = self.engine.setup_data.get("allow_cheats", False)
+        
+        # CRITICAL FIX: Use the engine's resolved property so Sandbox users always get Director Tools!
+        cheats_allowed = getattr(self.engine, "allow_fix_command", True)
         
         try: actual_turn = int(turn.get("turn", 0))
         except: actual_turn = 0
@@ -475,6 +477,11 @@ class StoryTab(ctk.CTkFrame):
                 btn_edit_card = ctk.CTkButton(self.story_tools, text="✎ Edit Scene", width=90, height=24, fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_edit_dialog(idx))
                 btn_edit_card.pack(side="right", padx=2)
                 
+                # The Chapter Editor is distinct from the Scene Editor
+                btn_edit_chap = ctk.CTkButton(self.story_tools, text="✎ Edit Chapter", width=95, height=24, fg_color="#4A4A4A", hover_color="#333333", command=lambda idx=idx: self._open_chapter_editor(idx))
+                btn_edit_chap.pack(side="right", padx=2)
+                
+                
             if actual_turn > 1:
                 is_start_of_chapter = active_chap.get("start_turn") == actual_turn
                 if is_start_of_chapter:
@@ -518,6 +525,7 @@ class StoryTab(ctk.CTkFrame):
                 
         if idx == history_len - 1 and not is_game_over and turn.get("player_choice") is None:
             self.text_input.configure(state="normal")
+            self.text_input.delete(0, 'end') # AGGRESSIVE CLEAR: Wipe any ghostly placeholder text
             self.btn_submit.configure(state="normal")
             self.cmd_dropdown.configure(state="normal")
         else:
@@ -637,20 +645,35 @@ class StoryTab(ctk.CTkFrame):
 
     def on_submit(self):
         if self.text_input.cget("state") == "disabled": return
-        raw_text = self.text_input.get().strip()
-        if not raw_text: return
         
+        raw_text = self.text_input.get().strip()
+        
+        # CTk Bug Fix: Filter out the literal placeholder text if Tkinter accidentally returns it
+        if raw_text == "Type a custom action or dialogue...":
+            raw_text = ""
+            
         cmd_type = self.cmd_dropdown.get() if not self.engine.is_campaign else "Standard Action"
+        
+        # Force Chapter is the ONLY command allowed to be submitted entirely blank 
+        # (It opens the modal where you can fill in the details)
+        if not raw_text and cmd_type != "Force Chapter": 
+            return
+            
         self.text_input.delete(0, 'end') 
         
+        # --- UNIVERSAL INTERCEPTOR (Dropdown + Shorthand) ---
+        is_force_chap = False
+        chap_title = ""
+        
         if cmd_type == "Force Chapter":
-            self._lock_ui("Architecting transition...")
-            def worker():
-                # Passes the raw description to be handled by the three-step engine logic
-                result = self.engine.trigger_manual_chapter(prompt_desc=raw_text)
-                self.after(0, lambda: self.refresh_timeline(go_to_last=True))
-            import threading
-            threading.Thread(target=worker, daemon=True).start()
+            is_force_chap = True
+            chap_title = raw_text
+        elif raw_text.lower().startswith("chapter:"):
+            is_force_chap = True
+            chap_title = raw_text[8:].strip() # Strip the prefix to get the title
+            
+        if is_force_chap:
+            self._show_force_chapter_dialog(chap_title)
             return
 
         # Standard routing for other commands
@@ -661,6 +684,166 @@ class StoryTab(ctk.CTkFrame):
         else: final_action = raw_text
 
         self._execute_action(final_action)
+        
+    def _show_force_chapter_dialog(self, initial_idea):
+        """Spawns a highly-tooled modal for the Director to configure a Cold Open chapter transition."""
+        try:
+            dialog = ctk.CTkToplevel(self)
+            dialog.title("Force New Chapter (Cold Open)")
+            dialog.geometry("750x650")
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+
+            from ui.tooltip import center_window_on_parent
+            center_window_on_parent(dialog, self.winfo_toplevel())
+
+            hdr = ctk.CTkFrame(dialog, fg_color="transparent")
+            hdr.pack(fill="x", padx=20, pady=(15, 5))
+            ctk.CTkLabel(hdr, text="🎬 Director: Next Chapter Setup", font=("Arial", 18, "bold"), text_color="#00BCD4").pack(side="left")
+
+            ctk.CTkLabel(dialog, text="Configure the cold open for the next chapter. The AI will completely sever continuity with the previous environment and adopt these exact parameters.", wraplength=700, text_color="gray", justify="left").pack(anchor="w", padx=20, pady=(0, 10))
+
+            scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+            scroll.pack(fill="both", expand=True, padx=20, pady=5)
+
+            c_vars = {}
+
+            def add_field(label_text, key, is_multiline=False, tooltip_text="", default_val=""):
+                f = ctk.CTkFrame(scroll, fg_color="transparent")
+                f.pack(fill="x", pady=(10, 2))
+                
+                lbl = ctk.CTkLabel(f, text=label_text, font=("Arial", 14, "bold"))
+                lbl.pack(side="left")
+                if tooltip_text: Tooltip(lbl, tooltip_text)
+                
+                if is_multiline:
+                    box_container = ctk.CTkFrame(scroll, fg_color="transparent")
+                    box_container.pack(fill="x", padx=10)
+                    box = ctk.CTkTextbox(box_container, height=80, wrap="word", font=("Arial", 14))
+                    box.insert("1.0", str(default_val))
+                    box.pack(fill="x")
+                    widget = box
+                else:
+                    var = ctk.StringVar(value=str(default_val))
+                    entry = ctk.CTkEntry(f, textvariable=var, font=("Arial", 14))
+                    entry.pack(side="left", fill="x", expand=True, padx=10)
+                    widget = var
+                    
+                # AI Tooling
+                btn_inspire = ctk.CTkButton(f, text="🪄 Inspire", width=60, height=20, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+                btn_inspire.pack(side="right", padx=2)
+                Tooltip(btn_inspire, "Expand shorthand text into a rich description.")
+                
+                btn_reroll = ctk.CTkButton(f, text="⟳ Reroll", width=60, height=20, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+                btn_reroll.pack(side="right", padx=2)
+                Tooltip(btn_reroll, "Generate a completely new, creative idea for this field.")
+                
+                def do_ai(w=widget, btn=btn_reroll, is_inspire=False):
+                    shorthand = None
+                    if is_inspire:
+                        shorthand = w.get().strip() if isinstance(w, ctk.StringVar) else w.get("1.0", "end").strip()
+                        if not shorthand:
+                            messagebox.showwarning("Missing Input", "Type some shorthand ideas in the box first to inspire the AI!")
+                            return
+                            
+                    orig_text = btn.cget("text")
+                    btn.configure(state="disabled", text="...")
+                    self.winfo_toplevel().configure(cursor="watch")
+                    
+                    def worker():
+                        from api import TomeWeaverAPI
+                        success, result = TomeWeaverAPI.generate_field_data(self.engine.setup_data, f"New Chapter {key.replace('_', ' ')}", shorthand)
+                        def update_ui():
+                            self.winfo_toplevel().configure(cursor="")
+                            btn.configure(state="normal", text=orig_text)
+                            if success:
+                                if isinstance(w, ctk.StringVar): w.set(result)
+                                else:
+                                    w.delete("1.0", "end")
+                                    w.insert("1.0", result)
+                            else:
+                                messagebox.showerror("Error", result)
+                        self.after(0, update_ui)
+                    import threading
+                    threading.Thread(target=worker, daemon=True).start()
+                    
+                btn_reroll.configure(command=lambda: do_ai(btn=btn_reroll, is_inspire=False))
+                btn_inspire.configure(command=lambda: do_ai(btn=btn_inspire, is_inspire=True))
+
+                c_vars[key] = widget
+
+            add_field("Chapter Title:", "title", default_val=initial_idea)
+            
+            row2 = ctk.CTkFrame(scroll, fg_color="transparent")
+            row2.pack(fill="x", pady=10)
+            
+            f_pov = ctk.CTkFrame(row2, fg_color="transparent")
+            f_pov.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            ctk.CTkLabel(f_pov, text="POV Character:", font=("Arial", 12, "bold")).pack(anchor="w")
+            curr_pov = self.engine.history[-1].get("pov_character", "") if self.engine.history else ""
+            c_vars["pov"] = ctk.StringVar(value=curr_pov)
+            ctk.CTkEntry(f_pov, textvariable=c_vars["pov"], font=("Arial", 14)).pack(fill="x")
+            
+            f_time = ctk.CTkFrame(row2, fg_color="transparent")
+            f_time.pack(side="right", fill="x", expand=True)
+            ctk.CTkLabel(f_time, text="Time Jump (e.g. 'Three days later'):", font=("Arial", 12, "bold")).pack(anchor="w")
+            c_vars["time"] = ctk.StringVar(value="")
+            ctk.CTkEntry(f_time, textvariable=c_vars["time"], font=("Arial", 14)).pack(fill="x")
+
+            add_field("Location / Environment:", "location", is_multiline=True, tooltip_text="The exact setting the new chapter opens in.")
+            add_field("Synopsis / Starting Situation:", "synopsis", is_multiline=True, tooltip_text="What is the protagonist doing exactly as the chapter begins?", default_val=initial_idea)
+
+            def on_submit_modal():
+                chap_data = {
+                    "title": c_vars["title"].get().strip(),
+                    "pov": c_vars["pov"].get().strip(),
+                    "time": c_vars["time"].get().strip(),
+                    "location": c_vars["location"].get("1.0", "end").strip(),
+                    "synopsis": c_vars["synopsis"].get("1.0", "end").strip()
+                }
+                
+                dialog.destroy()
+                self._lock_ui("Architecting transition...")
+                def worker():
+                    result = self.engine.trigger_manual_chapter(chap_data)
+                    
+                    def update_ui():
+                        self.refresh_timeline(go_to_last=True)
+                        if not result:
+                            messagebox.showerror("Error", "Failed to generate chapter transition.")
+                            return
+                            
+                        # CRITICAL FIX: Trigger the memory compiler check after a manual chapter transition!
+                        def on_progress(current, total):
+                            if current == "Seeding": msg = "Extracting Base Lore..."
+                            elif current == "Condensing": msg = f"{total}..."
+                            elif current == "Reconciling": msg = "Merging duplicates..."
+                            elif current == "Syncing": msg = "Recalculating Timestamps..."
+                            else: msg = f"Processing Chunk {current}/{total}..."
+                            self.after(0, lambda: self.status_var.set(f"Background Task: {msg}"))
+                            
+                        def on_complete(success, msg):
+                            self.after(0, lambda: self.status_var.set("Ready."))
+
+                        self.engine._trigger_memory_compilation(progress_callback=on_progress, completion_callback=on_complete)
+
+                    self.after(0, update_ui)
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+
+            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=20, pady=15)
+            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left")
+            
+            btn_submit = ctk.CTkButton(btn_frame, text="Submit & Wrap-up Current Scene", font=("Arial", 14, "bold"), fg_color="#00BCD4", hover_color="#0097A7", command=on_submit_modal)
+            btn_submit.pack(side="right")
+            Tooltip(btn_submit, "The AI will automatically generate the conclusion to the current chapter before starting the new one.")
+            
+        except Exception as e:
+            # If the modal crashed while trying to render, show us the exact error!
+            from tkinter import messagebox
+            messagebox.showerror("UI Crash", f"Failed to open Director Modal:\n\n{str(e)}")
+        
         
     def _execute_action(self, action_string):
         pc_exact = str(action_string).strip()
@@ -1135,9 +1318,24 @@ class StoryTab(ctk.CTkFrame):
             
             def generate_bridge_async():
                 btn_gen_br.configure(state="disabled", text="Generating...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
+                # Capture the live, unsaved story text to give the AI accurate context
+                current_story = story_box.get("1.0", "end").strip()
+                
                 def worker():
-                    b_text = self.engine.request_bridge_generation(turn_idx)
+                    # Temporarily spoof the history so the engine uses our live text
+                    actual_story = self.engine.history[turn_idx].get("story_text", "")
+                    self.engine.history[turn_idx]["story_text"] = current_story
+                    
+                    try:
+                        b_text = self.engine.request_bridge_generation(turn_idx)
+                    finally:
+                        self.engine.history[turn_idx]["story_text"] = actual_story
+                        
                     def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
+                        btn_gen_br.configure(state="normal", text="⟳ Reroll")
                         if b_text and b_text not in ["[OK]", "[FAILED]"]:
                             bridge_box.delete("1.0", "end")
                             bridge_box.insert("1.0", clean_prose(b_text))
@@ -1147,7 +1345,6 @@ class StoryTab(ctk.CTkFrame):
                         else:
                             from tkinter import messagebox
                             messagebox.showerror("Error", "Failed to generate bridge.")
-                        btn_gen_br.configure(state="normal", text="⟳ Reroll")
                     self.after(0, update_ui)
                 import threading
                 threading.Thread(target=worker, daemon=True).start()
@@ -1155,14 +1352,26 @@ class StoryTab(ctk.CTkFrame):
             def edit_bridge_async(edit_type, btn_ref):
                 current_bridge = bridge_box.get("1.0", "end").strip()
                 if not current_bridge: return
+                
+                current_story = story_box.get("1.0", "end").strip()
+                
                 orig_text = btn_ref.cget("text")
                 btn_ref.configure(state="disabled", text="Working...")
+                self.winfo_toplevel().configure(cursor="watch")
+                
                 def worker():
-                    from api import TomeWeaverAPI
-                    # Pass the Engine so the API can construct the full Narrative Sandwich + RAG Lore
-                    success, result = TomeWeaverAPI.edit_narrative_bridge(self.engine, turn_idx, current_bridge, edit_type)
+                    # Temporarily spoof the history so the engine uses our live text
+                    actual_story = self.engine.history[turn_idx].get("story_text", "")
+                    self.engine.history[turn_idx]["story_text"] = current_story
+                    
+                    try:
+                        from api import TomeWeaverAPI
+                        success, result = TomeWeaverAPI.edit_narrative_bridge(self.engine, turn_idx, current_bridge, edit_type)
+                    finally:
+                        self.engine.history[turn_idx]["story_text"] = actual_story
                     
                     def update_ui():
+                        self.winfo_toplevel().configure(cursor="")
                         btn_ref.configure(state="normal", text=orig_text)
                         if success and result:
                             clean_res = result.strip('"\'')
@@ -1186,18 +1395,59 @@ class StoryTab(ctk.CTkFrame):
         header_frame.pack(fill="x", pady=(0, 5))
         ctk.CTkLabel(header_frame, text="Story Prose:", font=("Arial", 16, "bold")).pack(side="left")
 
-        # --- RESTORED STORY TOOLS ---
-        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: [dialog.destroy(), self._trigger_polish(turn_idx)])
-        btn_p.pack(side="right", padx=2)
-        Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow in this specific card.")
+        # --- IN-PLACE STORY TOOLS (Non-Destructive) ---
+        def edit_story_async(edit_type, btn_ref):
+            current_text = story_box.get("1.0", "end").strip()
+            if not current_text: return
+            
+            orig_text = btn_ref.cget("text")
+            btn_ref.configure(state="disabled", text="Working...")
+            self.winfo_toplevel().configure(cursor="watch")
+            
+            def worker():
+                # 1. Temporarily spoof the history so the engine uses our live text from the textbox
+                actual_history_text = self.engine.history[turn_idx].get("story_text", "")
+                self.engine.history[turn_idx]["story_text"] = current_text
+                
+                draft = None
+                try:
+                    # 2. Call the standard engine generators
+                    if edit_type == "polish": draft = self.engine.request_polish(turn_idx)
+                    elif edit_type == "condense": draft = self.engine.request_condense(turn_idx)
+                    elif edit_type == "expand": draft = self.engine.request_expansion(turn_idx)
+                finally:
+                    # 3. Restore the true history instantly, regardless of success or failure
+                    self.engine.history[turn_idx]["story_text"] = actual_history_text
+                    
+                    # Discard the draft from the engine state so the Visual Diff window never pops up
+                    self.engine.cancel_draft()
+                
+                def update_ui():
+                    btn_ref.configure(state="normal", text=orig_text)
+                    self.winfo_toplevel().configure(cursor="")
+                    
+                    if draft and draft.get("story_text"):
+                        story_box.delete("1.0", "end")
+                        story_box.insert("1.0", clean_prose(draft.get("story_text", "")))
+                    else:
+                        from tkinter import messagebox
+                        messagebox.showerror("Error", f"Failed to {edit_type} story. Check console.")
+                self.after(0, update_ui)
+                
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
 
-        btn_c = ctk.CTkButton(header_frame, text="✨ Condense", width=70, height=24, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: [dialog.destroy(), self._trigger_condense(turn_idx)])
+        btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: edit_story_async("polish", btn_p))
+        btn_p.pack(side="right", padx=2)
+        Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow of the text in the box below.")
+
+        btn_c = ctk.CTkButton(header_frame, text="✨ Condense", width=70, height=24, fg_color="#3F51B5", hover_color="#303F9F", command=lambda: edit_story_async("condense", btn_c))
         btn_c.pack(side="right", padx=2)
         Tooltip(btn_c, "AI Edit: Make this prose shorter and punchier.")
         
-        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F", command=lambda: [dialog.destroy(), self._trigger_expansion(turn_idx)])
+        btn_e = ctk.CTkButton(header_frame, text="✨ Expand", width=70, height=24, fg_color="#00ACC1", hover_color="#00838F", command=lambda: edit_story_async("expand", btn_e))
         btn_e.pack(side="right", padx=2)
-        Tooltip(btn_e, "AI Expansion: Add sensory depth to this specific card.")
+        Tooltip(btn_e, "AI Expansion: Add sensory depth to the text below.")
 
         story_box = ctk.CTkTextbox(scroll, height=350, wrap="word", font=self.prose_font)
         story_box._textbox.configure(spacing2=6, font=self.prose_font)
@@ -1276,25 +1526,47 @@ class StoryTab(ctk.CTkFrame):
             pc_var = ctk.StringVar(value=turn.get("player_choice", ""))
             ctk.CTkEntry(scroll, textvariable=pc_var, font=("Arial", 14), text_color="#4CAF50").pack(fill="x", pady=(0, 15))
 
-        def on_save():
-            self.engine.history[turn_idx]["location"] = loc_var.get().strip()
-            self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
-            self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip().replace("\n", "\\n")
-            if "choices" in turn: 
-                self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in choice_rows if v.get().strip()]
-            
-            if pc_var: 
-                self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
+        def on_save(close_dialog):
+            try:
+                # 1. Apply UI data directly to the RAM dictionary (No manual escaping needed!)
+                self.engine.history[turn_idx]["location"] = loc_var.get().strip()
+                self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
+                self.engine.history[turn_idx]["story_text"] = story_box.get("1.0", "end").strip()
                 
-            if bridge_box is not None:
-                b_text = bridge_box.get("1.0", "end").strip().replace("\n", "\\n")
-                if b_text: self.engine.history[turn_idx]["narrative_bridge"] = b_text
-                elif "narrative_bridge" in self.engine.history[turn_idx]: del self.engine.history[turn_idx]["narrative_bridge"]
+                if "choices" in turn: 
+                    self.engine.history[turn_idx]["choices"] = [v.get().strip() for v in choice_rows if v.get().strip()]
+                
+                if pc_var: 
+                    self.engine.history[turn_idx]["player_choice"] = pc_var.get().strip()
+                    
+                if bridge_box is not None:
+                    b_text = bridge_box.get("1.0", "end").strip()
+                    if b_text: self.engine.history[turn_idx]["narrative_bridge"] = b_text
+                    elif "narrative_bridge" in self.engine.history[turn_idx]: del self.engine.history[turn_idx]["narrative_bridge"]
+                
+                # 2. Sync RAG visibility and commit physically to disk
+                self.engine._resync_all_visibility()
+                self.engine.save_state()
+                
+            except Exception as e:
+                messagebox.showerror("Save Error", f"Failed to save turn data: {e}")
+                return
             
-            self.engine._resync_all_visibility()
-            self.engine.save_state()
-            self._render_turn() 
-            dialog.destroy()
+            # 3. Handle UI state
+            if close_dialog:
+                dialog.destroy()
+                # Use after() to ensure the dialog is fully destroyed before the main window attempts to redraw
+                self.after(50, lambda: self.refresh_timeline(go_to_last=False))
+            else:
+                # Keep open and refresh the underlying timeline silently
+                self.refresh_timeline(go_to_last=False)
+                orig_title = dialog.title()
+                if "(Saved!)" not in orig_title:
+                    dialog.title(f"{orig_title} - (Saved!)")
+                    def reset_title():
+                        try: dialog.title(orig_title)
+                        except: pass
+                    dialog.after(2000, reset_title)
 
         def on_seed_save():
             seed_file = self.engine.adv_dir / "start_turn.json"
@@ -1303,15 +1575,28 @@ class StoryTab(ctk.CTkFrame):
                 json.dump(turn, f, indent=4)
             messagebox.showinfo("Seed Created", "This turn has been saved as the official Story Seed!\nAny new game will begin exactly here.")
 
+        # --- THE BUTTON FOOTER ---
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack(side="bottom", fill="x", pady=20, padx=20)
         
-        ctk.CTkButton(btn_row, text="Commit All Changes", font=("Arial", 14, "bold"), height=40,
-                      fg_color="#2E7D32", hover_color="#1B5E20", command=on_save).pack(side="right", padx=10)
-        
+        # Left Side
         if turn.get("turn", 0) <= 1:
-            ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=40,
+            ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=36,
                                   fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save).pack(side="left", padx=10)
+                                  
+        # Right Side (The 3-Button Editor Controls)
+        right_group = ctk.CTkFrame(btn_row, fg_color="transparent")
+        right_group.pack(side="right")
+        
+        ctk.CTkButton(right_group, text="Cancel", font=("Arial", 14), height=36, width=100,
+                      fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left", padx=5)
+                      
+        ctk.CTkButton(right_group, text="Save", font=("Arial", 14, "bold"), height=36, width=100,
+                      fg_color="#388E3C", hover_color="#1B5E20", command=lambda: on_save(False)).pack(side="left", padx=5)
+                      
+        ctk.CTkButton(right_group, text="Save & Close", font=("Arial", 14, "bold"), height=36, width=140,
+                      fg_color="#2E7D32", hover_color="#1B5E20", command=lambda: on_save(True)).pack(side="left", padx=5)
+                      
     # ---------------------------------------------------------
     # UI LOCKS AND AUTOPILOT
     # ---------------------------------------------------------
@@ -1421,3 +1706,139 @@ class StoryTab(ctk.CTkFrame):
                     import threading
                     threading.Thread(target=worker, daemon=True).start()
         self.after(0, on_init_complete)
+        
+     
+    def _open_chapter_editor(self, turn_idx):
+        """Spawns a transactional modal allowing the Director to edit chapters.json metadata."""
+        if not self.engine.chapters: return
+        
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Edit Chapter Metadata")
+        dialog.geometry("750x600")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+        
+        # 1. Clone the chapters array into memory for transactional editing
+        working_chapters = [c.copy() for c in self.engine.chapters]
+        
+        # Find the active chapter index based on the current turn
+        curr_turn = self.engine.history[turn_idx].get("turn", 1)
+        active_c_idx = 0
+        for i, c in enumerate(working_chapters):
+            s = c.get("start_turn")
+            if s is not None and s <= curr_turn:
+                active_c_idx = i
+                
+        state = {"idx": active_c_idx}
+        c_vars = {}
+
+        # --- UI LAYOUT ---
+        hdr = ctk.CTkFrame(dialog, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(15, 5))
+        lbl_hdr = ctk.CTkLabel(hdr, text="", font=("Arial", 18, "bold"), text_color="#00BCD4")
+        lbl_hdr.pack(side="left")
+
+        ctk.CTkLabel(dialog, text="Modify the structural metadata for this chapter. This will not change the story prose, but it will update the UI labels and future AI context.", wraplength=700, text_color="gray", justify="left").pack(anchor="w", padx=20, pady=(0, 10))
+
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=20, pady=5)
+
+        def add_field(label_text, key, is_multiline=False):
+            f = ctk.CTkFrame(scroll, fg_color="transparent")
+            f.pack(fill="x", pady=(10, 2))
+            ctk.CTkLabel(f, text=label_text, font=("Arial", 14, "bold")).pack(side="left")
+            
+            if is_multiline:
+                box_container = ctk.CTkFrame(scroll, fg_color="transparent")
+                box_container.pack(fill="x", padx=10)
+                box = ctk.CTkTextbox(box_container, height=80, wrap="word", font=("Arial", 14))
+                box.pack(fill="x")
+                widget = box
+            else:
+                var = ctk.StringVar()
+                entry = ctk.CTkEntry(f, textvariable=var, font=("Arial", 14))
+                entry.pack(side="left", fill="x", expand=True, padx=10)
+                widget = var
+                
+            c_vars[key] = widget
+
+        add_field("Chapter Title:", "title")
+        
+        row2 = ctk.CTkFrame(scroll, fg_color="transparent")
+        row2.pack(fill="x", pady=10)
+        
+        f_pov = ctk.CTkFrame(row2, fg_color="transparent")
+        f_pov.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ctk.CTkLabel(f_pov, text="POV Character:", font=("Arial", 12, "bold")).pack(anchor="w")
+        c_vars["pov"] = ctk.StringVar()
+        ctk.CTkEntry(f_pov, textvariable=c_vars["pov"], font=("Arial", 14)).pack(fill="x")
+        
+        f_time = ctk.CTkFrame(row2, fg_color="transparent")
+        f_time.pack(side="right", fill="x", expand=True)
+        ctk.CTkLabel(f_time, text="Time Jump:", font=("Arial", 12, "bold")).pack(anchor="w")
+        c_vars["time"] = ctk.StringVar()
+        ctk.CTkEntry(f_time, textvariable=c_vars["time"], font=("Arial", 14)).pack(fill="x")
+
+        add_field("Location / Environment:", "setting", is_multiline=True)
+        
+        # --- RENDER LOGIC ---
+        def save_current_view():
+            """Extracts text from UI and saves it to the working array in memory."""
+            c = working_chapters[state["idx"]]
+            for k, w in c_vars.items():
+                if isinstance(w, ctk.StringVar): c[k] = w.get().strip()
+                else: c[k] = w.get("1.0", "end").strip()
+                
+        def load_view(index):
+            """Loads data from the working array into the UI."""
+            c = working_chapters[index]
+            c_num = c.get("chapter_number", "?")
+            s_turn = c.get("start_turn", "?")
+            e_turn = c.get("end_turn", "Ongoing")
+            
+            lbl_hdr.configure(text=f"Editing Chapter {c_num} (Turns {s_turn} - {e_turn})")
+            
+            for k, w in c_vars.items():
+                val = str(c.get(k, ""))
+                if isinstance(w, ctk.StringVar): w.set(val)
+                else:
+                    w.delete("1.0", "end")
+                    w.insert("1.0", val)
+                    
+            btn_prev.configure(state="normal" if index > 0 else "disabled")
+            btn_next.configure(state="normal" if index < len(working_chapters) - 1 else "disabled")
+
+        # --- FOOTER BUTTONS ---
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=15)
+        
+        def on_prev():
+            save_current_view()
+            state["idx"] -= 1
+            load_view(state["idx"])
+            
+        def on_next():
+            save_current_view()
+            state["idx"] += 1
+            load_view(state["idx"])
+            
+        btn_prev = ctk.CTkButton(btn_frame, text="< Prev Chapter", width=120, fg_color="#4A4A4A", hover_color="#333333", command=on_prev)
+        btn_prev.pack(side="left")
+        
+        btn_next = ctk.CTkButton(btn_frame, text="Next Chapter >", width=120, fg_color="#4A4A4A", hover_color="#333333", command=on_next)
+        btn_next.pack(side="left", padx=10)
+        
+        def on_save():
+            save_current_view() # Flush the active UI state to the array
+            self.engine.chapters = working_chapters # Overwrite engine state
+            self.engine.save_state()
+            dialog.destroy()
+            self.refresh_timeline(go_to_last=False)
+            
+        ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(btn_frame, text="💾 Save Changes", width=140, font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=on_save).pack(side="right", padx=10)
+
+        load_view(state["idx"])

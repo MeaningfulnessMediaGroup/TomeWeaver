@@ -177,9 +177,22 @@ class CodexTab(ctk.CTkFrame):
         self.core_vars["starting_situation"] = add_field(scroll, "Starting Situation (Cold Open):", "starting_situation", "COLD_OPEN", True, tooltip_text="Sets the immediate context for Turn 1.", show_ai=True)
         self.core_vars["lore_and_rules"] = add_field(scroll, l_lore, "lore_and_rules", "LORE", True, tooltip_text="Hard rules the AI must follow.", show_ai=True)
         
-        # --- SETTINGS TOGGLES (Placed directly below Lore) ---
+        # --- NEW FIELD: CHAPTER TAGS ---
+        # Add a text entry specifically for guiding the RAG chapter summarizer
+        hdr_tags = ctk.CTkFrame(scroll, fg_color="transparent")
+        hdr_tags.pack(fill="x", pady=(10, 2))
+        lbl_tags = ctk.CTkLabel(hdr_tags, text="Preferred Chapter Tags (Comma Separated):", font=("Arial", 14, "bold"))
+        lbl_tags.pack(side="left")
+        Tooltip(lbl_tags, "These tags act as suggestions for the AI when it summarizes your completed chapters (e.g., Combat, Romance, Heist, Exploration).")
+        
+        var_tags = ctk.StringVar(value=self.engine.setup_data.get("chapter_tags", "Combat, Exploration, Dialogue, Puzzle, Lore"))
+        entry_tags = ctk.CTkEntry(hdr_tags, textvariable=var_tags, font=("Arial", 14))
+        entry_tags.pack(side="left", fill="x", expand=True, padx=10)
+        self.core_vars["chapter_tags"] = var_tags
+
+        # --- SETTINGS TOGGLES (Placed directly below Lore & Tags) ---
         settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        settings_frame.pack(fill="x", pady=(15, 20)) 
+        settings_frame.pack(fill="x", pady=(15, 20))
         
         # We must instantiate the variables FIRST so they exist in memory before the UI draws
         self.var_inv = ctk.BooleanVar(value=self.engine.setup_data.get("track_inventory", False))
@@ -191,7 +204,14 @@ class CodexTab(ctk.CTkFrame):
         switch_inv.pack(side="left", padx=(0, 20))
         
         ctk.CTkSwitch(settings_frame, text="Allow Game Over", variable=self.var_die).pack(side="left", padx=(0, 20))
-        ctk.CTkSwitch(settings_frame, text="Allow Cheats", variable=self.var_cheats).pack(side="left", padx=(0, 20))
+        
+        # Contextual Hiding: Cheats are permanently forced ON in Sandbox mode, 
+        # so we only show the toggle to Campaign users!
+        if self.engine.is_campaign:
+            switch_cheats = ctk.CTkSwitch(settings_frame, text="Allow Cheats", variable=self.var_cheats)
+            switch_cheats.pack(side="left", padx=(0, 20))
+            Tooltip(switch_cheats, "Enables the 'Edit Scene' and 'Fix' director tools during a Campaign.")
+            
         ctk.CTkSwitch(settings_frame, text="Track Factions & Orgs", variable=self.var_fac).pack(side="left", padx=(0, 20))
 
         # --- INVENTORY SCHEMA EDITOR (Placed directly below Toggles) ---

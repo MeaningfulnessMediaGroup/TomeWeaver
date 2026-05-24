@@ -374,11 +374,16 @@ def load_engine_config():
     }
     
     if not config_path.exists():
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(default_config, f, indent=4)
+        save_json_atomically(default_config, config_path)
         return default_config
     
-    config = load_json_safely(config_path, "engine_config.json")
+    try:
+        config = load_json_safely(config_path, "engine_config.json")
+        if not isinstance(config, dict): raise ValueError("Config is not a JSON object")
+    except Exception:
+        print(f"{Fore.YELLOW}Warning: engine_config.json was corrupted. Rebuilding to defaults.{Style.RESET_ALL}")
+        save_json_atomically(default_config, config_path)
+        return default_config
     
     needs_update = False
     for key, val in default_config.items():
@@ -393,13 +398,12 @@ def load_engine_config():
             needs_update = True
             
     if needs_update:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4)
+        save_json_atomically(config, config_path)
             
     return config
 
 def load_instance_config():
-    """Loads volatile session settings (Window size, last active story, last author)."""
+    """Loads volatile session settings safely. Heals the file automatically if corrupted."""
     configs_dir = ROOT_DIR / "configs"
     config_path = configs_dir / "instance_config.json"
     
@@ -407,15 +411,23 @@ def load_instance_config():
         "window_geometry": "1100x750",
         "window_state": "normal",
         "last_active_story": "",
-        "last_author": "Anonymous" # NEW: Remembers the author's pen name
+        "last_author": "Anonymous"
     }
     
+    # If missing entirely, create it
     if not config_path.exists():
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(default_config, f, indent=4)
+        save_json_atomically(default_config, config_path)
         return default_config
     
-    config = load_json_safely(config_path, "instance_config.json")
+    # If corrupted or 0 bytes, self-heal
+    try:
+        config = load_json_safely(config_path, "instance_config.json")
+        if not isinstance(config, dict): raise ValueError("Config is not a JSON object")
+    except Exception:
+        print(f"{Fore.YELLOW}Warning: instance_config.json was corrupted. Rebuilding to defaults.{Style.RESET_ALL}")
+        save_json_atomically(default_config, config_path)
+        return default_config
+        
     needs_update = False
     for key, val in default_config.items():
         if key not in config:
@@ -423,8 +435,8 @@ def load_instance_config():
             needs_update = True
             
     if needs_update:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4)
+        save_json_atomically(config, config_path)
+        
     return config
 
 

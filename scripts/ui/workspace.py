@@ -73,7 +73,15 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.t_memory = self.tabs.add("Memory & Lore") 
         
         if self.engine.is_campaign:
-            self.t_chapters = self.tabs.add("Chapter Outline")
+            from ui.tab_chapters import ChapterTab
+            self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
+            self.chapters_tab.pack(fill="both", expand=True)
+
+        # --- INTEGRITY WARNING POPUP ---
+        if getattr(self.engine, 'integrity_warnings', []):
+            # Wait half a second for the UI to fully draw before popping the modal
+            self.after(500, self._show_integrity_warnings)
+            
 
         # --- Initialize Tabs (Lazy Loading) ---
         def safe_status_update(msg):
@@ -94,6 +102,32 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.memory_tab = None
         self.chapters_tab = None
 
+    def _show_integrity_warnings(self):
+        """Displays a modal listing data corruptions caught and healed by the engine on boot."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Data Integrity Warning")
+        dialog.geometry("650x400")
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        ctk.CTkLabel(dialog, text="⚠️ Data Corruption Healed", font=("Arial", 18, "bold"), text_color="#FF9800").pack(pady=(20, 10))
+        ctk.CTkLabel(dialog, text="The engine detected invalid or hallucinated data in your memory files during boot. The corrupted entries have been safely quarantined and removed to prevent crashes.", wraplength=600).pack(padx=20, pady=(0, 15))
+
+        box = ctk.CTkTextbox(dialog, wrap="word", font=("Consolas", 13), fg_color="#1A1A1B", text_color="#FFCA28")
+        box.pack(fill="both", expand=True, padx=20, pady=5)
+        
+        for w in self.engine.integrity_warnings:
+            box.insert("end", f"• {w}\n")
+            
+        box.configure(state="disabled")
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=15)
+        ctk.CTkButton(btn_frame, text="Acknowledge", font=("Arial", 14, "bold"), fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack()
+        
     def close_workspace(self):
         """Safely shuts down the workspace and returns to the dashboard context."""
         self.console_tab.restore_stdout()

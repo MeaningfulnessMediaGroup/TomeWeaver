@@ -513,13 +513,14 @@ class DashboardFrame(ctk.CTkFrame):
 
                 if item.get("type") == "universe":
                     refs["f_mode_lbl"].configure(text="UNIVERSE", text_color="#FF9800")
-                    # CRITICAL FIX: Force Tkinter to pack this specifically BEFORE the title,
-                    # otherwise pack_forget will cause it to spawn on the far right.
                     refs["f_mode_lbl"].pack(before=refs["f_title_lbl"], side="left", padx=(0, 10))
                     
                     refs["f_title_lbl"].configure(text=item["title"])
                     cnt = item.get("thread_count", 0)
                     refs["f_count_lbl"].configure(text=f"({cnt} thread{'s' if cnt != 1 else ''})", text_color="gray", font=("Arial", 12, "italic"))
+                    
+                    # Universes get the Export to .zip option
+                    refs["f_opt_menu"].configure(values=["Options...", "Customize Icon...", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"])
                 else:
                     refs["f_mode_lbl"].pack_forget()
                     
@@ -527,7 +528,9 @@ class DashboardFrame(ctk.CTkFrame):
                     cnt = item.get("count", 0)
                     refs["f_count_lbl"].configure(text=f"({cnt} item{'s' if cnt != 1 else ''})", text_color="gray", font=("Arial", 12, "italic"))
                     
-                refs["f_opt_menu"].configure(values=["Options...", "Customize Icon...", "Rename", "Move...", "Delete", "Browse Here"])
+                    # Generic Folders do NOT get the Export option
+                    refs["f_opt_menu"].configure(values=["Options...", "Customize Icon...", "Rename", "Move...", "Delete", "Browse Here"])
+                    
                 refs["f_opt_menu"].pack(side="right", padx=15)
                 
             else:
@@ -594,10 +597,23 @@ class DashboardFrame(ctk.CTkFrame):
             "frame": card,
             "current_target": "",
             "current_title": "",
-            "is_playable": False
+            "is_playable": False,
+            "last_click_time": 0
         }
+
+        # --- RECURSIVE CLICK BINDER WITH DE-BOUNCE ---
+        # Prevents double-clicking a folder from accidentally clicking the story that spawns underneath it
+        import time
         
-        # --- SUB-CONTAINER 1: FOLDER ---
+        def bind_recursive(widget, handler):
+            """Applies the click event to the widget and every single child inside it."""
+            widget.bind("<Button-1>", handler)
+            for child in widget.winfo_children():
+                bind_recursive(child, handler)
+
+        # ==========================================
+        # SUB-CONTAINER 1: FOLDER / UNIVERSE
+        # ==========================================
         folder_container = ctk.CTkFrame(card, fg_color="transparent")
         
         folder_content = ctk.CTkFrame(folder_container, fg_color="transparent", cursor="hand2")
@@ -617,29 +633,20 @@ class DashboardFrame(ctk.CTkFrame):
         
         # Bind Folder Click
         def on_f_click(e):
-            if refs["current_target"] is not None:
-                self.change_dir(refs["current_target"])
-                
-        folder_content.bind("<Button-1>", on_f_click)
-        for c in folder_content.winfo_children():
-            c.bind("<Button-1>", on_f_click)
-        
-       # --- RECURSIVE CLICK BINDER ---
-        def bind_recursive(widget, handler):
-            """Applies the click event to the widget and every single child inside it."""
-            widget.bind("<Button-1>", handler)
-            for child in widget.winfo_children():
-                bind_recursive(child, handler)
-
-        # Bind Folder Click
-        def on_f_click(e):
+            if getattr(self, 'is_loading', False): return
+            
+            # DE-BOUNCE: Ignore clicks if less than 300ms have passed
+            current_time = time.time()
+            if current_time - refs["last_click_time"] < 0.3: return
+            refs["last_click_time"] = current_time
+            
             if refs["current_target"] is not None:
                 self.change_dir(refs["current_target"])
                 
         bind_recursive(folder_content, on_f_click)
         
         # Bind Folder Menu
-        f_opt_menu = ctk.CTkOptionMenu(folder_container, values=["Options...", "Rename", "Delete", "Browse Here"], width=110)
+        f_opt_menu = ctk.CTkOptionMenu(folder_container, values=["Options...", "Customize Icon...", "Rename", "Move...", "Delete", "Browse Here"], width=110)
         f_opt_menu.pack(side="right", padx=15, pady=10)
         
         def on_f_opt(choice):
@@ -647,8 +654,9 @@ class DashboardFrame(ctk.CTkFrame):
             self.handle_folder_option(choice, refs["current_target"], refs["current_title"])
         f_opt_menu.configure(command=on_f_opt)
         
-        
-        # --- SUB-CONTAINER 2: STORY ---
+        # ==========================================
+        # SUB-CONTAINER 2: STORY
+        # ==========================================
         story_container = ctk.CTkFrame(card, fg_color="transparent")
         
         content_frame = ctk.CTkFrame(story_container, fg_color="transparent", cursor="hand2")
@@ -678,6 +686,13 @@ class DashboardFrame(ctk.CTkFrame):
         
         # Bind Story Click
         def on_s_click(e):
+            if getattr(self, 'is_loading', False): return
+            
+            # DE-BOUNCE: Ignore clicks if less than 300ms have passed
+            current_time = time.time()
+            if current_time - refs["last_click_time"] < 0.3: return
+            refs["last_click_time"] = current_time
+            
             if refs["current_target"] and refs["is_playable"]:
                 self.app.open_workspace(refs["current_target"])
                 
@@ -688,7 +703,12 @@ class DashboardFrame(ctk.CTkFrame):
         
         btn_play = ctk.CTkButton(btn_frame, text="Play", width=80)
         btn_play.pack(side="left", padx=5)
-        btn_play.configure(command=lambda: self.app.open_workspace(refs["current_target"]) if refs["is_playable"] else None)
+        
+        def safe_play_click():
+            if getattr(self, 'is_loading', False): return
+            if refs["is_playable"]: self.app.open_workspace(refs["current_target"])
+            
+        btn_play.configure(command=safe_play_click)
         
         opt_menu = ctk.CTkOptionMenu(btn_frame, values=["Options...", "Customize Icon...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"], width=110)
         opt_menu.pack(side="left", padx=5)
@@ -707,11 +727,8 @@ class DashboardFrame(ctk.CTkFrame):
             "btn_play": btn_play, "opt_menu": opt_menu
         })
         return refs
-
-    # ---------------------------------------------------------
-    # ACTION HANDLERS
-    # ---------------------------------------------------------
-
+        
+    
     # ---------------------------------------------------------
     # ACTION HANDLERS
     # ---------------------------------------------------------
@@ -769,6 +786,14 @@ class DashboardFrame(ctk.CTkFrame):
             
         elif choice == "Customize Icon...":
             self._prompt_custom_icon(folder_path)
+            
+        elif choice == "Export to .zip":
+            # Native Save Dialog, defaulting to the Universe's display name
+            path = filedialog.asksaveasfilename(defaultextension=".zip", initialfile=f"{current_title}.zip", filetypes=[("ZIP Cartridges", "*.zip")])
+            if path:
+                success, msg = TomeWeaverAPI.export_to_zip(folder_path, path)
+                if success: messagebox.showinfo("Export Successful", f"Universe exported to:\n{path}")
+                else: messagebox.showerror("Export Failed", msg)
             
         elif choice == "Rename":
             self._show_rename_dialog(folder_path, current_title, is_folder=True)
@@ -1071,10 +1096,10 @@ class DashboardFrame(ctk.CTkFrame):
             title = v_title.get().strip()
             if not title: return
             
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
             author_val = v_author.get().strip()
             INSTANCE_CONFIG["last_author"] = author_val
-            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
-                json.dump(INSTANCE_CONFIG, f, indent=4)
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
             
             success, msg = TomeWeaverAPI.create_universe(title, author_val, v_tone.get(), t_lore.get("1.0", "end"), self.current_dir)
             if success:
@@ -1227,11 +1252,10 @@ class DashboardFrame(ctk.CTkFrame):
             title = v_title.get().strip()
             if not title: return
             
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
             author_val = v_author.get().strip()
             INSTANCE_CONFIG["last_author"] = author_val
-            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
-                json.dump(INSTANCE_CONFIG, f, indent=4)
-                
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
             
             rules_cfg = {
                 "track_inventory": v_inv.get(),
@@ -1315,14 +1339,13 @@ class DashboardFrame(ctk.CTkFrame):
         title_var.trace_add("write", check_title)
 
         def on_create():
-
             title = title_var.get().strip()
             if not title: return
             
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
             author_val = author_var.get().strip()
             INSTANCE_CONFIG["last_author"] = author_val
-            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
-                json.dump(INSTANCE_CONFIG, f, indent=4)
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
                 
             rules_cfg = {
                 "track_inventory": inv_var.get(),
@@ -1441,22 +1464,24 @@ class DashboardFrame(ctk.CTkFrame):
 
         # Submit Button
         def on_generate():
-            title = title_entry.get().strip()
+            raw_title = title_entry.get().strip()
+            title = raw_title if raw_title else "AI Draft"
             prompt = prompt_box.get("1.0", "end").strip()
             if not prompt:
                 from tkinter import messagebox
                 messagebox.showwarning("Missing Info", "Please enter an adventure concept prompt.")
                 return
 
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
             author_val = author_var.get().strip()
-            import json
             INSTANCE_CONFIG["last_author"] = author_val
-            with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
-                json.dump(INSTANCE_CONFIG, f, indent=4)
+            try:
+                save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+            except Exception: pass
 
             dialog.configure(cursor="watch") 
-            btn_gen.configure(state="disabled", text="Generating... Please wait.")
-            status_lbl.configure(text="Contacting LLM... This may take up to a minute.", text_color="#00ACC1")
+            btn_gen.configure(state="disabled", text="Saving draft & connecting...")
+            status_lbl.configure(text="Securing your draft to disk...", text_color="#00ACC1")
             
             rules_cfg = {
                 "track_inventory": inv_var.get(),
@@ -1464,10 +1489,30 @@ class DashboardFrame(ctk.CTkFrame):
                 "allow_cheats": True if mode_var.get() == "sandbox" else False
             }
             
-            def worker():
-                from api import TomeWeaverAPI
+            # --- STEP 1: CREATE THE PHYSICAL DRAFT FIRST (ZERO DATA LOSS) ---
+            # We inject the prompt directly into the setup.json file so it's immortalized on disk!
+            from api import TomeWeaverAPI
+            extra = {"ai_generation_prompt": prompt}
+            success, folder_or_err = TomeWeaverAPI.create_story(
+                title, author_val, mode_var.get(), rules_cfg, self.current_dir, extra_data=extra
+            )
+            
+            if not success:
+                from tkinter import messagebox
+                messagebox.showerror("Disk Error", f"Failed to save draft to disk: {folder_or_err}")
+                dialog.configure(cursor="") 
+                btn_gen.configure(state="normal", text="✨ Generate World")
+                status_lbl.configure(text="", text_color="white")
+                return
                 
-                # Fetch the universe lore string if the user opted in
+            folder_name = folder_or_err
+            
+            # --- STEP 2: OFF-LOAD THE AI HEAVY LIFTING TO THE BACKGROUND ---
+            def worker():
+                # Load the engine for the safe draft we just created on disk
+                engine = TomeWeaverAPI.load_engine(folder_name)
+                
+                # Fetch universe lore context if requested
                 univ_lore_str = ""
                 if read_univ_var.get() and univ_root:
                     from config import load_json_safely
@@ -1477,23 +1522,24 @@ class DashboardFrame(ctk.CTkFrame):
                     u_rules = master_setup.get("lore_and_rules", "")
                     univ_lore_str = f"UNIVERSE CONTEXT ({u_title}):\nTone: {u_tone}\nLore: {u_rules}\n"
                 
-                success, msg = TomeWeaverAPI.create_story_from_prompt(
-                    title, author_val, mode_var.get(), 
-                    prompt, gen_pro_var.get(), gen_epi_var.get(), rules_cfg, self.current_dir,
-                    universe_lore=univ_lore_str # NEW KWARG
-                )
+                # Use the OVERHAUL method to safely mutate the engine we just created
+                self.after(0, lambda: status_lbl.configure(text="Contacting LLM... This may take up to a minute."))
+                success_ai, msg = TomeWeaverAPI.overhaul_active_story(engine, prompt, gen_pro_var.get(), gen_epi_var.get(), universe_lore=univ_lore_str)
                 
                 def on_complete():
-                    if success:
+                    if success_ai:
                         dialog.destroy() 
                         self.load_data() 
-                        self.app.open_workspace(msg, target_tab="Story World") 
+                        self.app.open_workspace(folder_name, target_tab="Story World") 
                     else:
                         from tkinter import messagebox
                         dialog.configure(cursor="") 
-                        btn_gen.configure(state="normal", text="✨ Generate World")
-                        status_lbl.configure(text="Generation failed. Please edit your prompt and try again.", text_color="#F44336")
-                        messagebox.showerror("AI Generation Error", msg)
+                        btn_gen.configure(state="normal", text="✨ Try Again")
+                        status_lbl.configure(text="Connection failed. Draft safely stored in library.", text_color="#F44336")
+                        
+                        warn_msg = f"The AI failed to respond, but your prompt was safely saved to a new folder called '{title}'.\n\nEnsure LM Studio is running, open the story from your Library, and click 'Overhaul Story' to try again.\n\nError: {msg}"
+                        messagebox.showerror("AI Generation Error", warn_msg)
+                        self.load_data() # Force UI refresh so the new draft appears behind the modal!
                         
                 self.after(0, on_complete)
 

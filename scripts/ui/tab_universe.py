@@ -31,6 +31,7 @@ class UniverseTab(ctk.CTkFrame):
     # ---------------------------------------------------------
     # PART 1: CORE SETTINGS TAB
     # ---------------------------------------------------------
+
     def _build_core_settings(self):
         sticky_hdr = ctk.CTkFrame(self.tab_core, fg_color="transparent")
         sticky_hdr.pack(fill="x", padx=20, pady=(10, 0))
@@ -38,7 +39,6 @@ class UniverseTab(ctk.CTkFrame):
         btn_save = ctk.CTkButton(sticky_hdr, text="💾 Save Universe", font=("Arial", 14, "bold"), fg_color="#E65100", hover_color="#BF360C", command=self._save_core)
         btn_save.pack(side="left")
         
-        # Dynamic centered title to match Story World
         center_frame = ctk.CTkFrame(sticky_hdr, fg_color="transparent")
         center_frame.pack(side="left", expand=True)
         ctk.CTkLabel(center_frame, text="🌌 Global Universe Settings", font=("Arial", 20, "bold"), text_color="#FF9800").pack()
@@ -47,15 +47,18 @@ class UniverseTab(ctk.CTkFrame):
         btn_master_ai.pack(side="right")
         Tooltip(btn_master_ai, "Completely overhaul the global rules and tone of this Universe. (Warning: Destructive)")
 
-        scroll = ctk.CTkScrollableFrame(self.tab_core, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=20, pady=10)
+        # CRITICAL FIX: Use a standard CTkFrame so the Textbox can mathematically 'expand' 
+        # to fill the bottom of the screen without getting trapped by a Scrollable layout.
+        content_frame = ctk.CTkFrame(self.tab_core, fg_color="transparent")
+        content_frame.pack(fill="both", expand=True, padx=20, pady=10)
         
-        ctk.CTkLabel(scroll, text="Changes made here will instantly affect ALL stories inside this Universe.", text_color="#FF9800", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 15))
+        ctk.CTkLabel(content_frame, text="Changes made here will instantly affect ALL stories inside this Universe.", text_color="#FF9800", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 15))
 
         self.u_vars = {}
 
         def add_field(label_text, key, uid, is_multiline=False, tooltip_text="", show_ai=False):
-            hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+            hdr = ctk.CTkFrame(content_frame, fg_color="transparent")
+            # For the multiline box, we want its header frame to sit normally, but the BOX itself to expand.
             hdr.pack(fill="x", pady=(10, 2))
             
             lbl = ctk.CTkLabel(hdr, text=label_text, font=("Arial", 14, "bold"))
@@ -64,13 +67,13 @@ class UniverseTab(ctk.CTkFrame):
             
             val = self.engine.master_setup_data.get(key, "")
             if is_multiline:
-                # Correct Parent Structure: Create the container first, THEN create the textbox inside it
-                box_container = ctk.CTkFrame(scroll, fg_color="transparent")
-                box_container.pack(fill="x", padx=10)
+                # The container for the textbox must expand to fill the bottom of content_frame
+                box_container = ctk.CTkFrame(content_frame, fg_color="transparent")
+                box_container.pack(fill="both", expand=True, padx=10, pady=(0, 20))
                 
-                box = ctk.CTkTextbox(box_container, height=120, wrap="word", font=("Arial", 14))
+                box = ctk.CTkTextbox(box_container, wrap="word", font=("Arial", 14))
                 box.insert("1.0", val)
-                box.pack(fill="x")
+                box.pack(fill="both", expand=True)
                 widget = box
             else:
                 var = ctk.StringVar(value=val)
@@ -103,8 +106,7 @@ class UniverseTab(ctk.CTkFrame):
 
         add_field("Universe Name:", "universe_title", "TITLE", tooltip_text="The display name of your shared universe.", show_ai=True)
         
-        # 3-Column Meta Row (Author / Date)
-        av_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        av_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         av_frame.pack(fill="x", pady=(15, 0))
         
         auth_frame = ctk.CTkFrame(av_frame, fg_color="transparent")
@@ -121,14 +123,6 @@ class UniverseTab(ctk.CTkFrame):
 
         add_field("Global Tone / Atmosphere:", "tone", "TONE", tooltip_text="Sets the overarching mood for all stories.", show_ai=True)
         add_field("Global Lore & Hard Rules:", "lore_and_rules", "LORE", is_multiline=True, tooltip_text="Hard rules the AI must follow across all threads.", show_ai=True)
-
-        # --- UI LAYOUT FIX: PREVENT BOTTOM-SNAP ---
-        # When lazily loaded, Tkinter sometimes snaps scrollable frames to the bottom.
-        # This explicitly forces it back to the top once rendering is complete.
-        def snap_to_top():
-            scroll._parent_canvas.yview_moveto(0.0)
-        self.after(50, snap_to_top)
-
 
     def _save_core(self, silent=False):
         for key, widget in self.u_vars.items():
