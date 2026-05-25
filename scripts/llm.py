@@ -271,13 +271,15 @@ def sanitize_json(raw):
     block = re.sub(r',\s*"(?=\s*[\n\r]+\s*")', ',', block)
 
     # Wrap Naked Values (The 'Libby' Fix)
-    block = re.sub(
-        r'("[\w_]+"\s*:\s*)(?![ \t]*["\[\{0-9\-]|true|false|null)([a-zA-Z].*?)("\s*[,}\]])',
-        r'\1"\2\3', block, flags=re.DOTALL
-    )
+    # Comma/brace-terminated match MUST run first; the quote-terminated pass can
+    # otherwise swallow a following key (e.g. Hello world, "key2").
     block = re.sub(
         r'("[\w_]+"\s*:\s*)(?![ \t]*["\[\{0-9\-]|true|false|null)([a-zA-Z].*?)\s*(?=[,}\]])',
         r'\1"\2"', block, flags=re.DOTALL
+    )
+    block = re.sub(
+        r'("[\w_]+"\s*:\s*)(?![ \t]*["\[\{0-9\-]|true|false|null)([a-zA-Z].*?)("\s*[,}\]])',
+        r'\1"\2\3', block, flags=re.DOTALL
     )
 
     # --- 2. PRE-HEAL: Array Quote-Soup Flattener ---
@@ -345,8 +347,11 @@ def sanitize_json(raw):
             continue
             
     # --- 6. NUCLEAR FAILSAFE (REGEX REBUILDER) ---
-    # If standard surgery fails, aggressively scrape the raw string 
-    # to rebuild the JSON from scratch before giving up.
+    # If standard surgery fails, aggressively scrape the pre-healed block first
+    # (raw would discard structural fixes applied above).
+    result = _aggressive_regex_recovery(block)
+    if result != block:
+        return result
     return _aggressive_regex_recovery(raw)
 
 

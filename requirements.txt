@@ -24,3 +24,8 @@ packaging>=23.1
 
 # For processing, cropping, and caching custom folder icons (JPG/PNG)
 Pillow>=10.2.0
+
+# ==========================================
+# Testing Framework
+# ==========================================
+pytest>=8.0.0
