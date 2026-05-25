@@ -1,6 +1,4 @@
-"""
-Suites A–C: Timeline surgery, bridge ↔ turn conversion, chapter boundary math.
-"""
+"""Suites A–C: Timeline surgery, bridge/turn conversion, chapter boundary math."""
 
 
 
@@ -10,6 +8,8 @@ Suites A–C: Timeline surgery, bridge ↔ turn conversion, chapter boundary mat
 
 
 class TestInsertBlankTurn:
+    """``insert_blank_turn`` right-shifts the Master Clock and chapters."""
+
     def test_insert_blank_turn_right_shifts_history(self, engine_with_history):
         engine = engine_with_history(4)
         assert len(engine.history) == 4
@@ -63,6 +63,8 @@ class TestInsertBlankTurn:
 
 
 class TestDeleteTurn:
+    """``delete_turn`` left-shifts history and restores choice causality."""
+
     def test_delete_turn_left_shifts_history(self, engine_with_history):
         engine = engine_with_history(4)
         engine.delete_turn(2)
@@ -112,6 +114,8 @@ class TestDeleteTurn:
 
 
 class TestTurnToBridge:
+    """``convert_turn_to_bridge`` merges prose into the next bridge."""
+
     def test_turn_to_bridge_concatenates_and_deletes_turn(self, engine_with_history):
         engine = engine_with_history(3)
         engine.history[0]["narrative_bridge"] = "Opening bridge."
@@ -128,6 +132,8 @@ class TestTurnToBridge:
 
 
 class TestBridgeToTurn:
+    """``convert_bridge_to_turn`` promotes bridge text to a timeline card."""
+
     def test_bridge_to_turn_extracts_card_and_clears_bridge(self, engine_with_history):
         engine = engine_with_history(3)
         bridge_text = "The corridor stretches into darkness."
@@ -147,6 +153,8 @@ class TestBridgeToTurn:
 
 
 class TestSplitChapter:
+    """``split_chapter`` divides chapter boundaries at a turn index."""
+
     def test_split_chapter_at_turn_index(self, engine_with_history):
         engine = engine_with_history(
             6,
@@ -171,6 +179,8 @@ class TestSplitChapter:
 
 
 class TestMergeChapter:
+    """``merge_chapter_up`` absorbs chapters and clears plot ledgers."""
+
     def test_merge_chapter_absorbs_and_invalidates_rag(self, engine_with_history):
         engine = engine_with_history(
             6,

@@ -11,7 +11,15 @@ from config import save_json_atomically
 from ui.tooltip import Tooltip
 
 class UniverseTab(ctk.CTkFrame):
+    """Shared-universe settings editor (master lore and thread metadata)."""
+
     def __init__(self, parent, engine):
+        """Build universe-level codex controls bound to the active engine.
+
+        Args:
+            parent: Parent CTk container (workspace tab host).
+            engine: Loaded engine with ``is_universe_thread`` context.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         

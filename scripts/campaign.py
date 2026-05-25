@@ -18,10 +18,17 @@ from config import ENGINE_CONFIG, load_json_safely, PROMPTS
 # ---------------------------------------------------------
 
 class CampaignEngine(BaseEngine):
+    """Plot-driven engine: ``plot_outline`` objectives and automatic chapter flow."""
+
     def __init__(self, adv_dir, setup_data):
-        """
-        Initializes the Campaign Engine. Sets strict flags to enforce 
-        automatic plot-progression and disable manual chapter transitions.
+        """Initialize campaign mode flags after loading cartridge state.
+
+        Enforces automatic plot progression and disables manual chapter edits.
+        Cheat/fix commands follow ``allow_cheats`` in setup.
+
+        Args:
+            adv_dir: Adventure folder path.
+            setup_data: Parsed ``setup.json`` with ``plot_outline`` required.
         """
         super().__init__(adv_dir, setup_data)
         self.is_campaign = True

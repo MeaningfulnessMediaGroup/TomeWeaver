@@ -28,10 +28,21 @@ def get_darker_shade(hex_color, factor=0.4):
 class CTkFlowFrame(ctk.CTkFrame):
     """A custom frame that uses native packing to simulate a horizontal flow layout."""
     def __init__(self, master, **kwargs):
+        """Create a horizontal flow layout container for choice chips.
+
+        Args:
+            master: Parent CTk widget.
+            **kwargs: Forwarded to :class:`CTkFrame`.
+        """
         super().__init__(master, **kwargs)
         self.rows = []
 
     def flow(self, pill_widgets):
+        """Lay out choice pill widgets in wrapped horizontal rows.
+
+        Args:
+            pill_widgets: Iterable of CTk buttons to pack into flow rows.
+        """
         for row in self.rows: row.destroy()
         self.rows.clear()
         
@@ -80,6 +91,13 @@ class StoryTab(ctk.CTkFrame):
     Single-Page Story UI
     """
     def __init__(self, parent, engine, workspace):
+        """Build the timeline, prose viewer, and player action controls.
+
+        Args:
+            parent: Workspace tab container.
+            engine: Active headless engine instance.
+            workspace: Parent :class:`WorkspaceFrame` for cross-tab refresh.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         self.workspace = workspace
@@ -745,6 +763,7 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def on_submit(self):
+        """Submit the player's free-text or custom action to the engine."""
         if self.text_input.cget("state") == "disabled": return
         
         raw_text = self.text_input.get().strip()
@@ -1134,6 +1153,7 @@ class StoryTab(ctk.CTkFrame):
         self._update_bookmark()
             
     def on_undo(self):
+        """Revert the last committed player choice on a background worker thread."""
         self._lock_ui("Undoing last choice...")
         def worker():
             self.engine.undo()

@@ -21,15 +21,23 @@ ADV_DIR = Path("adventures")
 INDEX_FILE = ADV_DIR / "index.json"
 
 def sanitize_foldername(name):
-    """Strips illegal characters for safe OS directory creation."""
+    """Strip characters illegal on common filesystems from a folder name.
+
+    Args:
+        name: Raw title or label from the user or import flow.
+
+    Returns:
+        str: Sanitized name truncated to 60 characters.
+    """
     clean = re.sub(r'[\\/*?:"<>|]', "", name).strip()
     return clean[:60].strip()
 
 class TomeWeaverAPI:
-    
-    # ---------------------------------------------------------
-    # AUTONOMOUS INDEXING SYSTEM
-    # ---------------------------------------------------------
+    """Static facade for the desktop UI: stories, cartridges, and engine boot.
+
+    Handles adventure indexing, ZIP import/export, universe management, and
+    delegates gameplay to :class:`SandboxEngine` or :class:`CampaignEngine`.
+    """
 
     # ---------------------------------------------------------
     # AUTONOMOUS INDEXING SYSTEM
@@ -661,6 +669,15 @@ class TomeWeaverAPI:
 
     @staticmethod
     def export_to_zip(folder_name, target_zip_path):
+        """Package an adventure folder as a portable ZIP cartridge.
+
+        Args:
+            folder_name: Story folder name under ``adventures/``.
+            target_zip_path: Destination ``.zip`` path on disk.
+
+        Returns:
+            tuple[bool, str]: ``(success, message)``.
+        """
         source_dir = ADV_DIR / folder_name
         if not source_dir.exists(): return False, "Story folder not found."
         try:
@@ -677,6 +694,15 @@ class TomeWeaverAPI:
 
     @staticmethod
     def import_from_zip(zip_path):
+        """Import a ZIP cartridge into ``adventures/`` with collision-safe naming.
+
+        Args:
+            zip_path: Path to a cartridge containing ``setup.json`` and
+                ``system_prompt.txt``.
+
+        Returns:
+            tuple[bool, str]: ``(success, message_or_folder_name)``.
+        """
         try:
             with zipfile.ZipFile(zip_path, 'r') as zipf:
                 files = zipf.namelist()
@@ -1750,6 +1776,17 @@ class TomeWeaverAPI:
 
     @staticmethod
     def load_engine(folder_name):
+        """Instantiate the correct engine for a story folder.
+
+        Args:
+            folder_name: Adventure directory name under ``adventures/``.
+
+        Returns:
+            SandboxEngine | CampaignEngine: Configured headless engine.
+
+        Raises:
+            FileNotFoundError: If ``setup.json`` is missing.
+        """
         target_dir = ADV_DIR / folder_name
         setup_file = target_dir / "setup.json"
         if not setup_file.exists(): raise FileNotFoundError(f"setup.json missing from '{folder_name}'.")
@@ -2143,6 +2180,15 @@ class TomeWeaverAPI:
         
     @staticmethod
     def validate_chapter_chunk(raw_text, summary_text):
+        """QA a chapter memory summary against raw history text (RAG phase).
+
+        Args:
+            raw_text: Source turns prose for the chapter chunk.
+            summary_text: Existing condensed summary to validate.
+
+        Returns:
+            tuple[bool, dict | str]: ``(success, qa_report_or_error)``.
+        """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import sanitize_json, enforce_rate_limit, translate_api_error
         import requests, time, json, uuid
@@ -2175,6 +2221,16 @@ class TomeWeaverAPI:
 
     @staticmethod
     def patch_chapter_chunk(raw_text, current_summary, qa_report):
+        """Rewrite a chapter summary using QA feedback (RAG repair pass).
+
+        Args:
+            raw_text: Source turns prose for the chapter chunk.
+            current_summary: Summary text to revise.
+            qa_report: Validation output from :meth:`validate_chapter_chunk`.
+
+        Returns:
+            tuple[bool, dict | str]: ``(success, patched_summary_or_error)``.
+        """
         from config import ENGINE_CONFIG, PROMPTS
         from llm import sanitize_json, enforce_rate_limit
         import requests, time, json, uuid

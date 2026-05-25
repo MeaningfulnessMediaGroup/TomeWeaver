@@ -7,13 +7,15 @@ import sys
 import os
 import ctypes
 
-# --- CRITICAL FAILSAFE FOR --noconsole MODE ---
-# In PyInstaller --noconsole mode, sys.stdout and sys.stderr are None.
-# Any print() call during the import/loading phase will crash the app.
-# We redirect them to a dummy "Null" stream immediately to prevent crashes.
+# PyInstaller --noconsole: stdout/stderr may be None; redirect before any print().
 class NullStream:
-    def write(self, text): pass
-    def flush(self): pass
+    """No-op stream for PyInstaller ``--noconsole`` builds where stdout is None."""
+
+    def write(self, text):
+        """Discard written text (stdout/stderr compatibility shim)."""
+
+    def flush(self):
+        """No-op flush required by the stream protocol."""
 
 if sys.stdout is None: sys.stdout = NullStream()
 if sys.stderr is None: sys.stderr = NullStream()

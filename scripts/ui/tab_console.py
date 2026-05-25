@@ -17,6 +17,12 @@ class ConsoleRedirector:
     and applies native UI color tags on the fly.
     """
     def __init__(self, text_widget, status_callback=None):
+        """Capture stdout and render ANSI-colored lines into a text widget.
+
+        Args:
+            text_widget: Tk ``Text`` widget receiving redirected output.
+            status_callback: Optional ``(message)`` hook for the status bar.
+        """
         self.text_widget = text_widget
         self.original_stdout = sys.stdout
         self.status_callback = status_callback
@@ -80,6 +86,13 @@ class ConsoleTab(ctk.CTkFrame):
     Developer Console Tab
     """
     def __init__(self, parent, engine, status_callback=None):
+        """Build the developer console tab and attach :class:`ConsoleRedirector`.
+
+        Args:
+            parent: Workspace tab container.
+            engine: Active engine (for log context paths).
+            status_callback: Optional status bar updater.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         

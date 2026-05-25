@@ -14,9 +14,13 @@ from pathlib import Path
 # ---------------------------------------------------------
 
 def log_event(adv_dir, message):
-    """
-    Appends a standard system or user event to the session log 
-    with a timestamp. Bypassed if logging_enabled is False.
+    """Append a timestamped system or user event to ``session_log.txt``.
+
+    Args:
+        adv_dir: Adventure folder path (log file lives beside cartridge JSON).
+        message: Single-line event description.
+
+    No-op when ``ENGINE_CONFIG['logging_enabled']`` is ``False``.
     """
     from config import ENGINE_CONFIG
     if not ENGINE_CONFIG.get("logging_enabled", True): return
@@ -32,10 +36,16 @@ def log_event(adv_dir, message):
 # ---------------------------------------------------------
 
 def log_llm_interaction(adv_dir, messages, response_raw, error=None, attempt=1):
-    """
-    Logs the raw interactions with the LLM API. Specifically designed to 
-    capture JSON syntax errors, rate limits, and full prompts based on 
-    the verbosity settings in engine_config.json.
+    """Log LLM request/response diagnostics for debugging failed generations.
+
+    Args:
+        adv_dir: Adventure folder path for ``session_log.txt``.
+        messages: Chat payload sent to the API.
+        response_raw: Raw model output string.
+        error: Optional exception or error message when the call failed.
+        attempt: Retry attempt number (1-based).
+
+    Respects ``log_verbose`` and ``log_raw_json_on_failure`` in engine config.
     """
     from config import ENGINE_CONFIG
     if not ENGINE_CONFIG.get("logging_enabled", True): return

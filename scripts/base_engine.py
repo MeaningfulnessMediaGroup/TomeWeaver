@@ -22,12 +22,28 @@ from llm import get_llm_response, generate_recap
 # ---------------------------------------------------------
 
 class BaseEngine:
+    """Headless game engine: state, timeline surgery, RAG memory, and LLM turns.
+
+    Subclasses (:class:`SandboxEngine`, :class:`CampaignEngine`) implement
+    prompt construction and mode-specific hooks. The GUI calls public
+    ``Endpoint:`` methods; private ``_`` helpers handle generation internals.
+    """
 
     # ---------------------------------------------------------
     # CONSTRUCTOR
     # ---------------------------------------------------------
 
     def __init__(self, adv_dir, setup_data):
+        """Load cartridge files and build the in-memory split-brain memory model.
+
+        Args:
+            adv_dir: Path to the adventure folder (must contain ``system_prompt.txt``).
+            setup_data: Parsed ``setup.json`` dictionary for this story.
+
+        Raises:
+            FileNotFoundError: If ``system_prompt.txt`` is missing.
+            ValueError: If on-disk JSON fails validation during load.
+        """
         self.adv_dir = Path(adv_dir)
         self.setup_data = setup_data
         
@@ -178,10 +194,11 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def resync_master_clock(self):
-        """
-        Scans history and ensures all turn numbers are strictly sequential.
-        Uses the first turn's number as the anchor to preserve user preference 
-        while fixing duplicates and gaps caused by manual JSON edits.
+        """Re-number ``history`` turns sequentially from the first turn's anchor.
+
+        Preserves the user's chosen starting turn number while fixing gaps or
+        duplicates introduced by manual ``history.json`` edits. Persists when
+        changes are made.
         """
         if not self.history: return
         try: start_num = int(self.history[0].get("turn", 0))
@@ -200,9 +217,11 @@ class BaseEngine:
             self.save_state()
 
     def load_chapters(self):
-        """
-        Loads the chapters.json file. If it does not exist, it initializes 
-        a default chapter structure to track pacing and transitions.
+        """Load ``chapters.json`` or create a default single-chapter scaffold.
+
+        Returns:
+            list[dict]: Chapter metadata (``chapter_number``, ``title``,
+            ``start_turn``, ``end_turn``, plus mode-specific fields).
         """
         chapters_file = self.adv_dir / "chapters.json"
         if not chapters_file.exists():
@@ -219,9 +238,10 @@ class BaseEngine:
 
 
     def save_state(self):
-        """
-        Commits the current history, chapters, and memory state to the disk using atomic writes, 
-        ensuring that player progress is safely and persistently stored without corruption risk.
+        """Persist history, chapters, and memory via atomic JSON writes.
+
+        Flattens the runtime dual-tier memory (local/global ledgers) back into
+        ``memory.json`` and, for universe threads, ``shared_memory.json``.
         """
         import time
         self.last_save_time = time.time() # Used by the UI to detect background updates
@@ -257,7 +277,11 @@ class BaseEngine:
             
 
     def get_next_turn_number(self):
-        """Returns the next sequential turn number based on the history ledger."""
+        """Return the turn number for the next generated or edited card.
+
+        Returns:
+            int: Next turn id, or ``0`` when history is empty.
+        """
         if not self.history: return 0
         
         # If we are editing a historical turn, return that specific turn's number
@@ -273,15 +297,35 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def build_messages(self, target_turn):
-        """Constructs the LLM prompt payload. Implemented by Sandbox/Campaign."""
+        """Build the LLM chat ``messages`` list for a target turn (subclass hook).
+
+        Args:
+            target_turn: 1-based turn number to generate or revise.
+
+        Raises:
+            NotImplementedError: If called on the abstract base class.
+        """
         raise NotImplementedError("Must be implemented by child class")
 
     def post_generation_hook(self, turn_data):
-        """Allows child classes to inject logic immediately after LLM generation."""
-        pass 
+        """Run mode-specific logic after a turn is accepted (subclass hook).
+
+        Args:
+            turn_data: Newly committed turn dictionary.
+        """
+        pass
 
     def process_custom_command(self, cmd_key, cmd_val):
-        """Intercepts mode-specific commands (e.g., Sandbox Chapter Wizard)."""
+        """Handle mode-specific UI commands (subclass hook).
+
+        Args:
+            cmd_key: Command identifier from the GUI.
+            cmd_val: Optional payload for the command.
+
+        Returns:
+            tuple[bool, Any]: ``(handled, result)``; base implementation is
+            ``(False, None)``.
+        """
         return False, None
 
 
@@ -290,10 +334,10 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def initialize_game(self):
-        """
-        Endpoint: Called by the GUI when a story is loaded.
-        Returns the current turn to display. If the story is brand new, 
-        it handles Prologue/Seed logic or generates Turn 1.
+        """Endpoint: boot or resume a story when the GUI opens a cartridge.
+
+        Returns:
+            dict | None: Latest (or first generated) turn object for the UI.
         """
         print(f"{Fore.CYAN}Initializing Engine: {self.setup_data.get('title', 'Unknown')}...{Style.RESET_ALL}")
         
@@ -405,9 +449,13 @@ class BaseEngine:
 
 
     def submit_action(self, player_choice):
-        """
-        Endpoint: Called by the GUI when the player selects or types an action.
-        Commits the choice, generates the next turn, and returns the new state.
+        """Endpoint: commit a player choice and generate the next turn.
+
+        Args:
+            player_choice: Selected or typed action string from the UI.
+
+        Returns:
+            dict | None: New turn data, or ``None`` for meta-only commands.
         """
         from logger import log_event
         if not self.history: return None
@@ -469,7 +517,11 @@ class BaseEngine:
     # then calls commit_draft() or cancel_draft().
 
     def redo_turn(self):
-        """Endpoint: Destructively pops the current turn and immediately commits a completely new one."""
+        """Endpoint: pop the latest turn and generate a full replacement.
+
+        Returns:
+            dict | None: Newly generated turn, or ``None`` if history is empty.
+        """
         from logger import log_event
         if len(self.history) == 0: return None
         
@@ -669,7 +721,14 @@ class BaseEngine:
         return draft
 
     def commit_draft(self, draft_turn):
-        """Endpoint: Accepts the drafted turn and permanently saves it to history."""
+        """Endpoint: accept an edited/generated draft and persist it to history.
+
+        Args:
+            draft_turn: Turn dict to commit (runs :meth:`post_generation_hook`).
+
+        Returns:
+            dict: The committed turn now stored in ``self.history``.
+        """
         idx = getattr(self, 'backup_turn_idx', len(self.history)-1)
         
         # Run mechanical logic (goals/chapter tracking) on the draft
@@ -724,7 +783,11 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def undo(self):
-        """Endpoint: Pops the last turn and reverts the previous choice."""
+        """Endpoint: remove the latest turn and clear the prior ``player_choice``.
+
+        Returns:
+            dict | None: Turn now at the timeline tail, or ``None`` if undo failed.
+        """
         from logger import log_event
         if len(self.history) > 1:
             log_event(self.adv_dir, "Command: UNDO (User backtracked via GUI)")
@@ -908,7 +971,18 @@ class BaseEngine:
         return True, f"Successfully imported {len(new_turns)} turns into the timeline!"
         
     def insert_blank_turn(self, target_index):
-        """Right-shifts history and inserts a blank card at the target index."""
+        """Insert a director blank card and right-shift the Master Clock.
+
+        Migrates ``player_choice`` from the preceding turn when inserting
+        mid-timeline, shifts chapter boundaries, and invalidates plot/chapter
+        ledgers for affected chapters.
+
+        Args:
+            target_index: 0-based index in ``self.history`` where the blank is inserted.
+
+        Returns:
+            bool: ``True`` if the insert succeeded, else ``False``.
+        """
         if target_index < 0 or target_index > len(self.history): return False
         
         target_turn_val = self.history[target_index].get("turn", target_index + 1) if target_index < len(self.history) else len(self.history) + 1
@@ -968,7 +1042,18 @@ class BaseEngine:
         return True
 
     def delete_turn(self, target_index, pop_bridge=True):
-        """Deletes a turn and left-shifts history, preserving choice continuity."""
+        """Delete a turn, left-shift the Master Clock, and preserve causality.
+
+        Restores ``player_choice`` onto the preceding turn. Optionally clears
+        the following turn's ``narrative_bridge`` (skipped during turn-to-bridge).
+
+        Args:
+            target_index: 0-based index of the turn to remove.
+            pop_bridge: If ``True``, strip the next card's bridge after the splice.
+
+        Returns:
+            bool: ``True`` if the delete succeeded, else ``False``.
+        """
         if target_index < 0 or target_index >= len(self.history): return False
         
         # 1. Capture causality before removal
@@ -1160,9 +1245,16 @@ class BaseEngine:
         return True
         
     def convert_turn_to_bridge(self, target_index):
-        """
-        Collapses the target turn FORWARD into the NEXT turn's narrative bridge.
-        The target turn is then deleted via a protected-bridge delete.
+        """Collapse a turn into the next card's ``narrative_bridge`` and delete it.
+
+        Concatenates prior bridge, story prose, and next bridge, then calls
+        :meth:`delete_turn` with ``pop_bridge=False``.
+
+        Args:
+            target_index: 0-based index of the turn to collapse (not the last turn).
+
+        Returns:
+            bool: ``True`` on success.
         """
         if target_index < 0 or target_index >= len(self.history) - 1: return False
         
@@ -1186,9 +1278,16 @@ class BaseEngine:
 
 
     def convert_bridge_to_turn(self, target_index):
-        """
-        Extracts the bridge into its own card. Relies on insert_blank_turn 
-        for causality and then overwrites prose.
+        """Promote ``narrative_bridge`` text into a new timeline turn card.
+
+        Uses :meth:`insert_blank_turn` for choice migration, sets the prior
+        choice to ``[ Timeline Expanded ]``, and clears the source bridge.
+
+        Args:
+            target_index: 0-based index of the turn holding the bridge text.
+
+        Returns:
+            bool: ``True`` on success.
         """
         if target_index <= 0 or target_index >= len(self.history): return False
         
@@ -1211,7 +1310,15 @@ class BaseEngine:
         return True
         
     def split_chapter(self, target_index):
-        """Splits the active chapter in two at the specified target_index turn."""
+        """Split the active chapter at a history index and re-index chapter numbers.
+
+        Args:
+            target_index: 0-based history index where the new chapter begins
+                (must be strictly between ``0`` and ``len(history) - 1``).
+
+        Returns:
+            bool: ``True`` on success.
+        """
         if target_index <= 0 or target_index >= len(self.history): return False
         
         target_turn_val = self.history[target_index].get("turn", target_index + 1)
@@ -1247,7 +1354,14 @@ class BaseEngine:
         return True
         
     def merge_chapter_up(self, chapter_number):
-        """Merges a chapter backwards into the chapter immediately preceding it."""
+        """Merge a chapter into its predecessor and invalidate RAG ledgers.
+
+        Args:
+            chapter_number: 1-based chapter number to absorb (must be ``> 1``).
+
+        Returns:
+            bool: ``True`` on success.
+        """
         if chapter_number <= 1 or chapter_number > len(self.chapters): return False
         
         idx = chapter_number - 1
@@ -1462,7 +1576,12 @@ class BaseEngine:
         self.save_state()
 
     def _update_entity_visibility(self, current_turn, text_to_scan):
-        """Python text scanner that auto-archives entities not seen in X turns, and revives them if mentioned."""
+        """Archive or revive entities based on mention scan at a single turn.
+
+        Args:
+            current_turn: Master Clock turn number for this scan.
+            text_to_scan: Combined prose/location/bridge text to match against.
+        """
         import re
         threshold = ENGINE_CONFIG.get("memory_decay_threshold", 40)
         text_lower = text_to_scan.lower()
@@ -1524,7 +1643,11 @@ class BaseEngine:
             
             
     def _resync_all_visibility(self):
-        """Pure Python full-history sweep to definitively guarantee accurate last_seen_turn and states per-thread."""
+        """Janitor: full-history sweep of ``last_seen_turn`` and active/archived state.
+
+        Called after draft commits and other bulk edits. Uses
+        ``ENGINE_CONFIG['memory_decay_threshold']`` for archive cutoff.
+        """
         import re
         threshold = ENGINE_CONFIG.get("memory_decay_threshold", 40)
         max_turn = len(self.history)
@@ -1691,10 +1814,14 @@ class BaseEngine:
             
             
     def _smart_merge_traits(self, existing_traits, new_traits):
-        """
-        Intelligently merges new AI-generated traits into an existing dictionary.
-        Actively forces list-style data into Plural keys (Friend -> Friends, Ally -> Allies)
-        and seamlessly upgrades existing singular keys when collisions occur.
+        """Merge AI-extracted traits without data loss (pluralizes list-like keys).
+
+        Mutates ``existing_traits`` in place. Collides singular/plural keys
+        (e.g. Friend/Friends) and appends distinct values for relation-like fields.
+
+        Args:
+            existing_traits: Target characteristics dict on an entity.
+            new_traits: New key/value pairs from compilation or deep scan.
         """
         if not isinstance(new_traits, dict) or not isinstance(existing_traits, dict): return
         

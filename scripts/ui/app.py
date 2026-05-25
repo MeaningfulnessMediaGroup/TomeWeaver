@@ -19,6 +19,11 @@ class TomeWeaverApp(ctk.CTk):
     Root Application
     """
     def __init__(self, startup_story=None):
+        """Initialize the root window and route to dashboard or a story workspace.
+
+        Args:
+            startup_story: Optional adventure folder name from ``gui.py`` argv.
+        """
         super().__init__()
 
         self.title("TomeWeaver")

@@ -1,6 +1,4 @@
-"""
-Suite E: Dual-tiered RAG — local/global scope and memory decay janitor.
-"""
+"""Suite E: Dual-tiered RAG — local/global scope and memory decay janitor."""
 
 import pytest
 
@@ -8,8 +6,9 @@ from conftest import make_turn, write_json
 
 
 class TestRagLocalOverride:
+    """Local entity buckets shadow global names without deleting shared data."""
+
     def test_rag_local_override_shadows_global_without_deleting(self, sandbox_engine):
-        """Local bucket wins in combined view; global entity data remains on disk."""
         ledger = sandbox_engine.memory["character_ledger"]
         ledger["global"]["Marcus"] = {
             "characteristics": {"Role": "Antagonist"},
@@ -63,8 +62,9 @@ class TestRagLocalOverride:
 
 
 class TestRagAutoDecay:
+    """Visibility janitor archives stale entities and revives on mention."""
+
     def test_rag_auto_decay_archives_stale_entities(self, engine_with_history, monkeypatch):
-        """After many turns without a mention, janitor archives active entities."""
         monkeypatch.setitem(
             __import__("config", fromlist=["ENGINE_CONFIG"]).ENGINE_CONFIG,
             "memory_decay_threshold",

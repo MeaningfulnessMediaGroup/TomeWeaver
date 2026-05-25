@@ -19,6 +19,13 @@ class DashboardFrame(ctk.CTkFrame):
     Main Dashboard UI
     """
     def __init__(self, parent, app_controller, initial_dir=""):
+        """Render the story library grid and creation/import actions.
+
+        Args:
+            parent: Root app or container frame.
+            app_controller: :class:`TomeWeaverApp` for navigation callbacks.
+            initial_dir: Optional starting folder for the file browser.
+        """
         super().__init__(parent, fg_color="transparent")
         self.app = app_controller
 
@@ -393,6 +400,11 @@ class DashboardFrame(ctk.CTkFrame):
         self.apply_search()
 
     def change_items_per_page(self, new_val):
+        """Update grid page size and re-render the library from page 1.
+
+        Args:
+            new_val: Selected items-per-page (string or int from the UI control).
+        """
         self.items_per_page = int(new_val)
         self.current_page = 1
         self.render_page() # Bypasses sort algorithm

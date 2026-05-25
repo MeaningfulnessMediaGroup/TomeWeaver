@@ -18,6 +18,14 @@ class WorkspaceFrame(ctk.CTkFrame):
     Active Story Workspace
     """
     def __init__(self, parent, app, engine, folder_name=""):
+        """Host story tabs (story, memory, codex, chapters, console) for one cartridge.
+
+        Args:
+            parent: Root application window.
+            app: :class:`TomeWeaverApp` controller.
+            engine: Active :class:`SandboxEngine` or :class:`CampaignEngine`.
+            folder_name: Adventure directory name under ``adventures/``.
+        """
         super().__init__(parent, fg_color="transparent")
         self.app = app
         self.engine = engine

@@ -17,6 +17,12 @@ class ChapterTab(ctk.CTkFrame):
     Campaign Outline Editor
     """
     def __init__(self, parent, engine):
+        """Build chapter outline editor and campaign objective controls.
+
+        Args:
+            parent: Workspace tab container.
+            engine: Active headless engine instance.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         self.selected_idx = ctk.IntVar(value=-1)

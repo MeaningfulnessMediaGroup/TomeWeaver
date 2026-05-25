@@ -1,6 +1,4 @@
-"""
-Suite D: JSON Fortress — sanitize_json repair pipeline.
-"""
+"""Suite D: JSON Fortress — ``sanitize_json`` repair pipeline tests."""
 
 import json
 import sys
@@ -14,11 +12,21 @@ from llm import sanitize_json
 
 
 def _parse_sanitized(raw):
+    """Run ``sanitize_json`` and parse the repaired payload.
+
+    Args:
+        raw: Malformed LLM JSON string.
+
+    Returns:
+        dict: Parsed JSON object.
+    """
     clean = sanitize_json(raw)
     return json.loads(clean, strict=False)
 
 
 class TestSanitizerNakedValues:
+    """Unquoted scalar values are wrapped as JSON strings."""
+
     def test_sanitizer_naked_values(self):
         garbage = '{"key": Hello world, "key2": "value"}'
         data = _parse_sanitized(garbage)
@@ -27,6 +35,8 @@ class TestSanitizerNakedValues:
 
 
 class TestSanitizerStrayQuotes:
+    """Interior double quotes inside string values are escaped."""
+
     def test_sanitizer_stray_quotes(self):
         garbage = '{"story": "He said "hello" today"}'
         data = _parse_sanitized(garbage)
@@ -35,6 +45,8 @@ class TestSanitizerStrayQuotes:
 
 
 class TestSanitizerArraySoup:
+    """Markdown-style ``choices`` arrays normalize to string lists."""
+
     def test_sanitizer_array_soup(self):
         garbage = """{
   "story_text": "You stand at a crossroads.",

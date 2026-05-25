@@ -16,6 +16,12 @@ class CodexTab(ctk.CTkFrame):
     World Builder & Lore Editor
     """
     def __init__(self, parent, engine):
+        """Build setup.json / world-builder editors for the loaded story.
+
+        Args:
+            parent: Workspace tab container.
+            engine: Active headless engine instance.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         

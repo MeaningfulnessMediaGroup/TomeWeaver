@@ -14,6 +14,12 @@ class MemoryTab(ctk.CTkFrame):
     Memory & Lore UI (RAG Viewer)
     """
     def __init__(self, parent, engine):
+        """Build the RAG memory viewer and entity editor UI.
+
+        Args:
+            parent: Workspace tab container.
+            engine: Active headless engine instance.
+        """
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
         self._last_render_time = 0 

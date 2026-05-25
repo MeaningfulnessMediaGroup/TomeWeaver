@@ -6,7 +6,16 @@ Provides a reusable, classic high-contrast hover-tooltip.
 import tkinter as tk
 
 class Tooltip:
+    """Classic OS-style hover tooltip bound to a single widget."""
+
     def __init__(self, widget, text, delay=500):
+        """Attach delayed show/hide tooltip behavior to a widget.
+
+        Args:
+            widget: Tk/CTk widget to bind (``<Enter>``, ``<Leave>``, click).
+            text: Tooltip body text; empty text disables display.
+            delay: Milliseconds before the tooltip appears.
+        """
         self.widget = widget
         self.text = text
         self.delay = delay
@@ -19,9 +28,11 @@ class Tooltip:
         self.widget.bind("<ButtonPress>", self.hide_tooltip) # Hide immediately if clicked
 
     def schedule_tooltip(self, event=None):
+        """Queue :meth:`show_tooltip` after ``self.delay`` ms."""
         self._id = self.widget.after(self.delay, self.show_tooltip)
 
     def show_tooltip(self, event=None):
+        """Create and position the floating tooltip window."""
         if self.tooltip_window or not self.text:
             return
             
@@ -51,6 +62,7 @@ class Tooltip:
         label.pack()
 
     def hide_tooltip(self, event=None):
+        """Cancel a pending show and destroy the tooltip window."""
         if self._id:
             self.widget.after_cancel(self._id)
             self._id = None

@@ -13,8 +13,15 @@ from base_engine import BaseEngine
 from config import ENGINE_CONFIG, PROMPTS
 
 class SandboxEngine(BaseEngine):
+    """Open-world engine: manual chapters and player-driven pacing."""
 
     def __init__(self, adv_dir, setup_data):
+        """Initialize sandbox mode flags after loading cartridge state.
+
+        Args:
+            adv_dir: Adventure folder path.
+            setup_data: Parsed ``setup.json`` with ``mode`` typically ``sandbox``.
+        """
         super().__init__(adv_dir, setup_data)
         self.is_campaign = False
         self.allow_manual_chapters = True

@@ -23,9 +23,9 @@ from logger import log_llm_interaction
 _request_timestamps = []
 
 def enforce_rate_limit():
-    """
-    Implements a sliding-window rate limiter to prevent HTTP 429 errors 
-    when using strict cloud providers (like OpenRouter).
+    """Block until the sliding-window QPM cap allows another API request.
+
+    Reads ``ENGINE_CONFIG['max_query_per_minute']``. No-op when unset or ``0``.
     """
     global _request_timestamps
     try:
@@ -243,14 +243,17 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
 # ---------------------------------------------------------
 
 def sanitize_json(raw):
-    """
-    Main entry point for JSON repair. Extracts the JSON block and applies
-    a multi-stage repair pipeline: 
-    1. Structural Extraction
-    2. Naked Value Wrapping & Stray Quote removal
-    3. Array Quote-Soup Flattener
-    4. State-Machine Quote/Newline Repair
-    5. Iterative Surgical Patching
+    """Repair malformed LLM JSON and return a normalized indented string.
+
+    Pipeline: extract ``{...}`` block, pre-heal structure, fix ``choices``
+    arrays, state-machine quote repair, iterative :func:`json.loads`, then
+    aggressive regex recovery as a last resort.
+
+    Args:
+        raw: Raw model output (may include markdown or prose wrappers).
+
+    Returns:
+        str: Valid JSON text (pretty-printed) or best-effort repaired text.
     """
     start_idx = raw.find('{')
     end_idx = raw.rfind('}')

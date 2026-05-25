@@ -46,6 +46,12 @@ def make_turn(
 
 
 def write_json(path, data):
+    """Write JSON to a path using the same atomic helper as production code.
+
+    Args:
+        path: Destination file path.
+        data: JSON-serializable object.
+    """
     save_json_atomically(data, path)
 
 

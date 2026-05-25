@@ -11,6 +11,23 @@ import re
 from config import ENGINE_CONFIG
 
 def export_story(adv_dir, setup_data, history, chapters, export_type, use_novelization=True, custom_path=None):
+    """Compile ``history.json`` into a readable novel file (TXT, MD, or HTML).
+
+    Weaves ``narrative_bridge`` transitions between turns when novelization is
+    enabled; otherwise emits raw player actions.
+
+    Args:
+        adv_dir: Adventure folder path (default output location).
+        setup_data: Parsed ``setup.json`` (uses ``title`` for the filename).
+        history: Full turn list from the engine.
+        chapters: Chapter boundary metadata list.
+        export_type: ``1`` = TXT, ``2`` = Markdown, ``3`` = HTML.
+        use_novelization: If ``True``, prefer bridges over bracketed actions.
+        custom_path: Optional explicit output file path from a save dialog.
+
+    Returns:
+        pathlib.Path: Path to the written export file.
+    """
     title = setup_data.get("title", "The Adventure")
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
     

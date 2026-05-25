@@ -16,7 +16,8 @@ from colorama import Fore, Style
 # ---------------------------------------------------------
 # GLOBAL PATHS
 # ---------------------------------------------------------
-
+# INTERNAL_ROOT: bundled assets (PyInstaller _MEIPASS when frozen).
+# USER_ROOT: writable data directory beside the executable or repo root.
 
 # Internal Root: Where the code and bundled prompts live (Temp folder if EXE)
 if getattr(sys, 'frozen', False):
@@ -40,10 +41,13 @@ ROOT_DIR = USER_ROOT
 
 
 def find_universe_root(start_path):
-    """
-    The Tree Walker: Climbs the directory tree from start_path up to the /adventures root.
-    Returns the Path to the Universe Root if master_setup.json is found,
-    otherwise returns None. This allows infinite folder nesting.
+    """Walk upward from a story path to find a universe ``master_setup.json``.
+
+    Args:
+        start_path: File or directory inside ``adventures/``.
+
+    Returns:
+        Path | None: Universe root directory, or ``None`` if not in a universe.
     """
     curr = Path(start_path).resolve()
     limit = (USER_ROOT / "adventures").resolve()
@@ -57,9 +61,9 @@ def find_universe_root(start_path):
 
 
 def hydrate_user_directory():
-    """
-    The Bootstrapper: Copies the entire /configs folder from inside the EXE 
-    to the user's hard drive if it's missing.
+    """Copy bundled ``configs/`` to the user data dir on first run (frozen builds).
+
+    Also ensures ``adventures/`` exists under ``USER_ROOT``.
     """
     internal_configs = INTERNAL_ROOT / "configs"
     external_configs = USER_ROOT / "configs"
@@ -251,10 +255,18 @@ def load_api_profile(name):
 # ---------------------------------------------------------
 
 def load_json_safely(file_path, file_description):
-    """
-    Attempts a fast standard JSON load. If it fails (due to unescaped user 
-    manual edits), it falls back to a heavy Regex-based 'Pre-Parse Repair' 
-    layer to heal the syntax before trying again.
+    """Load JSON with a regex repair pass for hand-edited adventure files.
+
+    Args:
+        file_path: Path to the ``.json`` file.
+        file_description: Human label shown in syntax error reports.
+
+    Returns:
+        dict | list: Parsed JSON root object.
+
+    Raises:
+        ValueError: If repair and strict parse both fail.
+        RuntimeError: If the file cannot be read.
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -309,10 +321,11 @@ def load_json_safely(file_path, file_description):
         raise RuntimeError(f"Failed to read {file_description} ({file_path}): {str(e)}")
 
 def save_json_atomically(data, file_path):
-    """
-    Writes JSON data to a temporary file first, then atomically renames it 
-    over the target file. Guarantees 100% protection against file corruption 
-    caused by mid-write crashes, power outages, or Python exceptions.
+    """Write JSON via a temp file and atomic rename to prevent corruption.
+
+    Args:
+        data: JSON-serializable object to persist.
+        file_path: Destination path (``.tmp`` sibling used during write).
     """
     import os
     path_obj = Path(file_path)
@@ -446,10 +459,15 @@ def load_instance_config():
 # ---------------------------------------------------------
 
 def create_boilerplate_files(adv_dir, mode):
-    """
-    Initializes a new adventure directory with the necessary JSON and TXT files.
-    Attempts to copy 'default_setup' and 'default_prompt' files from the root.
-    If those are missing, it generates a hardcoded fallback template.
+    """Seed a new adventure folder with ``setup.json`` and ``system_prompt.txt``.
+
+    Args:
+        adv_dir: Target adventure directory (created if needed).
+        mode: ``"sandbox"`` or ``"campaign"`` template selector.
+
+    Raises:
+        FileNotFoundError: If the system prompt template is missing and no
+            fallback can be generated.
     """
     setup_file = adv_dir / "setup.json"
     prompt_file = adv_dir / "system_prompt.txt"
