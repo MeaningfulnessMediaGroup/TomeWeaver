@@ -76,3 +76,46 @@ If you suspect a specific Plot Chunk hallucinated a detail, click the **✔️ V
 
 ### Zero Data-Loss Merging
 If the AI accidentally extracts "Vance" and "Captain Vance" as two separate characters, you can easily merge them. The engine uses a "Smart Merger" to elegantly combine their traits. If one says `Appearance: Tall` and the other says `Appearance: Wears a hat`, the merged entity becomes `Appearance: Tall | Wears a hat`. It also creates a permanent **Alias** so future mentions of "Vance" automatically route to the Master Entity.
+
+Plural/singular key collisions (e.g., `Friend` vs `Friends`) are normalized automatically during compilation and Deep Scan merges.
+
+---
+
+## 🔬 Deep Scan & Deep Rename
+
+### Deep Scan (Per-Entity)
+From the Memory & Lore entity editor, **Deep Scan** re-reads your entire `history.json` in mathematical chunks ( sized by `context_window` ) and asks the AI to extract new traits and events for **one** entity at a time. Each chunk receives an updated profile string so duplicates are not re-extracted. Use this after manually adding an entity mid-campaign or when compilation missed early appearances.
+
+### Deep Rename (Cross-File)
+**Deep Rename** is a two-phase operation:
+1.  **Analyze:** Scans active RAM and (for Global scope) authorized universe files for word-boundary matches.
+2.  **Execute:** Renames only in locations you explicitly authorize—preventing accidental corruption of unrelated stories.
+
+Global renames can propagate across universe threads; always review the authorization checklist.
+
+---
+
+## 🔄 Timeline Surgery & Ledger Invalidation
+
+When you **insert**, **delete**, **split**, or **merge** chapters/turns, the engine invalidates Plot Ledger and Chapter Ledger entries for affected chapter numbers. This prevents stale summaries from contradicting the new Master Clock.
+
+After major surgery, run **Compile Missing History → Standard** (or Deep Scan for entities). The visibility **Janitor** (`_resync_all_visibility`) also re-scans all history after draft commits to guarantee `last_seen_turn` and Active/Archived states are mathematically correct.
+
+---
+
+## 🏷️ Chapter Tags (Optional)
+
+Campaign authors can define custom `chapter_tags` in `setup.json`. When chapter summaries are compiled, the engine can extract structured tags (Combat, Romance, Puzzle, etc.) for downstream filtering or author notes. Tags are generated via a dedicated LLM pass separate from the main summary.
+
+---
+
+## ⚠️ Known Limitations (RAG)
+
+*   **Summaries are lossy by design.** Plot Parts compress 10+ turns into bullet facts; subtle foreshadowing may be dropped until you Pin an entity or raise `context_window`.
+*   **Auto-Decay uses word-boundary regex**, not semantic understanding—entities with common substrings in unrelated words are unlikely to false-positive, but nicknames not registered as **Aliases** may fail to revive an Archived entity.
+*   **Local Overrides shadow Global entities in prompts** but do not delete Global data—prequel threads must still avoid contradicting universe canon manually.
+*   **Validate / Auto-Patch** depends on model honesty; low-quality models may produce falsely high Fidelity Scores.
+*   **Compile Missing History** calls the LLM and consumes tokens proportional to uncompiled turn count.
+*   **Merging entities is irreversible** without manual JSON editing—always verify the merge target in the dialog.
+
+See the full **Known Limitations** list in the [root README](../README.md).

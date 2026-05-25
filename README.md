@@ -103,12 +103,12 @@ The result is an experience designed not just for momentary generation, but for 
 
 ## Full Runtime Transparency
 
-TomeWeaver has a verbose setting that when enabled, can expose:
-- the full composite prompt,
+TomeWeaver has verbose logging settings (`log_verbose`, `log_raw_json_on_failure` in Global Settings) that, when enabled, expose:
+- the full composite prompt (in `session_log.txt` and the Developer Console),
 - injected memory state,
 - active runtime fragments,
 - continuity directives,
-- and raw LLM output.
+- and raw LLM output on failures.
 
 No black boxes.
 No hidden orchestration.
@@ -180,6 +180,29 @@ Play infinitely without breaking your model's context limit. TomeWeaver features
 
 🧠 **[Read the deep dive into the RAG Engine (docs/RAG.md)](docs/RAG.md)**
 
+### 14. The Memory & Lore Editor (Visual RAG Console)
+The **Memory & Lore** tab is a full narrative database UI—not a raw JSON editor. Browse Plot Ledger chunks and Entity profiles in a master-detail layout, pin important characters so they never decay, merge duplicate entities (e.g. "Vance" and "Captain Vance") with zero data-loss trait combining, and run **Deep Scan** or **Deep Rename** operations that crawl history and even offline universe files when authorized.
+
+### 15. Bulk Turn Import (Writer's Pipeline)
+Authors can paste large blocks of pre-written prose directly into a running adventure via **Options → Import Turns...** The engine parses `>` or `=` action markers into structured turns, splices them into the Master Clock, and re-indexes chapter boundaries automatically—ideal for importing a novella draft or co-written scenes.
+
+### 16. Adventure Recap & Bridge Catch-Up
+*   **Generate Recap:** Summarizes the entire story so far into a readable briefing (useful after a long break or before sharing a save).
+*   **Generate Missing Bridges:** Manually triggers the narrative bridge novelizer across history—handy when `auto_narrative_bridge` is off or after timeline surgery.
+
+### 17. ZIP Cartridge Import & Export
+Share entire adventures as portable `.zip` cartridges. Export from any story card's **Options** menu; import from the Dashboard **Import .zip** button. Cartridges include all JSON, prompts, and lore—perfect for backups, collaboration, or publishing sample worlds.
+
+### 18. Scalable Library Index
+The Dashboard maintains an autonomous `index.json` cache so you can search, sort, and paginate through **thousands** of nested folders and universe threads without the UI freezing. Custom folder icons (PNG/JPG) are supported for visual organization at a glance.
+
+### 19. Prologue, Epilogue & Story Seeds
+*   **`prologue.txt` / `epilogue.txt`:** Hand-written bookends loaded as-is on first launch or campaign conclusion—no AI roll required.
+*   **`start_turn.json`:** A saved "Story Seed" guarantees every restart begins at your curated Turn 1 hook (set via **💾 Set as Story Seed** in the scene editor).
+
+### 20. Headless Engine & Automated Tests (Developers)
+The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay) runs fully **headless**—no GUI required. A pytest suite under `/tests` validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
+
 ---
 
 ## 🧠 Supported LLM Providers
@@ -229,6 +252,9 @@ If you prefer running from source, we provide an automated setup script that cre
     Double-click the `setup.bat` file in the root directory. This will download everything needed for the GUI.
 3.  **Launch the Engine:**
     Double-click the newly generated `Start_TomeWeaver.bat`. This will boot the main Graphical Interface.
+
+4.  **(Optional) Run Automated Tests:**
+    Double-click `Run_Tests.bat` to execute the headless pytest suite against the engine core.
 
 ### Option C: macOS / Linux / Manual Source Setup
 If you are on a UNIX-based system or prefer setting up your environment manually:
@@ -288,6 +314,7 @@ TomeWeaver is a massive, feature-rich application. Please refer to our dedicated
 *   🖼️ **[The UI Walkthrough (docs/README.md)](docs/README.md)** - A visual guide to the Library Dashboard, Story Timeline, and Editors.
 *   ⌨️ **[Gameplay & User Guide (docs/COMMAND_GUIDE.md)](docs/COMMAND_GUIDE.md)** - How to play, perform Timeline Surgery, and use Director tools.
 *   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, Universes, and JSON schemas.
+*   🧠 **[Long-Term Memory & RAG (docs/RAG.md)](docs/RAG.md)** - Plot ledgers, entity tracking, auto-decay, and continuity auditing.
 *   🧠 **[LM Studio Setup & Models (docs/LM_STUDIO_CONFIG.md)](docs/LM_STUDIO_CONFIG.md)** - How to configure local, free LLMs to run the engine.
 
 ---
@@ -295,11 +322,45 @@ TomeWeaver is a massive, feature-rich application. Please refer to our dedicated
 ## 🤝 Contributing
 
 We welcome contributions! Whether it's improving the "Fortress" sanitizer, adding new export formats, or sharing your own Adventure Cartridges:
+
 1.  Fork the repository.
 2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
+3.  Run the test suite (`Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v`) before submitting engine changes.
+4.  Commit your changes (`git commit -m 'Add AmazingFeature'`).
+5.  Push to the branch (`git push origin feature/AmazingFeature`).
+6.  Open a Pull Request.
+
+---
+
+## ⚠️ Known Limitations
+
+TomeWeaver is a powerful narrative operating system, but it is not magic. Understanding these boundaries helps set realistic expectations:
+
+### LLM & Hardware Dependencies
+*   **Model quality varies widely.** Smaller local models (7B–8B) may require more JSON repair retries, produce weaker campaign goal reasoning, or drift off-tone despite the Fortress sanitizer. Cloud models generally produce more consistent structured output.
+*   **Context is finite.** Even with RAG compression, extremely lore-heavy worlds or very long `context_window` settings can exceed your model's `n_ctx` (LM Studio) or provider token cap, causing HTTP 400 errors. Lower `context_window`, raise `memory_decay_threshold`, or use a model with a larger context.
+*   **`auto_polish` doubles token cost.** Every turn runs a second LLM pass for copy-editing when enabled.
+
+### Narrative & Gameplay
+*   **Campaign goals are AI-interpreted, not deterministic.** The engine prompts the model to verify goal completion; it cannot mathematically prove a puzzle was solved. Complex logic puzzles may require Director intervention or manual chapter advancement.
+*   **RAG summaries can hallucinate.** Plot Ledger and Entity entries are AI-generated compressions. Use **Validate** and **Auto-Patch** in the Memory tab, or run **Integrity Check** compile mode, to audit contradictions.
+*   **Timeline surgery invalidates affected RAG ledgers.** Inserting, deleting, splitting, or merging turns/chapters clears plot/chapter ledger entries for impacted chapter numbers—they must be recompiled via **Compile Missing History**.
+*   **Universe threads require careful migration.** Moving stories into or out of Shared Universes triggers wizards and may require a full memory recompile. Orphaned threads (moved folders) are auto-recovered to standalone mode with a warning.
+
+### UI & Platform
+*   **Desktop GUI only.** TomeWeaver is a CustomTkinter desktop application. There is no web client, mobile app, or multiplayer session sharing in real time.
+*   **Windows-first launcher scripts.** `setup.bat`, `Start_TomeWeaver.bat`, and `Run_Tests.bat` are Windows batch files. macOS/Linux users should follow Option C and use manual `venv` + `python scripts/gui.py` commands.
+*   **Executable builds hide the terminal.** PyInstaller `--noconsole` builds suppress stdout; use the **Developer Console** tab or `session_log.txt` for diagnostics.
+*   **Single-player, local saves.** Progress lives in your `/adventures` folder. There is no cloud sync, account system, or cross-device save merge.
+
+### Import, Export & Interoperability
+*   **Export is prose compilation, not a playable save.** TXT/MD/HTML exports are storybooks for reading—not cartridges that restore game state.
+*   **Bulk Import Turns** expects a simple `>` / `=` action-marker syntax; free-form prose without markers becomes a single trailing turn block.
+*   **ZIP cartridges** require `setup.json` and `system_prompt.txt` at minimum. Custom prompts referencing external files not included in the zip will break on import.
+
+### Developer Notes
+*   **Tests cover the headless engine core**, not the full GUI or live LLM API calls. Integration tests that hit real models should be run manually.
+*   **`ADV_DIR` is relative to the process working directory.** Always launch from the repo root (or the folder containing `adventures/`) so paths resolve correctly.
 
 ---
 

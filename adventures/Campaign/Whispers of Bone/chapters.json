@@ -7,7 +7,14 @@
         "setting": "The slums outside the walls of Oakhaven. Midnight.",
         "pov": "Kaelen",
         "time": null,
-        "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
-        "obstacles": "The guards are highly alert. Kaelen has no money for a bribe."
+        "objectives": [
+            {
+                "goal": "Find a way to sneak past or bribe the city guards to enter Oakhaven.",
+                "obstacles": "The guards are highly alert. Kaelen has no money for a bribe.",
+                "setting": "",
+                "pov": "",
+                "status": "ACTIVE"
+            }
+        ]
     }
 ]

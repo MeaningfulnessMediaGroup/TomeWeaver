@@ -79,11 +79,9 @@ class WorkspaceFrame(ctk.CTkFrame):
             
         self.t_codex = self.tabs.add("Story World")
         self.t_memory = self.tabs.add("Memory & Lore") 
-        
+
         if self.engine.is_campaign:
-            from ui.tab_chapters import ChapterTab
-            self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
-            self.chapters_tab.pack(fill="both", expand=True)
+            self.t_chapters = self.tabs.add("Chapter Outline")
 
         # --- INTEGRITY WARNING POPUP ---
         if getattr(self.engine, 'integrity_warnings', []):

@@ -21,11 +21,19 @@ TomeWeaver sends massive amounts of data (World Lore, Character Bibles, and Rece
 3. **Change this to `32768`** (32K) or higher. 
 4. *Note: Increasing context length uses more RAM/VRAM. If your computer runs out of memory, you may need to download a smaller model or lower the `context_window` setting in TomeWeaver's Global Settings.*
 
+**Rule of thumb:** TomeWeaver's `context_window` (recent turns injected raw) plus RAG memory plus world lore must fit inside LM Studio's `n_ctx`. If you see HTTP 400 errors, raise `n_ctx` first; if VRAM maxes out, lower TomeWeaver's `context_window` or `memory_decay_threshold` instead.
+
 ### Start the Server
 1. Ensure the **Server Port** is set to `1234` (This is TomeWeaver's default).
 2. Enable **CORS** (Cross-Origin Resource Sharing) in the settings.
 3. Click the green **Start Server** button. 
 4. You can now launch TomeWeaver and begin generating!
+
+### Linking LM Studio to TomeWeaver
+1. Open TomeWeaver → Dashboard → **⚙ Settings**.
+2. Set **Active API Profile** to `LM_Studio` (or create a custom profile pointing to `http://localhost:1234/v1/chat/completions`).
+3. Ensure **Model** matches the identifier shown in LM Studio's server tab (often `loaded-model` for local servers).
+4. Align **Context Window** in TomeWeaver Global Settings with your LM Studio `n_ctx` (see rule of thumb above).
 
 ---
 
@@ -67,3 +75,18 @@ If you are running on an older laptop or strictly using CPU RAM, you need heavil
 
 *   **Watch the Developer Console:** In TomeWeaver's workspace, open the Developer Console tab. If you see the engine constantly applying "JSON Surgery" or retrying, the model you chose might be struggling with the schema. Try switching to a different model (like Hermes Pro).
 *   **GPU Offload:** In LM Studio, make sure you enable **GPU Offload** and set it to "Max" (or input your layer count) to ensure the model runs on your graphics card instead of your CPU. It will be 10x to 20x faster.
+*   **Disable `auto_polish` for local play** unless you have headroom— it doubles generation time and token load every turn.
+*   **Quantization trade-offs:** Heavily quantized 70B models may follow JSON schemas poorly despite strong prose; prefer Hermes/Qwen tiers if you see frequent Fortress retries.
+
+---
+
+## ⚠️ Known Limitations (Local Inference)
+
+*   **VRAM is the hard ceiling.** There is no software workaround if `n_ctx × model size` exceeds available GPU/RAM—you must shrink context, use a smaller quant, or switch models.
+*   **CPU-only inference** is supported but turn generation may take minutes per response on long prompts; Auto-Play and Auto Narrative Bridge become impractical.
+*   **Model refusals** on uncensored content vary by base model even when "uncensored merges" exist—Prototype-X tier models are recommended for mature themes.
+*   **LM Studio must stay running** while TomeWeaver plays; closing the server mid-turn causes connection errors (recovered gracefully, but the turn may need a redo).
+*   **Mac Apple Silicon** users should verify Metal GPU offload is active; otherwise context 32K+ may be unusably slow.
+*   **TomeWeaver cannot raise LM Studio's `n_ctx` for you**— mismatched settings must be fixed manually in both apps.
+
+See the full **Known Limitations** list in the [root README](../README.md).

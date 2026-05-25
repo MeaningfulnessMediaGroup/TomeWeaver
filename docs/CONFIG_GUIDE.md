@@ -22,8 +22,13 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`auto_polish`** | If `true`, the engine silently runs a second copy-editing LLM pass on every single turn to guarantee novel-quality prose. (Costs double tokens). |
 | **`auto_narrative_bridge`**| If `true`, the engine automatically patches missing transition prose in the background while you play. |
 | **`ui_scaling`** | Scales the entire application interface for 4K/high-res monitors (e.g., 1.25). Requires restart. |
+| **`prose_font_size`** | Font size for story timeline prose (pixels). |
+| **`ui_wrap_margin`** | Extra horizontal margin subtracted from wrap width for comfortable reading on wide monitors. |
 | **`prose_font_family`** | The font face used for the story timeline and editors (e.g., "Georgia", "Arial"). |
 | **`logging_enabled`** | Master switch to record all game events and API calls to `session_log.txt`. |
+| **`log_verbose`** | When `true`, logs full LLM prompts to `session_log.txt` (in addition to console output when verbose UI is active). |
+| **`log_raw_json_on_failure`** | When `true`, always logs raw model output on JSON parse failures—even if verbose logging is off. |
+| **`max_inventory_keys`** | Maximum tracked inventory slots in the World Builder pill editor (default 8). |
 
 ---
 
@@ -125,3 +130,65 @@ If you want your adventure to start with a specific, hand-crafted first turn (in
 3. Manually rewrite the prose, location, and choices to be exactly what you want the player's "Hook" to be.
 4. Click the blue **💾 Set as Story Seed** button at the bottom of the editor.
 5. Now, anytime someone plays your cartridge, they will instantly start at your hand-crafted hook!
+
+---
+
+## 🖥️ Instance Configuration (`instance_config.json`)
+
+Separate from engine behavior, `instance_config.json` stores **volatile UI session state** (window geometry, last author name, per-story timeline bookmarks). It is auto-created on first launch and self-heals if corrupted.
+
+| Key | Description |
+| :--- | :--- |
+| **`window_geometry`** | Last window size/position (e.g., `"1100x750"`). |
+| **`window_state`** | `"normal"` or `"zoomed"`. |
+| **`last_active_story`** | Relative path hint for session restore. |
+| **`last_author`** | Default author field pre-fill for new stories. |
+| **`story_bookmarks`** | Maps story paths to last-viewed turn indices for Time Travel restore. |
+
+**Access in UI:** Mostly automatic; bookmarks update when you scrub the timeline.
+
+---
+
+## 📇 Autonomous Library Index (`adventures/index.json`)
+
+The Dashboard maintains a cached metadata index for fast search and pagination across large libraries. The index rebuilds when stories are created, renamed, moved, or when you trigger a manual refresh. It is **never exported** inside ZIP cartridges (regenerated on import).
+
+---
+
+## 📜 Optional Text Bypasses (`prologue.txt`, `epilogue.txt`)
+
+| File | Behavior |
+| :--- | :--- |
+| **`prologue.txt`** | If present and history is empty, Turn 1 loads this text **as-is** without calling the LLM (unless overridden by `start_turn.json`). |
+| **`epilogue.txt`** | When the player chooses **Conclude the Story**, the epilogue loads as-is instead of generating a final turn. |
+| **`start_turn.json`** | Highest-priority Turn 1 seed; overrides prologue for structured JSON hooks (choices, location, inventory). |
+
+These files are edited as plain text in the adventure folder or via **✎ Edit Scene → Set as Story Seed** for JSON seeds.
+
+---
+
+## 🗂️ Engine State Schemas (Auto-Generated)
+
+### `history.json`
+A flat array of turn objects. Each turn typically includes:
+`turn`, `story_text`, `pov_character`, `location`, `choices`, `player_choice`, `narrative_bridge`, `input_type`, `is_game_over`, and optionally `inventory_and_state`, `chapter_goal_achieved`, `goal_progress`.
+
+Turn numbers form the **Master Clock**—must stay sequential (the engine auto-resyncs on load if hand-edited).
+
+### `chapters.json`
+Array of chapter metadata: `chapter_number`, `title`, `start_turn`, `end_turn`, plus Campaign `objectives` arrays with `ACTIVE` / `LOCKED` status.
+
+### `memory.json` (on disk)
+Flat JSON written by `save_state()`. Contains `plot_ledger`, `chapter_ledger`, entity ledgers, `aliases`, and `global_states`. **In RAM**, the engine nests entity ledgers as `{ "local": {...}, "global": {...} }` for universe threads.
+
+---
+
+## ⚠️ Known Limitations (Configuration)
+
+*   **Editing JSON by hand** can trigger integrity warnings on next load; the engine quarantines corrupted entity entries but may reset malformed ledgers.
+*   **`engine_config.json` API fields** (`api_url`, `model`, etc.) mirror the active profile but are overwritten when you switch profiles in the UI—prefer editing `configs/API_configs/*.json`.
+*   **Universe global lore changes** propagate to all threads immediately; there is no per-thread "undo" for `shared_memory.json`.
+*   **Custom `setup.json` fields** are sent to the LLM every turn until stripped by mode logic—extremely large custom dictionaries will consume context tokens.
+*   **PyInstaller executables** hydrate `configs/` to the user directory on first run; bundled defaults are not auto-updated until you manually merge new template keys.
+
+See the full **Known Limitations** list in the [root README](../README.md).

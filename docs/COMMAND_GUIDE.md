@@ -102,3 +102,87 @@ If you want your adventure to start with a specific, hand-crafted first turn (in
 3. Manually rewrite the prose, location, and choices to be exactly what you want the player's "Hook" to be.
 4. Click the blue **💾 Set as Story Seed** button at the bottom of the editor.
 5. Any time you (or anyone you share the cartridge with) restarts this adventure, it will perfectly load your hand-crafted hook!
+
+---
+
+## 📥 Bulk Import Turns (Writer Pipeline)
+
+Use **Options → Import Turns...** in the Workspace header to paste large blocks of pre-written prose.
+
+### Syntax
+*   Lines starting with **`>`** or **`=`** begin a new **player action** and finalize the preceding prose block as a turn.
+*   All other lines accumulate as **story text** for the current turn.
+*   If you paste without a leading action marker, the engine assigns **`[ Imported Text ]`** as the bridge action on the anchor turn.
+
+### Example
+```
+The rain hammered the cobblestones.
+
+> I duck into the alley
+
+Shadows swallow me whole. A flickering neon sign buzzes overhead.
+
+> I knock on the rusted service door
+```
+
+The engine splices parsed turns after your current timeline position, right-shifts the Master Clock, adjusts chapter boundaries, and invalidates affected Plot Ledger entries (recompile afterward).
+
+---
+
+## 📋 Generate Recap
+
+**Options → Generate Recap** asks the AI to summarize the entire adventure chronology into a readable briefing. Useful when returning to a long save, preparing a session handoff, or reviewing before export.
+
+---
+
+## 🌉 Generate Missing Bridges
+
+If **Auto Narrative Bridge** is disabled—or you performed timeline surgery—transitions may be missing. **Options → Generate Missing Bridges** runs the novelizer across history in a background thread, writing `narrative_bridge` metadata without altering main story prose.
+
+---
+
+## 🧠 Memory & Lore Tools (Entity Editor)
+
+Open the **Memory & Lore** tab for advanced continuity management:
+
+| Tool | Description |
+| :--- | :--- |
+| **🔄 Compile Missing History** | Runs the RAG compiler (Standard, Base Lore, Deep Scan, or Integrity Check modes). |
+| **🔗 Merge...** | Combines two entities; traits merge without data loss; aliases route future mentions. |
+| **Deep Rename** | Phase 1 scans RAM + authorized files; Phase 2 executes rename only where you approve. |
+| **Deep Scan** | Re-reads history in chunks to extract new traits/events for a single entity. |
+| **✔️ Validate / 🔧 Auto-Patch** | QA a Plot Ledger chunk against raw turns (see [RAG.md](RAG.md)). |
+| **State: Active / Archived / Pinned** | Manual override of auto-decay behavior per entity. |
+
+---
+
+## ✎ Manual Scene Editing
+
+Click **✎ Edit Scene** on any turn card (current or historical) to open the full editor:
+*   Rewrite `story_text`, `location`, `pov_character`, and `choices` directly.
+*   Edit inventory strings when tracking is enabled.
+*   Click **💾 Set as Story Seed** to save Turn 1 as `start_turn.json` for future restarts.
+
+Manual edits do not automatically recompile RAG memory—run **Compile Missing History** if lore should reflect your changes.
+
+---
+
+## 📦 ZIP Cartridges (Share & Backup)
+
+*   **Export:** Story card **Options → Export** (or Dashboard card menu) packages the folder into a `.zip` cartridge.
+*   **Import:** Dashboard **Import .zip** validates required files and creates a collision-safe folder name.
+
+Cartridges are ideal for sharing sample worlds, backing up before risky timeline surgery, or collaborating with co-authors.
+
+---
+
+## ⚠️ Known Limitations (Gameplay)
+
+*   **Campaign goal completion is AI-judged**, not rule-engine verified. If the model refuses to advance, use Director tools, manual chapter edits, or **Fix...** on the turn card.
+*   **Timeline surgery clears Plot/Chapter ledger entries** for affected chapters. Re-run **Compile Missing History** afterward.
+*   **Import Turns** does not auto-generate narrative bridges or RAG summaries for imported text.
+*   **Deep Rename** on Global entities can touch multiple universe files—review the authorization dialog carefully.
+*   **Auto-Play** always picks the **first** green choice; it does not explore branching paths.
+*   **Undo (↶)** reverts the last committed choice; it cannot restore pre-Restart game state unless you have a backup cartridge.
+
+See also the full **Known Limitations** list in the [root README](../README.md).
