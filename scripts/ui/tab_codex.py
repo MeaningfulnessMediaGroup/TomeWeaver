@@ -411,7 +411,7 @@ class CodexTab(ctk.CTkFrame):
             
             def worker():
                 from api import TomeWeaverAPI
-                from api import ADV_DIR
+                from api import get_adv_dir
                 
                 # Use the new dedicated Overhaul method which injects directly into active memory
                 success, msg = TomeWeaverAPI.overhaul_active_story(
@@ -423,7 +423,7 @@ class CodexTab(ctk.CTkFrame):
                         dialog.destroy() 
                         
                         # Tell the app to do a hard visual reload of the workspace
-                        folder_name = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
+                        folder_name = self.engine.adv_dir.relative_to(get_adv_dir()).as_posix()
                         app = self.winfo_toplevel()
                         app.clear_container() 
                         app.open_workspace(folder_name, target_tab="World Builder")
@@ -517,8 +517,8 @@ class CodexTab(ctk.CTkFrame):
             msg = f"You changed the title to '{new_title}'.\n\nWould you like to rename the physical folder on your hard drive to match this new title?"
             if messagebox.askyesno("Rename Folder?", msg):
                 from api import TomeWeaverAPI
-                from api import ADV_DIR
-                current_folder = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
+                from api import get_adv_dir
+                current_folder = self.engine.adv_dir.relative_to(get_adv_dir()).as_posix()
                 app = self.winfo_toplevel()
                 success, new_folder_name = TomeWeaverAPI.rename_story(current_folder, new_title)
                 

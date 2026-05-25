@@ -40,6 +40,46 @@ API_CONFIGS_DIR = USER_ROOT / "configs" / "API_configs"
 ROOT_DIR = USER_ROOT
 
 
+def _read_adventures_dir_from_disk():
+    """Read ``adventures_dir`` from engine_config before ENGINE_CONFIG is loaded."""
+    config_path = USER_ROOT / "configs" / "engine_config.json"
+    if not config_path.exists():
+        return ""
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("adventures_dir", "") if isinstance(data, dict) else ""
+    except Exception:
+        return ""
+
+
+def get_adventures_dir():
+    """Return the resolved adventures library root (configurable via engine_config).
+
+    When ``adventures_dir`` is empty or unset, defaults to ``USER_ROOT / adventures``.
+    Relative paths are resolved against ``USER_ROOT``. The directory is created if missing.
+    """
+    custom = ""
+    if "ENGINE_CONFIG" in globals():
+        custom = ENGINE_CONFIG.get("adventures_dir", "")
+    else:
+        custom = _read_adventures_dir_from_disk()
+
+    if isinstance(custom, str) and custom.strip():
+        p = Path(custom.strip()).expanduser()
+        p = (USER_ROOT / p).resolve() if not p.is_absolute() else p.resolve()
+    else:
+        p = (USER_ROOT / "adventures").resolve()
+
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def get_default_adventures_dir():
+    """Return the built-in default adventures path (``USER_ROOT / adventures``)."""
+    return (USER_ROOT / "adventures").resolve()
+
+
 def find_universe_root(start_path):
     """Walk upward from a story path to find a universe ``master_setup.json``.
 
@@ -50,7 +90,7 @@ def find_universe_root(start_path):
         Path | None: Universe root directory, or ``None`` if not in a universe.
     """
     curr = Path(start_path).resolve()
-    limit = (USER_ROOT / "adventures").resolve()
+    limit = get_adventures_dir().resolve()
     
     # Climb up until we hit the adventures folder or the system root
     while curr != limit and curr.parent != curr:
@@ -63,13 +103,12 @@ def find_universe_root(start_path):
 def hydrate_user_directory():
     """Copy bundled ``configs/`` to the user data dir on first run (frozen builds).
 
-    Also ensures ``adventures/`` exists under ``USER_ROOT``.
+    Also ensures the adventures library folder exists (default or configured path).
     """
     internal_configs = INTERNAL_ROOT / "configs"
     external_configs = USER_ROOT / "configs"
     
-    # Create adventures folder immediately
-    (USER_ROOT / "adventures").mkdir(parents=True, exist_ok=True)
+    get_adventures_dir()
     
     if not external_configs.exists():
         print(f"First run detected. Hydrating configs from bundle...")
@@ -383,7 +422,8 @@ def load_engine_config():
         "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
-        "max_inventory_keys": 8
+        "max_inventory_keys": 8,
+        "adventures_dir": ""
     }
     
     if not config_path.exists():

@@ -144,7 +144,7 @@ class UniverseTab(ctk.CTkFrame):
             
             # --- TITLE RENAME HOOK ---
             target_name = self.engine.master_setup_data.get("universe_title", "").strip()
-            from api import ADV_DIR, sanitize_foldername
+            from api import get_adv_dir, sanitize_foldername
             current_folder_name = self.engine.master_setup_file.parent.name
             
             # Use sanitized matching to guarantee we catch visual changes even if the OS normalizes them
@@ -152,14 +152,14 @@ class UniverseTab(ctk.CTkFrame):
                 msg = f"You changed the Universe Name to '{target_name}'.\n\nWould you like to rename the physical folder on your hard drive to match?"
                 if messagebox.askyesno("Rename Folder?", msg):
                     from api import TomeWeaverAPI
-                    current_rel_path = self.engine.master_setup_file.parent.relative_to(ADV_DIR).as_posix()
+                    current_rel_path = self.engine.master_setup_file.parent.relative_to(get_adv_dir()).as_posix()
                     success, new_folder_rel_path = TomeWeaverAPI.rename_folder(current_rel_path, target_name)
                     
                     if success:
                         messagebox.showinfo("Saved", f"Universe folder renamed to '{target_name}'.")
                         
                         # CRITICAL PATH FIX: Update the engine's internal path so subsequent saves don't write to the old ghost directory!
-                        self.engine.master_setup_file = ADV_DIR / new_folder_rel_path / "master_setup.json"
+                        self.engine.master_setup_file = get_adv_dir() / new_folder_rel_path / "master_setup.json"
                         
                         app = self.winfo_toplevel()
                         app.clear_container() 
@@ -211,14 +211,14 @@ class UniverseTab(ctk.CTkFrame):
             
             def worker():
                 from api import TomeWeaverAPI
-                from api import ADV_DIR
+                from api import get_adv_dir
                 
                 success, msg = TomeWeaverAPI.overhaul_active_universe(self.engine, prompt)
                 
                 def on_complete():
                     if success:
                         dialog.destroy() 
-                        folder_name = self.engine.adv_dir.relative_to(ADV_DIR).as_posix()
+                        folder_name = self.engine.adv_dir.relative_to(get_adv_dir()).as_posix()
                         app = self.winfo_toplevel()
                         app.clear_container() 
                         app.open_workspace(folder_name, target_tab="Universe")

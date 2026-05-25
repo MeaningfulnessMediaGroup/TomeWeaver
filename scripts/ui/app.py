@@ -8,8 +8,8 @@ import json
 import customtkinter as ctk
 from tkinter import messagebox
 from pathlib import Path
-from api import TomeWeaverAPI
-from config import create_boilerplate_files, ENGINE_CONFIG, INSTANCE_CONFIG, ROOT_DIR
+from api import TomeWeaverAPI, get_adv_dir
+from config import create_boilerplate_files, ENGINE_CONFIG, INSTANCE_CONFIG, ROOT_DIR, get_adventures_dir
 from ui.dashboard import DashboardFrame
 
 
@@ -64,7 +64,7 @@ class TomeWeaverApp(ctk.CTk):
         else:
             # Auto-Resume last played session
             last_story = INSTANCE_CONFIG.get("last_active_story", "")
-            if last_story and (Path("adventures") / last_story).exists():
+            if last_story and (get_adv_dir() / last_story).exists():
                 self.open_workspace(last_story)
             else:
                 self.open_dashboard()
@@ -120,7 +120,7 @@ class TomeWeaverApp(ctk.CTk):
         if hasattr(self, 'active_frame') and self.active_frame.__class__.__name__ == "DashboardFrame":
             self.last_dashboard_dir = self.active_frame.current_dir
             
-        setup_file = Path("adventures") / folder_name / "setup.json"
+        setup_file = get_adv_dir() / folder_name / "setup.json"
         
         if not setup_file.exists():
             self._prompt_boilerplate_initialization(folder_name)
@@ -333,7 +333,7 @@ class TomeWeaverApp(ctk.CTk):
         ctk.CTkRadioButton(frame, text="Campaign (Plot-Driven)", variable=mode_var, value="campaign").pack(side="left", padx=10)
 
         def on_init():
-            create_boilerplate_files(Path("adventures") / folder_name, mode_var.get())
+            create_boilerplate_files(get_adv_dir() / folder_name, mode_var.get())
             dialog.destroy()
             messagebox.showinfo("Success", "Files created! Please edit setup.json before playing.")
             self.open_dashboard()

@@ -24,7 +24,7 @@ if sys.stderr is None: sys.stderr = NullStream()
 from pathlib import Path
 import customtkinter as ctk
 from ui.app import TomeWeaverApp
-from config import ENGINE_CONFIG
+from config import ENGINE_CONFIG, get_adventures_dir
 
 # Hide the black terminal console on Windows
 if os.name == 'nt':
@@ -32,7 +32,7 @@ if os.name == 'nt':
 
 # Ensure runtime folders exist on the user's machine
 from pathlib import Path
-Path("adventures").mkdir(parents=True, exist_ok=True)
+get_adventures_dir()
 Path("configs/API_configs").mkdir(parents=True, exist_ok=True)
 
 

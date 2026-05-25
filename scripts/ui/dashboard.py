@@ -7,6 +7,7 @@
 """
 import math
 import threading
+from pathlib import Path
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from api import TomeWeaverAPI
@@ -47,15 +48,15 @@ class DashboardFrame(ctk.CTkFrame):
         self.new_story_var = ctk.StringVar(value="+ Create New Story")
         
         from config import find_universe_root
-        from api import ADV_DIR
-        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        from api import get_adv_dir
+        is_univ = find_universe_root(get_adv_dir() / self.current_dir) is not None
         self.new_story_var.set("+ Create Thread" if is_univ else "+ Create New Story")
         
         menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
         if not is_univ:
             menu_values.append("Create Universe...")
             
-        if not (ADV_DIR / "Samples").exists() and self.current_dir == "":
+        if not (get_adv_dir() / "Samples").exists() and self.current_dir == "":
             menu_values.append("Download Samples...")
 
         self.btn_new = ctk.CTkOptionMenu(
@@ -177,14 +178,14 @@ class DashboardFrame(ctk.CTkFrame):
         
         # Dynamic Menu Update (Check if we stepped inside a Universe)
         from config import find_universe_root
-        from api import ADV_DIR
-        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        from api import get_adv_dir
+        is_univ = find_universe_root(get_adv_dir() / self.current_dir) is not None
         
         menu_values = ["Manual Setup...", "Generate via AI...", "Guided Wizard..."]
         if not is_univ:
             menu_values.append("Create Universe...")
             
-        if not (ADV_DIR / "Samples").exists() and self.current_dir == "":
+        if not (get_adv_dir() / "Samples").exists() and self.current_dir == "":
             menu_values.append("Download Samples...")
             
         self.btn_new.configure(values=menu_values)
@@ -253,10 +254,10 @@ class DashboardFrame(ctk.CTkFrame):
         """Nukes the index.json cache file and triggers a deep reload of the OS."""
         if getattr(self, 'is_loading', False): return
         
-        from api import INDEX_FILE
-        if INDEX_FILE.exists():
+        from api import get_index_file
+        if get_index_file().exists():
             try:
-                INDEX_FILE.unlink()
+                get_index_file().unlink()
             except Exception:
                 pass # If OS locked, the indexer will just overwrite it anyway
                 
@@ -287,13 +288,13 @@ class DashboardFrame(ctk.CTkFrame):
         # --- 1. GATHER PHYSICAL FOLDERS ---
         # Discover physical directories in the current path so empty folders show up
         if not query:
-            from api import ADV_DIR
-            active_os_path = ADV_DIR / self.current_dir
+            from api import get_adv_dir
+            active_os_path = get_adv_dir() / self.current_dir
             if active_os_path.exists():
                 for item in active_os_path.iterdir():
                     # Only add if it's NOT a story cartridge, NOT a Universe root, AND not a hidden file
                     if item.is_dir() and not (item / "setup.json").exists() and not (item / "master_setup.json").exists() and not item.name.startswith("."):
-                        f_path = item.relative_to(ADV_DIR).as_posix()
+                        f_path = item.relative_to(get_adv_dir()).as_posix()
                         folders_found[f_path] = 0
 
         # --- 2. GATHER STORIES & TALLY COUNTS ---
@@ -501,10 +502,10 @@ class DashboardFrame(ctk.CTkFrame):
                 refs["folder_container"].pack(fill="both", expand=True)
                 
                 # --- IMAGE LOGIC (FOLDERS/UNIVERSES) ---
-                from api import ADV_DIR
+                from api import get_adv_dir
                 from PIL import Image
                 
-                icon_path = ADV_DIR / item["folder_name"] / "icon.jpg"
+                icon_path = get_adv_dir() / item["folder_name"] / "icon.jpg"
                 fallback_emoji = "🌌" if item.get("type") == "universe" else "📁"
                 fallback_color = "#B39DDB" if item.get("type") == "universe" else "#FFCA28"
                 
@@ -553,10 +554,10 @@ class DashboardFrame(ctk.CTkFrame):
                 refs["story_container"].pack(fill="both", expand=True)
                 
                 # --- IMAGE LOGIC (STORIES) ---
-                from api import ADV_DIR
+                from api import get_adv_dir
                 from PIL import Image
                 
-                icon_path = ADV_DIR / item["folder_name"] / "icon.jpg"
+                icon_path = get_adv_dir() / item["folder_name"] / "icon.jpg"
                 fallback_emoji = "📖"
                 empty_img = ctk.CTkImage(Image.new("RGBA", (1, 1), (255, 255, 255, 0)), size=(1, 1))
                 
@@ -906,25 +907,25 @@ class DashboardFrame(ctk.CTkFrame):
             for w in scroll.winfo_children(): w.destroy()
             ui_rows.clear()
             
-            from api import ADV_DIR
+            from api import get_adv_dir
             import os
             from config import find_universe_root
             
             # Determine if the item we are moving is a Universe itself
-            is_moving_universe = (ADV_DIR / source_path / "master_setup.json").exists()
+            is_moving_universe = (get_adv_dir() / source_path / "master_setup.json").exists()
             
             if state["active_dir"] != "":
                 parent = os.path.dirname(state["active_dir"]).replace('\\', '/')
                 _build_dialog_row(parent, "[ .. ] Go Up", is_up=True)
                 
-            active_os_path = ADV_DIR / state["active_dir"]
+            active_os_path = get_adv_dir() / state["active_dir"]
             available_folders = []
             
             if active_os_path.exists():
                 for item in active_os_path.iterdir():
                     # Identify valid container folders (Standard folders AND Universes)
                     if item.is_dir() and not (item / "setup.json").exists() and not item.name.startswith("."):
-                        rel_path = item.relative_to(ADV_DIR).as_posix()
+                        rel_path = item.relative_to(get_adv_dir()).as_posix()
                         
                         # --- PARADOX PREVENTION ---
                         # 1. You cannot move a folder into itself.
@@ -941,7 +942,7 @@ class DashboardFrame(ctk.CTkFrame):
                             
             for f_path in sorted(available_folders):
                 # Optionally add a visual indicator in the move dialog if it's a Universe
-                display_name = f"🌌 {os.path.basename(f_path)}" if (ADV_DIR / f_path / "master_setup.json").exists() else os.path.basename(f_path)
+                display_name = f"🌌 {os.path.basename(f_path)}" if (get_adv_dir() / f_path / "master_setup.json").exists() else os.path.basename(f_path)
                 _build_dialog_row(f_path, display_name, is_up=False)
                 
                 
@@ -989,9 +990,9 @@ class DashboardFrame(ctk.CTkFrame):
                 
             dialog.destroy()
             
-            from api import ADV_DIR
+            from api import get_adv_dir
             # Intelligent routing: if it has setup.json, it's a story. Otherwise it's a structural folder/universe.
-            if (ADV_DIR / source_path / "setup.json").exists():
+            if (get_adv_dir() / source_path / "setup.json").exists():
                 success, msg = TomeWeaverAPI.move_story(source_path, target)
             else:
                 success, msg = TomeWeaverAPI.move_folder(source_path, target)
@@ -1055,8 +1056,8 @@ class DashboardFrame(ctk.CTkFrame):
     def _handle_create_menu(self, choice):
         """Intercepts the dropdown selection and resets the button text."""
         from config import find_universe_root
-        from api import ADV_DIR
-        is_univ = find_universe_root(ADV_DIR / self.current_dir) is not None
+        from api import get_adv_dir
+        is_univ = find_universe_root(get_adv_dir() / self.current_dir) is not None
         self.new_story_var.set("+ Create Thread" if is_univ else "+ Create New Story")
         
         if choice == "Manual Setup...":
@@ -1444,8 +1445,8 @@ class DashboardFrame(ctk.CTkFrame):
         
         # --- NEW: UNIVERSE CONTEXT CHECKBOX ---
         from config import find_universe_root
-        from api import ADV_DIR
-        univ_root = find_universe_root(ADV_DIR / self.current_dir)
+        from api import get_adv_dir
+        univ_root = find_universe_root(get_adv_dir() / self.current_dir)
         read_univ_var = ctk.BooleanVar(value=True) # Default to true if inside a universe
         
         if univ_root:
@@ -1563,13 +1564,14 @@ class DashboardFrame(ctk.CTkFrame):
         
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""
-        from config import load_engine_config, ROOT_DIR, ENGINE_CONFIG
+        from config import load_engine_config, ROOT_DIR, ENGINE_CONFIG, get_adventures_dir, get_default_adventures_dir
         from ui.tooltip import Tooltip
+        from tkinter import filedialog
         import json
         
         dialog = ctk.CTkToplevel(self)
         dialog.title("Global Engine Settings")
-        dialog.geometry("600x750")
+        dialog.geometry("600x820")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -1580,6 +1582,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         current_config = load_engine_config()
         fields = {}
+        old_adv_root = str(get_adventures_dir())
 
         def add_field(label_text, key_name, is_bool=False, is_number=False, tooltip_text=""):
             val = current_config.get(key_name)
@@ -1603,6 +1606,38 @@ class DashboardFrame(ctk.CTkFrame):
                 fields[key_name] = (var, is_number)
 
         # Build Fields (Categorized)
+        ctk.CTkLabel(scroll, text="--- Data & Storage ---", text_color="gray").pack(pady=(10, 5))
+
+        adv_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        adv_row.pack(fill="x", pady=5)
+        lbl_adv = ctk.CTkLabel(adv_row, text="Adventures Library:", font=("Arial", 14, "bold"), width=200, anchor="e")
+        lbl_adv.pack(side="left", padx=(0, 15))
+        Tooltip(lbl_adv, "Root folder for all story cartridges, universes, and index.json. Leave empty for the default ./adventures next to the app.")
+
+        adventures_var = ctk.StringVar(value=str(get_adventures_dir()))
+        adv_entry = ctk.CTkEntry(adv_row, textvariable=adventures_var, font=("Arial", 13), width=220)
+        adv_entry.pack(side="left", expand=True, fill="x")
+
+        def browse_adventures_dir():
+            initial = adventures_var.get().strip() or str(get_default_adventures_dir())
+            if not Path(initial).exists():
+                initial = str(get_default_adventures_dir())
+            picked = filedialog.askdirectory(title="Select Adventures Library Folder", initialdir=initial)
+            if picked:
+                adventures_var.set(str(Path(picked).resolve()))
+
+        btn_browse_adv = ctk.CTkButton(adv_row, text="Browse...", width=80, command=browse_adventures_dir)
+        btn_browse_adv.pack(side="left", padx=(8, 0))
+
+        ctk.CTkLabel(
+            scroll,
+            text=f"Default when empty: {get_default_adventures_dir()}  •  index.json lives inside this folder.",
+            font=("Arial", 11, "italic"),
+            text_color="gray",
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 5))
+
         ctk.CTkLabel(scroll, text="--- API Connection ---", text_color="gray").pack(pady=(10, 5))
         
         from config import get_api_profiles, load_api_profile
@@ -1686,6 +1721,13 @@ class DashboardFrame(ctk.CTkFrame):
             new_config["model"] = prof_data.get("model", "")
             new_config["max_query_per_minute"] = prof_data.get("max_query_per_minute", 0)
             new_config["max_tokens"] = prof_data.get("max_tokens", 2000)
+
+            adv_raw = adventures_var.get().strip()
+            if adv_raw:
+                adv_path = Path(adv_raw).expanduser().resolve()
+                new_config["adventures_dir"] = "" if adv_path == get_default_adventures_dir() else str(adv_path)
+            else:
+                new_config["adventures_dir"] = ""
             
             # Hard-delete the legacy chunk size if it exists in the active UI payload
             if "memory_chunk_size" in new_config: del new_config["memory_chunk_size"]
@@ -1699,6 +1741,12 @@ class DashboardFrame(ctk.CTkFrame):
                 # 2. Mutate active memory globally (CRITICAL FIX)
                 ENGINE_CONFIG.clear()
                 ENGINE_CONFIG.update(new_config)
+
+                if str(get_adventures_dir()) != old_adv_root:
+                    self.current_dir = ""
+                    if hasattr(self.app, "last_dashboard_dir"):
+                        self.app.last_dashboard_dir = ""
+                    self.load_data()
                     
                 messagebox.showinfo("Saved", "Global Engine Settings saved successfully.")
                 dialog.destroy()

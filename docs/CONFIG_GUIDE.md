@@ -29,6 +29,9 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`log_verbose`** | When `true`, logs full LLM prompts to `session_log.txt` (in addition to console output when verbose UI is active). |
 | **`log_raw_json_on_failure`** | When `true`, always logs raw model output on JSON parse failures—even if verbose logging is off. |
 | **`max_inventory_keys`** | Maximum tracked inventory slots in the World Builder pill editor (default 8). |
+| **`adventures_dir`** | Absolute path to the story library root. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` is stored inside this folder. |
+
+**Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse button).
 
 ---
 
@@ -151,7 +154,7 @@ Separate from engine behavior, `instance_config.json` stores **volatile UI sessi
 
 ## 📇 Autonomous Library Index (`adventures/index.json`)
 
-The Dashboard maintains a cached metadata index for fast search and pagination across large libraries. The index rebuilds when stories are created, renamed, moved, or when you trigger a manual refresh. It is **never exported** inside ZIP cartridges (regenerated on import).
+The Dashboard maintains a cached metadata index for fast search and pagination across large libraries. The index file lives at ``<adventures_dir>/index.json`` (inside whichever library folder is configured in Settings). The index rebuilds when stories are created, renamed, moved, or when you trigger a manual refresh. It is **never exported** inside ZIP cartridges (regenerated on import).
 
 ---
 

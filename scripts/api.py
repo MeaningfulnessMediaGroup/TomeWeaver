@@ -15,10 +15,15 @@ from pathlib import Path
 
 from sandbox import SandboxEngine
 from campaign import CampaignEngine
-from config import create_boilerplate_files
+from config import create_boilerplate_files, get_adventures_dir
 
-ADV_DIR = Path("adventures")
-INDEX_FILE = ADV_DIR / "index.json"
+def get_adv_dir():
+    """Resolved adventures library root (see ``config.get_adventures_dir``)."""
+    return get_adventures_dir()
+
+def get_index_file():
+    """Path to ``index.json`` inside the active adventures library root."""
+    return get_adv_dir() / "index.json"
 
 def sanitize_foldername(name):
     """Strip characters illegal on common filesystems from a folder name.
@@ -157,11 +162,10 @@ class TomeWeaverAPI:
         Removes the extracted chapters from the source story and safely heals the boundaries.
         """
         from config import load_json_safely, save_json_atomically
-        from api import ADV_DIR
         import re
         import shutil
         
-        source_dir = ADV_DIR / source_folder_name
+        source_dir = get_adv_dir() / source_folder_name
         if not source_dir.exists(): return False, "Source folder not found."
             
         safe_title = sanitize_foldername(new_title)
@@ -350,7 +354,7 @@ class TomeWeaverAPI:
             source_memory["chapter_ledger"] = cleaned_source_cl
             save_json_atomically(source_memory, source_dir / "memory.json")
 
-            return True, target_dir.relative_to(ADV_DIR).as_posix()
+            return True, target_dir.relative_to(get_adv_dir()).as_posix()
         except Exception as e:
             return False, str(e)
             
@@ -360,13 +364,13 @@ class TomeWeaverAPI:
         High-Performance Loader: Uses OS file timestamps to selectively read 
         only updated JSON files, caching the rest in index.json.
         """
-        ADV_DIR.mkdir(parents=True, exist_ok=True)
+        get_adv_dir().mkdir(parents=True, exist_ok=True)
         
         # 1. Load the cache
         index_data = {}
-        if INDEX_FILE.exists():
+        if get_index_file().exists():
             try:
-                with open(INDEX_FILE, "r", encoding="utf-8") as f:
+                with open(get_index_file(), "r", encoding="utf-8") as f:
                     index_data = json.load(f)
             except json.JSONDecodeError:
                 pass # If corrupted, we just rebuild it automatically
@@ -375,8 +379,8 @@ class TomeWeaverAPI:
         current_folders = set()
         
         # 2. Deep Scan OS Directory
-        for root, dirs, files in os.walk(ADV_DIR):
-            rel_path = Path(root).relative_to(ADV_DIR).as_posix()
+        for root, dirs, files in os.walk(get_adv_dir()):
+            rel_path = Path(root).relative_to(get_adv_dir()).as_posix()
             if rel_path == ".": rel_path = ""
             
             is_universe_root = False
@@ -433,7 +437,7 @@ class TomeWeaverAPI:
             
         # 4. Save cache if changes occurred
         if needs_save:
-            with open(INDEX_FILE, "w", encoding="utf-8") as f:
+            with open(get_index_file(), "w", encoding="utf-8") as f:
                 json.dump(index_data, f, indent=4)
                 
         # Extract metadata dictionaries and sort
@@ -450,7 +454,7 @@ class TomeWeaverAPI:
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
             
-        target_dir = ADV_DIR / parent_dir / safe_title
+        target_dir = get_adv_dir() / parent_dir / safe_title
         if target_dir.exists(): return False, f"A story folder named '{safe_title}' already exists."
             
         try:
@@ -496,7 +500,7 @@ class TomeWeaverAPI:
         safe_title = sanitize_foldername(title)
         if not safe_title: return False, "Invalid title. Contains illegal characters."
             
-        target_dir = ADV_DIR / parent_dir / safe_title
+        target_dir = get_adv_dir() / parent_dir / safe_title
         if target_dir.exists(): return False, f"A folder named '{safe_title}' already exists."
             
         try:
@@ -529,9 +533,8 @@ class TomeWeaverAPI:
     def analyze_migration(folder_name):
         """Scans a newly dropped story to see if it needs Universe integration."""
         from config import find_universe_root, load_json_safely
-        from api import ADV_DIR
-        
-        target_dir = ADV_DIR / folder_name
+
+        target_dir = get_adv_dir() / folder_name
         univ_root = find_universe_root(target_dir)
         
         if not univ_root:
@@ -560,9 +563,8 @@ class TomeWeaverAPI:
     def commit_migration(folder_name, univ_root, lore_strategy, resolutions):
         """Transactionally splices the local memory into the Shared World Bible."""
         from config import load_json_safely, save_json_atomically
-        from api import ADV_DIR
-        
-        target_dir = ADV_DIR / folder_name
+
+        target_dir = get_adv_dir() / folder_name
         setup_file = target_dir / "setup.json"
         local_mem_file = target_dir / "memory.json"
         shared_mem_file = univ_root / "shared_memory.json"
@@ -678,7 +680,7 @@ class TomeWeaverAPI:
         Returns:
             tuple[bool, str]: ``(success, message)``.
         """
-        source_dir = ADV_DIR / folder_name
+        source_dir = get_adv_dir() / folder_name
         if not source_dir.exists(): return False, "Story folder not found."
         try:
             with zipfile.ZipFile(target_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -719,10 +721,10 @@ class TomeWeaverAPI:
                 safe_title = sanitize_foldername(title)
                 if not safe_title: safe_title = "Imported_Story"
                 
-                target_dir = ADV_DIR / safe_title
+                target_dir = get_adv_dir() / safe_title
                 counter = 1
                 while target_dir.exists():
-                    target_dir = ADV_DIR / f"{safe_title} ({counter})"
+                    target_dir = get_adv_dir() / f"{safe_title} ({counter})"
                     counter += 1
                     
                 target_dir.mkdir(parents=True)
@@ -743,7 +745,7 @@ class TomeWeaverAPI:
     @staticmethod
     def restart_story(folder_name):
         """Headless Reset: Wipes history and resets chapters without loading the full engine."""
-        target_dir = ADV_DIR / folder_name
+        target_dir = get_adv_dir() / folder_name
         history_file = target_dir / "history.json"
         chapters_file = target_dir / "chapters.json"
         setup_file = target_dir / "setup.json"
@@ -798,7 +800,7 @@ class TomeWeaverAPI:
     @staticmethod
     def delete_story(folder_name):
         """Permanently deletes an adventure directory."""
-        target_dir = ADV_DIR / folder_name
+        target_dir = get_adv_dir() / folder_name
         if target_dir.exists() and target_dir.is_dir():
             try:
                 shutil.rmtree(target_dir)
@@ -811,7 +813,7 @@ class TomeWeaverAPI:
     def rename_story(folder_name, new_title):
         """Safely renames both the physical folder and the JSON title property."""
         import shutil
-        source_dir = ADV_DIR / folder_name
+        source_dir = get_adv_dir() / folder_name
         if not source_dir.exists(): return False, "Story not found."
         
         safe_new = sanitize_foldername(new_title)
@@ -848,7 +850,7 @@ class TomeWeaverAPI:
                     json.dump(data, f, indent=4)
                     
             # CRITICAL FIX: Return the full relative path so nested folders can be reopened by the UI
-            return True, target_dir.relative_to(ADV_DIR).as_posix()
+            return True, target_dir.relative_to(get_adv_dir()).as_posix()
         except Exception as e:
             return False, str(e)
             
@@ -856,10 +858,10 @@ class TomeWeaverAPI:
     def move_story(folder_name, new_parent_dir):
         """Moves a story folder to a new directory within the adventures root."""
         import shutil
-        source_dir = ADV_DIR / folder_name
+        source_dir = get_adv_dir() / folder_name
         if not source_dir.exists(): return False, "Story not found."
         
-        target_parent = ADV_DIR / new_parent_dir
+        target_parent = get_adv_dir() / new_parent_dir
         if not target_parent.exists():
             target_parent.mkdir(parents=True, exist_ok=True)
             
@@ -882,7 +884,7 @@ class TomeWeaverAPI:
                 shutil.copytree(source_dir, target_dir)
                 shutil.rmtree(source_dir)
                 
-            return True, target_dir.relative_to(ADV_DIR).as_posix()
+            return True, target_dir.relative_to(get_adv_dir()).as_posix()
         except Exception as e:
             return False, str(e)
 
@@ -1004,7 +1006,7 @@ class TomeWeaverAPI:
             base_title = raw_title
             counter = 1
             
-            while (ADV_DIR / parent_dir / sanitize_foldername(final_title)).exists():
+            while (get_adv_dir() / parent_dir / sanitize_foldername(final_title)).exists():
                 final_title = f"{base_title} {counter}"
                 counter += 1
                 
@@ -1013,7 +1015,7 @@ class TomeWeaverAPI:
             if not success: return False, f"Could not create folder: {folder_or_err}"
             
             folder_name = folder_or_err
-            target_dir = ADV_DIR / folder_name
+            target_dir = get_adv_dir() / folder_name
 
             # 4. Apply to setup.json
             setup_file = target_dir / "setup.json"
@@ -1609,8 +1611,8 @@ class TomeWeaverAPI:
     def browse_path(rel_path):
         """Opens the physical OS File Explorer at the target directory."""
         import platform, subprocess
-        target = ADV_DIR / rel_path
-        if not target.exists(): target = ADV_DIR # Fallback to root
+        target = get_adv_dir() / rel_path
+        if not target.exists(): target = get_adv_dir() # Fallback to root
         try:
             if platform.system() == "Windows": os.startfile(target)
             elif platform.system() == "Darwin": subprocess.Popen(["open", target])
@@ -1624,7 +1626,7 @@ class TomeWeaverAPI:
         """Creates an empty physical directory."""
         safe_name = sanitize_foldername(folder_name)
         if not safe_name: return False, "Invalid folder name."
-        target = ADV_DIR / parent_dir / safe_name
+        target = get_adv_dir() / parent_dir / safe_name
         if target.exists(): return False, "Folder already exists."
         try:
             target.mkdir(parents=True, exist_ok=True)
@@ -1636,7 +1638,7 @@ class TomeWeaverAPI:
     def rename_folder(rel_path, new_name):
         """Renames a physical directory. If it is a Universe, safely updates its JSON title."""
         import shutil
-        source_dir = ADV_DIR / rel_path
+        source_dir = get_adv_dir() / rel_path
         if not source_dir.exists(): return False, "Folder not found."
         
         safe_new = sanitize_foldername(new_name)
@@ -1675,14 +1677,14 @@ class TomeWeaverAPI:
                 with open(master_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
                     
-            return True, target_dir.relative_to(ADV_DIR).as_posix()
+            return True, target_dir.relative_to(get_adv_dir()).as_posix()
         except Exception as e:
             return False, str(e)
 
     @staticmethod
     def delete_folder(rel_path):
         """Recursively deletes a folder and everything inside it."""
-        source_dir = ADV_DIR / rel_path
+        source_dir = get_adv_dir() / rel_path
         if not source_dir.exists(): return False, "Folder not found."
         try:
             shutil.rmtree(source_dir)
@@ -1694,10 +1696,10 @@ class TomeWeaverAPI:
     def move_folder(rel_path, new_parent_dir):
         """Moves a physical container folder to a new directory within the adventures root."""
         import shutil
-        source_dir = ADV_DIR / rel_path
+        source_dir = get_adv_dir() / rel_path
         if not source_dir.exists(): return False, "Folder not found."
         
-        target_parent = ADV_DIR / new_parent_dir
+        target_parent = get_adv_dir() / new_parent_dir
         if not target_parent.exists():
             target_parent.mkdir(parents=True, exist_ok=True)
             
@@ -1719,7 +1721,7 @@ class TomeWeaverAPI:
                 shutil.copytree(source_dir, target_dir)
                 shutil.rmtree(source_dir)
                 
-            return True, target_dir.relative_to(ADV_DIR).as_posix()
+            return True, target_dir.relative_to(get_adv_dir()).as_posix()
         except Exception as e:
             return False, str(e)
             
@@ -1732,7 +1734,7 @@ class TomeWeaverAPI:
         except ImportError:
             return False, "Python 'Pillow' library is missing. Please run: pip install pillow"
             
-        target_dir = ADV_DIR / rel_path
+        target_dir = get_adv_dir() / rel_path
         if not target_dir.exists(): 
             return False, "Target folder not found."
             
@@ -1787,7 +1789,7 @@ class TomeWeaverAPI:
         Raises:
             FileNotFoundError: If ``setup.json`` is missing.
         """
-        target_dir = ADV_DIR / folder_name
+        target_dir = get_adv_dir() / folder_name
         setup_file = target_dir / "setup.json"
         if not setup_file.exists(): raise FileNotFoundError(f"setup.json missing from '{folder_name}'.")
             
@@ -2553,8 +2555,7 @@ class TomeWeaverAPI:
 
             if callback: callback("Extracting archives...")
             with zipfile.ZipFile(io.BytesIO(content)) as z:
-                from api import ADV_DIR
-                z.extractall(ADV_DIR)
+                z.extractall(get_adv_dir())
                 
             return True, "Samples downloaded successfully!"
         except Exception as e:
