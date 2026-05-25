@@ -316,6 +316,20 @@ TomeWeaver is a massive, feature-rich application. Please refer to our dedicated
 *   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, Universes, and JSON schemas.
 *   🧠 **[Long-Term Memory & RAG (docs/RAG.md)](docs/RAG.md)** - Plot ledgers, entity tracking, auto-decay, and continuity auditing.
 *   🧠 **[LM Studio Setup & Models (docs/LM_STUDIO_CONFIG.md)](docs/LM_STUDIO_CONFIG.md)** - How to configure local, free LLMs to run the engine.
+*   🗺️ **[Future Roadmap (docs/FUTURE.md)](docs/FUTURE.md)** - v0.3 → v1.0 stabilization and planned post-v1.0 features.
+
+---
+
+## 🗺️ Roadmap
+
+TomeWeaver is at **v0.3**. The path to **v1.0**—a release ready for prime time—is focused on testing, debugging, and hardening the engine, not piling on new features. After that gate, planned work follows a **high value / low VRAM overhead** philosophy:
+
+*   **RPG Mode (Third Pillar)** — A dedicated crunchy mode with `character_stats.json`, `[CHECK: …]` skill tags, local dice resolution, and a Story Tab overlay.
+*   **Tension Heatmap** — Narrative pacing analytics compiled during RAG (physical danger + emotional tension line graphs).
+*   **Party Management** — Multi-POV `party_ledger` with header portraits and one-click active POV switching.
+*   **Voice of the Weaver (TTS)** — Optional per-turn narration via local Piper/Kokoro or cloud ElevenLabs, lazy-loaded so gameplay never blocks.
+
+For the full architect's vision—data models, engine integration, phased rollout, and explicit out-of-scope items—see **[docs/FUTURE.md](docs/FUTURE.md)**.
 
 ---
 
