@@ -403,22 +403,28 @@ class WorkspaceFrame(ctk.CTkFrame):
                 self.engine.chapters[0]["start_turn"] = 1
                 self.engine.chapters[0]["end_turn"] = None
                 
-            # 3. Handle Memory
+           # 3. Handle Memory (STRICTLY LOCAL SCOPE)
             mode = v_mem.get()
             self.engine.memory["plot_ledger"] = []
             self.engine.memory["chapter_ledger"] = []
             
+            ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+            
             if mode == "nuclear":
-                self.engine.memory["character_ledger"] = {}
-                self.engine.memory["location_ledger"] = {}
-                self.engine.memory["artifact_ledger"] = {}
-                self.engine.memory["faction_ledger"] = {}
-                self.engine.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
+                # Nuclear Restart ONLY wipes the LOCAL bucket
+                for l in ledgers:
+                    self.engine.memory[l]["local"] = {}
+                self.engine.memory["aliases"]["local"] = {l: {} for l in ledgers}
+                # Also reset local visibility states for global characters
+                self.engine.memory["global_states"] = {}
+                
             elif mode == "wipe_ai":
-                for l_type in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]:
-                    for k in self.engine.memory.get(l_type, {}): 
-                        saved_notes = self.engine.memory[l_type][k].get("author_notes", "")
-                        self.engine.memory[l_type][k] = {"characteristics": {}, "ledger": [], "author_notes": saved_notes}
+                # Wipe events but keep notes/traits in the LOCAL bucket
+                for l in ledgers:
+                    for k in self.engine.memory[l].get("local", {}): 
+                        self.engine.memory[l]["local"][k]["ledger"] = []
+                # Also reset local visibility states for global characters
+                self.engine.memory["global_states"] = {}
             
             # 4. Flush the session log file
             log_file = self.engine.adv_dir / "session_log.txt"

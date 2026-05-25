@@ -199,14 +199,15 @@ class StoryTab(ctk.CTkFrame):
         )
         self.btn_start_adv.pack(expand=True)
 
-        self.refresh_timeline(go_to_last=True)
+        # Initial Boot: Try to load the bookmark
+        self.refresh_timeline(go_to_last=True, use_bookmark=True)
 
 
     # ---------------------------------------------------------
     # TIMELINE & NAVIGATION LOGIC
     # ---------------------------------------------------------
 
-    def refresh_timeline(self, go_to_last=False):
+    def refresh_timeline(self, go_to_last=False, use_bookmark=False):
         """Syncs the slider boundaries to the history array and perfectly resets layout order."""
         history_len = len(self.engine.history)
         
@@ -223,19 +224,22 @@ class StoryTab(ctk.CTkFrame):
             
         # 2. Strict Layout Stacking (Guarantees layout won't crush)
         self.card_frame.pack(fill="both", expand=True, padx=20, pady=(15, 10))
-        # Equalize the padding surrounding the timeline slider (10px top, 10px bottom)
         self.timeline_frame.pack(fill="x", padx=20, pady=10)
         self.input_frame.pack(fill="x", padx=20, pady=(0, 10))
         
         if go_to_last:
-            # Check for a saved bookmark for this specific story path
-            from config import INSTANCE_CONFIG
-            story_path = self.workspace.folder_name
-            bookmark = INSTANCE_CONFIG.get("story_bookmarks", {}).get(story_path)
-            
-            if bookmark is not None and 0 <= int(bookmark) < history_len:
-                self.current_turn_idx = int(bookmark)
+            if use_bookmark:
+                # ONLY use the bookmark during the initial workspace load
+                from config import INSTANCE_CONFIG
+                story_path = self.workspace.folder_name
+                bookmark = INSTANCE_CONFIG.get("story_bookmarks", {}).get(story_path)
+                
+                if bookmark is not None and 0 <= int(bookmark) < history_len:
+                    self.current_turn_idx = int(bookmark)
+                else:
+                    self.current_turn_idx = history_len - 1
             else:
+                # Regular gameplay action: Always force to the end
                 self.current_turn_idx = history_len - 1
             
         if history_len > 1:

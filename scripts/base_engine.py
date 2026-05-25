@@ -967,7 +967,7 @@ class BaseEngine:
         self.save_state()
         return True
 
-    def delete_turn(self, target_index):
+    def delete_turn(self, target_index, pop_bridge=True):
         """Deletes a turn and left-shifts history, preserving choice continuity."""
         if target_index < 0 or target_index >= len(self.history): return False
         
@@ -979,8 +979,11 @@ class BaseEngine:
         # 2. Restore choice to the preceding turn
         if target_index > 0:
             self.history[target_index - 1]["player_choice"] = preserved_choice
-            # Clear bridge of the turn that is about to shift into this position
-            if target_index + 1 < len(self.history):
+            
+            # Optionally clear bridge of the turn that is about to shift into this position.
+            # We skip this during 'Turn to Bridge' conversion because we just manually 
+            # wrote a new bridge to that slot!
+            if pop_bridge and (target_index < len(self.history) - 1):
                 self.history[target_index + 1].pop("narrative_bridge", None)
 
         # 3. Remove the turn
@@ -997,7 +1000,6 @@ class BaseEngine:
             e_turn = c.get("end_turn")
             
             if s_turn is not None and e_turn is not None:
-                # If the deletion lands INSIDE this chapter, it is affected
                 if s_turn <= deleted_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
             
             if s_turn == deleted_turn_val:
@@ -1012,14 +1014,12 @@ class BaseEngine:
                 else:
                     c["end_turn"] -= 1
                     
-        # Invalidate the RAG summaries
         if affected_chapters:
             self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
             self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
                 
         self.save_state()
         return True
-
 
     def analyze_deep_rename(self, old_name, scope="local"):
         """
@@ -1162,9 +1162,8 @@ class BaseEngine:
     def convert_turn_to_bridge(self, target_index):
         """
         Collapses the target turn FORWARD into the NEXT turn's narrative bridge.
-        The target turn is then deleted, shifting the timeline left.
+        The target turn is then deleted via a protected-bridge delete.
         """
-        # Cannot collapse the very last turn, because there is no "next" turn to push the bridge into!
         if target_index < 0 or target_index >= len(self.history) - 1: return False
         
         curr_turn = self.history[target_index]
@@ -1179,37 +1178,33 @@ class BaseEngine:
         if s1: parts.append(s1)
         if b2 and b2 not in ["[OK]", "[FAILED]"]: parts.append(b2)
         
+        # 1. Update the next turn with the combined text
         next_turn["narrative_bridge"] = "\n\n".join(parts)
             
-        # The target turn is now fully absorbed into the next turn. 
-        # Delete it and left-shift history.
-        return self.delete_turn(target_index)
+        # 2. Use the protected delete to remove the card while keeping the bridge
+        return self.delete_turn(target_index, pop_bridge=False)
+
 
     def convert_bridge_to_turn(self, target_index):
         """
-        Extracts the target turn's narrative bridge and expands it into its own dedicated Turn.
-        The timeline is right-shifted.
+        Extracts the bridge into its own card. Relies on insert_blank_turn 
+        for causality and then overwrites prose.
         """
         if target_index <= 0 or target_index >= len(self.history): return False
         
         target_turn = self.history[target_index]
         bridge_text = target_turn.get("narrative_bridge", "").strip()
-        
         if not bridge_text or bridge_text in ["[OK]", "[FAILED]"]: return False
         
-        # 1. Right-shift history by inserting a blank turn exactly AT the target index.
-        # This pushes the current turn (target_index) forward to target_index + 1.
+        # 1. Insert handles causality (prev choice -> new turn)
         self.insert_blank_turn(target_index)
         
-        # 2. Populate the newly inserted turn with the bridge text
+        # 2. Populate the extracted prose
         new_turn = self.history[target_index]
         new_turn["story_text"] = bridge_text
         
-        # The old choice that led into this bridge is completely safe in target_index - 1!
-        # We just need to give the newly created turn a filler choice so it leads into the next turn cleanly.
-        new_turn["player_choice"] = "[ Timeline Expanded ]"
-        
-        # 3. Clear the bridge from the shifted turn to prevent duplication
+        # 3. Finalize causality anchors
+        self.history[target_index - 1]["player_choice"] = "[ Timeline Expanded ]"
         self.history[target_index + 1]["narrative_bridge"] = ""
         
         self.save_state()

@@ -16,17 +16,12 @@ class MemoryTab(ctk.CTkFrame):
     def __init__(self, parent, engine):
         super().__init__(parent, fg_color="transparent")
         self.engine = engine
-        self._last_render_time = 0 # Tracks when this tab was last drawn
+        self._last_render_time = 0 
         
         # --- HEADER ---
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.pack(fill="x", padx=10, pady=5)
         
-        # STICKY SAVE BUTTON: Positioned on the far left for instant access
-        self.btn_save_memory = ctk.CTkButton(hdr, text="💾 Save Changes", font=("Arial", 12, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", width=120, command=self._save_active_memory)
-        self.btn_save_memory.pack(side="left", padx=(10, 5))
-        Tooltip(self.btn_save_memory, "Commit manual edits to Plot or Chapter summaries.")
-
         ctk.CTkLabel(hdr, text="Long-Term Memory Ledger", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(side="left", padx=5, pady=10)
         
         self.btn_compile = ctk.CTkButton(hdr, text="🔄 Compile Missing History", font=("Arial", 12, "bold"), fg_color="#F57C00", hover_color="#E65100", command=self._compile_history)
@@ -38,23 +33,23 @@ class MemoryTab(ctk.CTkFrame):
         
         # --- RESIZABLE SPLIT PANE LAYOUT ---
         import tkinter as tk
-        # Use native PanedWindow to allow dragging the sash. Colors matched to dark mode.
         self.paned_window = tk.PanedWindow(self, orient="horizontal", bg="#212121", bd=0, sashwidth=6, sashcursor="sb_h_double_arrow")
         self.paned_window.pack(fill="both", expand=True, padx=10, pady=10)
         
-        # 1. Create two basic CTkFrames to act as safe buckets for the PanedWindow
         left_bucket = ctk.CTkFrame(self.paned_window, fg_color="transparent")
         right_bucket = ctk.CTkFrame(self.paned_window, fg_color="transparent")
         
         self.paned_window.add(left_bucket, minsize=200)
         self.paned_window.add(right_bucket, minsize=400)
         
-        # 2. Pack the complex CustomTkinter scrollable frames safely inside the buckets
         self.nav_frame = ctk.CTkScrollableFrame(left_bucket, width=280)
         self.nav_frame.pack(fill="both", expand=True)
         
-        self.editor_frame = ctk.CTkScrollableFrame(right_bucket, fg_color="transparent")
-        self.editor_frame.pack(fill="both", expand=True)
+        # CRITICAL FIX: The master editor frame is now a standard container.
+        self.editor_master = ctk.CTkFrame(right_bucket, fg_color="transparent")
+        self.editor_master.pack(fill="both", expand=True)
+        
+        # We will dynamically recreate the sticky header and the scrollable body inside editor_master!
         
         self.active_selection = ctk.StringVar(value="PLOT_LEDGER")
         self._refresh_nav()
@@ -62,7 +57,7 @@ class MemoryTab(ctk.CTkFrame):
     def _compile_history(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Retroactive Compiler")
-        dialog.geometry("500x480") # Made slightly taller for the 4th option
+        dialog.geometry("500x400") # Made slightly taller for the 4th option
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -90,14 +85,7 @@ class MemoryTab(ctk.CTkFrame):
         Tooltip(rb_verify, "Reads the already summarized Plot Ledger and Lore Bible to check for logical contradictions. Runs Auto-Reconcile if checked.")
 
         # Divider
-        # Divider
         ctk.CTkFrame(dialog, height=2, fg_color="#333333").pack(fill="x", padx=40, pady=15)
-
-        # Load the last used reconcile setting (defaults to True on first run)
-        v_recon = ctk.BooleanVar(value=self.engine.setup_data.get("auto_reconcile", True))
-        cb_recon = ctk.CTkCheckBox(dialog, text="Auto-Reconcile Duplicates (Merge aliases)", variable=v_recon)
-        cb_recon.pack(anchor="w", padx=40)
-        Tooltip(cb_recon, "Runs a final AI pass to automatically merge duplicate entities like 'John' and 'John Smith'.")
 
         def apply_compile():
             mode_selection = v_mode.get()
@@ -127,7 +115,6 @@ class MemoryTab(ctk.CTkFrame):
                     if mode_selection == "verify":
                         self._show_verification_report(msg)
                     else:
-                        from tkinter import messagebox
                         messagebox.showinfo("Complete", msg)
                         
                     self._refresh_nav()
@@ -179,55 +166,86 @@ class MemoryTab(ctk.CTkFrame):
             Tooltip(btn_patch, "Ask the AI to automatically rewrite the summary to fix these exact issues.")
         
     def _show_clear_dialog(self):
-        """Spawns a granular memory-wipe dialog."""
+        """Spawns a granular memory-wipe dialog with scope-awareness."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Clear Memory")
-        dialog.geometry("420x350")
+        dialog.geometry("480x550")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
-        ctk.CTkLabel(dialog, text="Wipe Long-Term Memory", font=("Arial", 16, "bold"), text_color="#D32F2F").pack(pady=(20, 10))
-        ctk.CTkLabel(dialog, text="Select what you want to delete. You can safely regenerate wiped data using the Compiler.", wraplength=350, text_color="gray").pack(padx=20, pady=(0, 20))
+        ctk.CTkLabel(dialog, text="Maintenance: Prune Memory", font=("Arial", 18, "bold"), text_color="#D32F2F").pack(pady=(20, 10))
+        
+        # --- 1. SCOPE SELECTION ---
+        ctk.CTkLabel(dialog, text="Target Scope:", font=("Arial", 12, "bold"), text_color="#00BCD4").pack(anchor="w", padx=40)
+        v_scope = ctk.StringVar(value="local")
+        
+        scope_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        scope_frame.pack(fill="x", padx=40, pady=(5, 15))
+        
+        rb_loc = ctk.CTkRadioButton(scope_frame, text="Local Thread", variable=v_scope, value="local")
+        rb_loc.pack(side="left", padx=(0, 20))
+        
+        is_univ = self.engine.is_universe_thread
+        rb_glo = ctk.CTkRadioButton(scope_frame, text="Global Universe", variable=v_scope, value="global", state="normal" if is_univ else "disabled")
+        rb_glo.pack(side="left")
+        if is_univ: Tooltip(rb_glo, "WARNING: This affects ALL stories in this universe.")
 
+        # --- 2. ACTION SELECTION ---
+        ctk.CTkLabel(dialog, text="Wipe Options:", font=("Arial", 12, "bold"), text_color="#00BCD4").pack(anchor="w", padx=40)
+        
         v_plot = ctk.BooleanVar(value=True)
         v_bullets = ctk.BooleanVar(value=True)
         v_entities = ctk.BooleanVar(value=False)
 
-        ctk.CTkSwitch(dialog, text="Clear Plot Summaries", variable=v_plot).pack(anchor="w", padx=40, pady=10)
-        ctk.CTkSwitch(dialog, text="Clear Entity Histories (Keep tracked names)", variable=v_bullets).pack(anchor="w", padx=40, pady=10)
-        ctk.CTkSwitch(dialog, text="Untrack Entities (Delete names entirely)", variable=v_entities).pack(anchor="w", padx=40, pady=10)
+        ctk.CTkSwitch(dialog, text="Clear Plot Summaries & Chapters", variable=v_plot).pack(anchor="w", padx=50, pady=8)
+        ctk.CTkSwitch(dialog, text="Clear AI-Tracked Events (Keep Names)", variable=v_bullets).pack(anchor="w", padx=50, pady=8)
+        ctk.CTkSwitch(dialog, text="Nuclear Wipe (Delete Entities entirely)", variable=v_entities).pack(anchor="w", padx=50, pady=8)
 
         def apply_clear():
+            scope = v_scope.get()
+            ledgers = ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]
+
+            # Confirm Global Nuclear Wipe
+            if scope == "global" and v_entities.get():
+                if not messagebox.askyesno("Confirm Global Wipe", "This will PERMANENTLY delete every character and location from the Shared World Bible.\n\nAre you absolutely sure?"):
+                    return
+
             if v_plot.get():
+                # Plot and Chapters are inherently Local to the story
                 self.engine.memory["plot_ledger"] = []
-                self.engine.memory["chapter_ledger"] = [] # Also wipe high-level chapter summaries
+                self.engine.memory["chapter_ledger"] = [] 
+            
             if v_bullets.get():
-                # Preserve the Author's Notes while wiping the AI's data
-                for l_type in ["character_ledger", "location_ledger", "artifact_ledger"]:
-                    for k in self.engine.memory.get(l_type, {}): 
-                        saved_notes = self.engine.memory[l_type][k].get("author_notes", "")
-                        self.engine.memory[l_type][k] = {"characteristics": {}, "ledger": [], "author_notes": saved_notes}
+                # Wipe events but keep traits and author notes
+                for l in ledgers:
+                    for k in self.engine.memory[l].get(scope, {}): 
+                        ent = self.engine.memory[l][scope][k]
+                        ent["ledger"] = []
+                        # Optionally clear characteristics but keep the object
+                        # ent["characteristics"] = {}
+            
             if v_entities.get():
-                self.engine.memory["character_ledger"] = {}
-                self.engine.memory["location_ledger"] = {}
-                self.engine.memory["artifact_ledger"] = {}
-                self.engine.memory["faction_ledger"] = {}
-                # Completely wipe all active aliases if we are doing a nuclear wipe
-                self.engine.memory["aliases"] = {"character_ledger": {}, "location_ledger": {}, "artifact_ledger": {}, "faction_ledger": {}}
+                # Complete removal from the targeted scope
+                for l in ledgers:
+                    self.engine.memory[l][scope] = {}
+                self.engine.memory["aliases"][scope] = {l: {} for l in ledgers}
+                if scope == "global":
+                    self.engine.memory["global_states"] = {}
                 
             self.engine.save_state()
             self.active_selection.set("PLOT_LEDGER")
             self._refresh_nav()
             dialog.destroy()
-            messagebox.showinfo("Memory Cleared", "Selected memory banks have been wiped.")
+            messagebox.showinfo("Memory Pruned", f"Successfully updated {scope} memory banks.")
 
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=20)
+        btn_frame.pack(pady=30)
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
-        ctk.CTkButton(btn_frame, text="Wipe Selected", width=120, fg_color="#B71C1C", hover_color="#7F0000", command=apply_clear).pack(side="right", padx=10)
+        ctk.CTkButton(btn_frame, text="Execute Prune", width=120, fg_color="#B71C1C", hover_color="#7F0000", command=apply_clear).pack(side="right", padx=10)
+
 
     def _refresh_nav(self):
         for w in self.nav_frame.winfo_children(): w.destroy()
@@ -326,13 +344,18 @@ class MemoryTab(ctk.CTkFrame):
         import time
         self._last_render_time = time.time()
         
-        for w in self.editor_frame.winfo_children(): w.destroy()
+        for w in self.editor_master.winfo_children(): w.destroy()
+        
+        # If it's an entity, we just turn editor_frame back into the main scrolling container
+        # Since Entity Editor has its save button at the bottom, it can safely occupy the whole master
+        self.editor_frame = ctk.CTkScrollableFrame(self.editor_master, fg_color="transparent")
+        self.editor_frame.pack(fill="both", expand=True)
+        
         selection = self.active_selection.get()
         
         if selection == "CHAPTER_LEDGER": self._render_chapter_ledger()
         elif selection == "PLOT_LEDGER": self._render_plot_ledger()
         else:
-            # Parse the new compound value: e.g., "CHAR_local_Kaelen"
             parts = selection.split("_", 2)
             if len(parts) == 3:
                 prefix, scope, entity_name = parts
@@ -346,118 +369,113 @@ class MemoryTab(ctk.CTkFrame):
     # PLOT LEDGER VIEW
     # ---------------------------------------------------------
     def _render_plot_ledger(self):
-        ctk.CTkLabel(self.editor_frame, text="The Plot Ledger (Chronological Summaries)", font=("Arial", 18, "bold")).pack(anchor="w", padx=10, pady=(0, 5))
-        ctk.CTkLabel(self.editor_frame, text="The AI automatically compresses long chapters into chunks so it never forgets the past.", text_color="gray").pack(anchor="w", padx=10, pady=(0, 20))
+        for w in self.editor_master.winfo_children(): w.destroy()
+        
+        # --- STICKY HEADER & DIRTY TRACKER ---
+        hdr = ctk.CTkFrame(self.editor_master, fg_color="transparent")
+        hdr.pack(fill="x", padx=10, pady=(10, 5))
+        
+        title_stack = ctk.CTkFrame(hdr, fg_color="transparent")
+        title_stack.pack(side="left")
+        ctk.CTkLabel(title_stack, text="The Plot Ledger (Chronological Summaries)", font=("Arial", 18, "bold")).pack(anchor="w")
+        ctk.CTkLabel(title_stack, text="The AI automatically compresses long chapters into chunks so it never forgets the past.", text_color="gray").pack(anchor="w")
+        
+        btn_save_plot = ctk.CTkButton(hdr, text="💾 Save Summaries", font=("Arial", 14, "bold"), height=36, command=self._save_plot_ledger)
+        btn_save_plot.pack(side="right", padx=10)
+        
+        def mark_dirty(*args):
+            btn_save_plot.configure(state="normal", fg_color="#2E7D32", text="💾 Save Summaries")
+
+        def mark_clean():
+            btn_save_plot.configure(state="disabled", fg_color="#4A4A4A", text="💾 Saved")
+            
+        mark_clean() # Initialize in safe state
+        
+        # Override the class method locally so the button resets when clicked
+        original_save = self._save_plot_ledger
+        def hooked_save():
+            original_save()
+            mark_clean()
+        btn_save_plot.configure(command=hooked_save)
+        
+        # --- SCROLLABLE BODY ---
+        self.editor_frame = ctk.CTkScrollableFrame(self.editor_master, fg_color="transparent")
+        self.editor_frame.pack(fill="both", expand=True)
         
         plot_list = self.engine.memory.get("plot_ledger", [])
         if not plot_list:
             ctk.CTkLabel(self.editor_frame, text="The story hasn't reached the auto-summarize threshold yet.", font=("Arial", 14, "italic")).pack(pady=50)
             return
 
-        self.plot_ui_references = [] # Store widget references safely outside the Engine data
+        self.plot_ui_references = [] 
 
         for idx, chunk in enumerate(plot_list):
             card = ctk.CTkFrame(self.editor_frame, fg_color="#2B2B2B", corner_radius=8)
             card.pack(fill="x", padx=10, pady=10)
             
-            hdr = ctk.CTkFrame(card, fg_color="transparent")
-            hdr.pack(fill="x", padx=15, pady=10)
+            c_hdr = ctk.CTkFrame(card, fg_color="transparent")
+            c_hdr.pack(fill="x", padx=15, pady=10)
             
             c_num = chunk.get("chapter_number", "?")
             title = chunk.get("chapter_title", "Unknown Chapter")
             t_start = chunk.get("start_turn", "?")
             t_end = chunk.get("end_turn", "?")
             
-            ctk.CTkLabel(hdr, text=f"Chapter {c_num}: {title} | Turns {t_start} - {t_end}", font=("Arial", 14, "bold"), text_color="#FFCA28").pack(side="left")
+            ctk.CTkLabel(c_hdr, text=f"Chapter {c_num}: {title} | Turns {t_start} - {t_end}", font=("Arial", 14, "bold"), text_color="#FFCA28").pack(side="left")
             
-            # --- Individual Delete Button ---
             def delete_chunk(c=chunk):
                 if messagebox.askyesno("Delete Summary", f"Delete summary for Turns {c.get('start_turn')} - {c.get('end_turn')}?\n\nThe compiler will automatically regenerate it next time you run it."):
                     self.engine.memory["plot_ledger"].remove(c)
                     self.engine.save_state()
                     self._render_view()
                     
-            btn_del = ctk.CTkButton(hdr, text="🗑️ Delete", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=delete_chunk)
-            btn_del.pack(side="right", padx=(5, 0))
-
-            # --- Individual Reroll Button ---
-            btn_reroll = ctk.CTkButton(hdr, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
-            btn_reroll.pack(side="right", padx=(5, 0))
-            Tooltip(btn_reroll, "Ask the AI to regenerate this specific chunk from the raw history.")
+            ctk.CTkButton(c_hdr, text="🗑️ Delete", width=60, height=24, fg_color="#B71C1C", hover_color="#7F0000", command=delete_chunk).pack(side="right", padx=(5, 0))
             
-            # --- Individual Validate Button ---
-            btn_val = ctk.CTkButton(hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_reroll = ctk.CTkButton(c_hdr, text="⟳ Reroll", width=60, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100")
+            btn_reroll.pack(side="right", padx=(5, 0))
+            
+            btn_val = ctk.CTkButton(c_hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
             btn_val.pack(side="right")
-            Tooltip(btn_val, "Audits the text currently in the box below against the raw game history to check for hallucinations or missing facts.")
             
             box = ctk.CTkTextbox(card, height=120, wrap="word", font=("Arial", 14))
             box.insert("1.0", chunk.get("summary", ""))
+            box.bind("<KeyRelease>", mark_dirty) # Flag as dirty when typing
             box.pack(fill="x", padx=15, pady=(0, 15))
             
+            # (Validation and Reroll callbacks remain exactly the same...)
             def validate_chunk(c=chunk, b=box, btn=btn_val):
                 orig_text = btn.cget("text")
                 btn.configure(state="disabled", text="...")
                 self.winfo_toplevel().configure(cursor="watch")
-                
                 def worker():
                     raw_chunk = [t for t in self.engine.history if c["start_turn"] <= t.get("turn", 0) <= c["end_turn"]]
                     if not raw_chunk:
-                        self.after(0, lambda: messagebox.showerror("Error", "Could not find raw turns for this chunk."))
-                        self.after(0, lambda: [btn.configure(state="normal", text=orig_text), self.winfo_toplevel().configure(cursor="")])
+                        self.after(0, lambda: [messagebox.showerror("Error", "Could not find raw turns for this chunk."), btn.configure(state="normal", text=orig_text), self.winfo_toplevel().configure(cursor="")])
                         return
-                        
-                    turns_text = ""
-                    for t in raw_chunk:
-                        turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
-                        
+                    turns_text = "".join([f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n" for t in raw_chunk])
                     current_summary = b.get("1.0", "end").strip()
                     from api import TomeWeaverAPI
                     succ, res = TomeWeaverAPI.validate_plot_chunk(turns_text, current_summary, self.engine.adv_dir)
-                    
                     def update_ui():
                         self.winfo_toplevel().configure(cursor="")
                         btn.configure(state="normal", text=orig_text)
                         if succ:
-                            # --- AUTO-PATCH LOGIC ---
                             def trigger_patch(report_dialog):
-                                report_dialog.destroy()
-                                btn.configure(state="disabled", text="Patching...")
-                                self.winfo_toplevel().configure(cursor="watch")
-                                
+                                report_dialog.destroy(); btn.configure(state="disabled", text="Patching..."); self.winfo_toplevel().configure(cursor="watch")
                                 def patch_worker():
                                     succ_patch, patched_text = TomeWeaverAPI.patch_plot_chunk(turns_text, current_summary, res, self.engine.adv_dir)
-                                    
                                     def post_patch_ui():
                                         if succ_patch:
-                                            b.delete("1.0", "end")
-                                            b.insert("1.0", patched_text)
-                                            
-                                            # Restore UI state so the button is allowed to be clicked
-                                            btn.configure(state="normal", text=orig_text)
-                                            self.winfo_toplevel().configure(cursor="")
-                                            
-                                            # Programmatically "click" the Validate button.
-                                            # This completely bypasses Python's loop memory bug because the 
-                                            # button internally remembers the exact chunk it belongs to!
-                                            btn.invoke()
+                                            b.delete("1.0", "end"); b.insert("1.0", patched_text)
+                                            btn.configure(state="normal", text=orig_text); self.winfo_toplevel().configure(cursor=""); btn.invoke()
                                         else:
-                                            btn.configure(state="normal", text=orig_text)
-                                            self.winfo_toplevel().configure(cursor="")
-                                            messagebox.showerror("Patch Error", patched_text)
-                                            
+                                            btn.configure(state="normal", text=orig_text); self.winfo_toplevel().configure(cursor=""); messagebox.showerror("Patch Error", patched_text)
                                     self.after(0, post_patch_ui)
-                                    
-                                import threading
-                                threading.Thread(target=patch_worker, daemon=True).start()
-
+                                import threading; threading.Thread(target=patch_worker, daemon=True).start()
                             self._show_verification_report(res, patch_callback=trigger_patch)
-                        else:
-                            messagebox.showerror("Error", res)
-                            
+                        else: messagebox.showerror("Error", res)
                     self.after(0, update_ui)
-                    
-                import threading
-                threading.Thread(target=worker, daemon=True).start()
+                import threading; threading.Thread(target=worker, daemon=True).start()
                 
             btn_val.configure(command=validate_chunk)
             
@@ -465,47 +483,61 @@ class MemoryTab(ctk.CTkFrame):
                 orig_text = btn.cget("text")
                 btn.configure(state="disabled", text="...")
                 self.winfo_toplevel().configure(cursor="watch")
-                
                 def worker():
-                    # 1. Fetch exact turns mathematically
                     raw_chunk = [t for t in self.engine.history if c["start_turn"] <= t.get("turn", 0) <= c["end_turn"]]
                     if not raw_chunk:
                         self.after(0, lambda: messagebox.showerror("Error", "Could not find raw turns for this chunk."))
                         return
-                        
-                    turns_text = ""
-                    for t in raw_chunk:
-                        turns_text += f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n"
-                        
-                    # 2. Ask LLM
+                    turns_text = "".join([f"Turn {t['turn']} [Loc: {t.get('location', '')}]: {t.get('story_text', '')}\nAction: {t.get('player_choice', '')}\n\n" for t in raw_chunk])
                     from api import TomeWeaverAPI
                     succ, res = TomeWeaverAPI.generate_plot_summary(turns_text, c["start_turn"], c["end_turn"], self.engine.adv_dir)
-                    
                     def update_ui():
                         self.winfo_toplevel().configure(cursor="")
                         btn.configure(state="normal", text=orig_text)
                         if succ:
-                            b.delete("1.0", "end")
-                            b.insert("1.0", res)
-                        else:
-                            messagebox.showerror("Error", res)
-                            
+                            b.delete("1.0", "end"); b.insert("1.0", res); self._save_plot_ledger()
+                        else: messagebox.showerror("Error", res)
                     self.after(0, update_ui)
-                    
-                import threading
-                threading.Thread(target=worker, daemon=True).start()
+                import threading; threading.Thread(target=worker, daemon=True).start()
                 
             btn_reroll.configure(command=reroll_chunk)
-            
-            # Save the UI reference in a localized list instead of injecting it into the Engine's data
             self.plot_ui_references.append((chunk, box))
 
         ctk.CTkLabel(self.editor_frame, text="Use the engine configuration to change the Memory Chunk size.", font=("Arial", 12, "italic"), text_color="#555555").pack(pady=20)
 
 
     def _render_chapter_ledger(self):
-        ctk.CTkLabel(self.editor_frame, text="Chapter Summaries (High-Level Memory)", font=("Arial", 18, "bold")).pack(anchor="w", padx=10, pady=(0, 5))
-        ctk.CTkLabel(self.editor_frame, text="Completed chapters are highly condensed here. This prevents Context Limit crashes in long games.", text_color="gray").pack(anchor="w", padx=10, pady=(0, 20))
+        for w in self.editor_master.winfo_children(): w.destroy()
+        
+        # --- STICKY HEADER & DIRTY TRACKER ---
+        hdr = ctk.CTkFrame(self.editor_master, fg_color="transparent")
+        hdr.pack(fill="x", padx=10, pady=(10, 5))
+        
+        title_stack = ctk.CTkFrame(hdr, fg_color="transparent")
+        title_stack.pack(side="left")
+        ctk.CTkLabel(title_stack, text="Chapter Summaries (High-Level Memory)", font=("Arial", 18, "bold")).pack(anchor="w")
+        ctk.CTkLabel(title_stack, text="Completed chapters are highly condensed here. This prevents Context Limit crashes in long games.", text_color="gray").pack(anchor="w")
+        
+        btn_save_chap = ctk.CTkButton(hdr, text="💾 Save Summaries", font=("Arial", 14, "bold"), height=36, command=self._save_chapter_ledger)
+        btn_save_chap.pack(side="right", padx=10)
+        
+        def mark_dirty(*args):
+            btn_save_chap.configure(state="normal", fg_color="#2E7D32", text="💾 Save Summaries")
+
+        def mark_clean():
+            btn_save_chap.configure(state="disabled", fg_color="#4A4A4A", text="💾 Saved")
+            
+        mark_clean() # Initialize
+        
+        original_save = self._save_chapter_ledger
+        def hooked_save():
+            original_save()
+            mark_clean()
+        btn_save_chap.configure(command=hooked_save)
+        
+        # --- SCROLLABLE BODY ---
+        self.editor_frame = ctk.CTkScrollableFrame(self.editor_master, fg_color="transparent")
+        self.editor_frame.pack(fill="both", expand=True)
         
         chap_list = self.engine.memory.get("chapter_ledger", [])
         if not chap_list:
@@ -541,8 +573,12 @@ class MemoryTab(ctk.CTkFrame):
             btn_val = ctk.CTkButton(hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
             btn_val.pack(side="right")
             
+            btn_val = ctk.CTkButton(hdr, text="✔️ Validate", width=60, height=24, font=("Arial", 11), fg_color="#00ACC1", hover_color="#00838F")
+            btn_val.pack(side="right")
+            
             box = ctk.CTkTextbox(card, height=120, wrap="word", font=("Arial", 14))
             box.insert("1.0", chunk.get("summary", ""))
+            box.bind("<KeyRelease>", mark_dirty) # Flag dirty on text edit
             box.pack(fill="x", padx=15, pady=(0, 5))
             
             tags_frame = ctk.CTkFrame(card, fg_color="transparent")
@@ -550,6 +586,7 @@ class MemoryTab(ctk.CTkFrame):
             ctk.CTkLabel(tags_frame, text="Tags:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
             
             tags_var = ctk.StringVar(value=", ".join(chunk.get("tags", [])))
+            tags_var.trace_add("write", mark_dirty) # Flag dirty on tags edit
             ctk.CTkEntry(tags_frame, textvariable=tags_var, font=("Arial", 13)).pack(side="left", fill="x", expand=True, padx=10)
             
             def reroll_tags(b=box, t_var=tags_var):
@@ -652,25 +689,45 @@ class MemoryTab(ctk.CTkFrame):
 
 
     def _render_entity_editor(self, entity_name, scope, ledger_type):
+        """
+        The Master Entity Editor.
+        Handles data display, name collisions, deep-renaming across files, 
+        cross-scope promotion/demotion, and dirty-state tracking.
+        """
         if ledger_type == "character_ledger": icon = "👤"
         elif ledger_type == "location_ledger": icon = "📍"
         elif ledger_type == "faction_ledger": icon = "🛡️"
         else: icon = "💎"
         
-        # --- DATA EXTRACTION ---
+        # --- 1. DATA EXTRACTION ---
         active_data = self.engine.memory[ledger_type].get(scope, {}).get(entity_name, {})
-        if not active_data: return # Failsafe if deleted
+        if not active_data: 
+            return 
 
-        # --- HEADER ---
+        # --- 2. DIRTY STATE TRACKER ---
+        footer = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+        center_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        btn_save_lore = ctk.CTkButton(center_frame, text="💾 Save Entity Lore", font=("Arial", 14, "bold"), height=36)
+        
+        def mark_dirty(*args):
+            btn_save_lore.configure(state="normal", fg_color="#2E7D32", text="💾 Save Entity Lore")
+
+        def mark_clean():
+            btn_save_lore.configure(state="disabled", fg_color="#4A4A4A", text="💾 Saved")
+
+        # --- 3. HEADER (TITLE, STATE, LAST SEEN) ---
         hdr = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         hdr.pack(fill="x", padx=10, pady=(0, 5))
         
         ctk.CTkLabel(hdr, text=f"The Lore Bible: {icon}", font=("Arial", 18, "bold")).pack(side="left")
         
         var_entity_name = ctk.StringVar(value=entity_name)
-        ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=250, fg_color="transparent", border_width=1).pack(side="left", padx=10)
+        var_entity_name.trace_add("write", mark_dirty)
+        
+        entry_name = ctk.CTkEntry(hdr, textvariable=var_entity_name, font=("Arial", 18, "bold"), width=250, fg_color="transparent", border_width=1)
+        entry_name.pack(side="left", padx=10)
 
-        # STATE TOGGLE
+        # State/Last Seen Extraction
         if scope == "global" and self.engine.is_universe_thread:
             state_obj = self.engine.memory.get("global_states", {}).get(entity_name, {})
             current_state = state_obj.get("state", "archived")
@@ -683,9 +740,13 @@ class MemoryTab(ctk.CTkFrame):
         
         def update_state_color(*args):
             s = var_state.get()
-            if s == "pinned": state_menu.configure(fg_color="#FBC02D", text_color="black")
-            elif s == "archived": state_menu.configure(fg_color="#4A4A4A", text_color="white")
-            else: state_menu.configure(fg_color="#1F6AA5", text_color="white")
+            if s == "pinned": 
+                state_menu.configure(fg_color="#FBC02D", text_color="black")
+            elif s == "archived": 
+                state_menu.configure(fg_color="#4A4A4A", text_color="white")
+            else: 
+                state_menu.configure(fg_color="#1F6AA5", text_color="white")
+            mark_dirty()
             
         state_menu = ctk.CTkOptionMenu(hdr, variable=var_state, values=["active", "pinned", "archived"], width=100, command=update_state_color)
         state_menu.pack(side="left", padx=10)
@@ -699,206 +760,196 @@ class MemoryTab(ctk.CTkFrame):
         )
         btn_seen.pack(side="left", padx=10)
 
-        
-        # --- SCOPE TOGGLE (PROMOTION/DEMOTION) ---
+        # --- 4. THE MERGE TOOL ---
+        def prompt_merge():
+            targets = []
+            for s_key in ["global", "local"]:
+                for name in self.engine.memory[ledger_type].get(s_key, {}).keys():
+                    if s_key == scope and name == entity_name: 
+                        continue
+                    targets.append({"name": name, "scope": s_key, "display": f"{name} [{s_key.capitalize()}]"})
+            
+            if not targets: 
+                messagebox.showinfo("Merge", "No other entities found to merge with.")
+                return
+                
+            dialog = ctk.CTkToplevel(self)
+            dialog.title(f"Merge '{entity_name}'")
+            dialog.geometry("500x280")
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+            
+            from ui.tooltip import center_window_on_parent
+            center_window_on_parent(dialog, self.winfo_toplevel())
+            
+            ctk.CTkLabel(dialog, text=f"Merge {scope.capitalize()} '{entity_name}' INTO:", font=("Arial", 14, "bold")).pack(pady=(20, 10))
+            
+            display_options = [t["display"] for t in sorted(targets, key=lambda x: x["name"].lower())]
+            target_var = ctk.StringVar(value=display_options[0])
+            ctk.CTkOptionMenu(dialog, variable=target_var, values=display_options, width=350).pack(pady=10)
+            
+            def apply_merge():
+                selected_display = target_var.get()
+                target_meta = next(t for t in targets if t["display"] == selected_display)
+                
+                master_name = target_meta["name"]
+                master_scope = target_meta["scope"]
+                
+                master = self.engine.memory[ledger_type][master_scope][master_name]
+                current = self.engine.memory[ledger_type][scope][entity_name]
+                
+                self.engine._smart_merge_traits(master["characteristics"], current.get("characteristics", {}))
+                master["ledger"].extend(current.get("ledger", []))
+                
+                m_notes = master.get("author_notes", "").strip()
+                s_notes = current.get("author_notes", "").strip()
+                if s_notes and s_notes not in m_notes:
+                    master["author_notes"] = f"{m_notes}\n\n{s_notes}".strip()
+                
+                all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(master_scope, {}).setdefault(ledger_type, {})
+                all_aliases[entity_name] = master_name
+                
+                del self.engine.memory[ledger_type][scope][entity_name]
+                
+                self.engine._resync_all_visibility()
+                self.engine.save_state()
+                dialog.destroy()
+                
+                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
+                self.active_selection.set(f"{prefix}_{master_scope}_{master_name}")
+                self._refresh_nav()
+                
+            ctk.CTkButton(dialog, text="Confirm Merge", font=("Arial", 14, "bold"), fg_color="#7B1FA2", hover_color="#4A148C", command=apply_merge).pack(pady=20)
+            
+        btn_merge = ctk.CTkButton(hdr, text="🔗 Merge...", font=("Arial", 12, "bold"), fg_color="#7B1FA2", hover_color="#4A148C", height=24, width=80, command=prompt_merge)
+        btn_merge.pack(side="right")
+
+        # --- 5. SCOPE & ALIASING ---
         var_scope = ctk.StringVar(value=scope)
-        is_univ = self.engine.is_universe_thread
-        
-        # Only draw the Scope Editor if this story is actually inside a Universe
-        if is_univ:
+        if self.engine.is_universe_thread:
             scope_frame = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
             scope_frame.pack(fill="x", padx=10, pady=(5, 10))
             
             ctk.CTkLabel(scope_frame, text="Memory Scope:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
             
-            rb_loc = ctk.CTkRadioButton(scope_frame, text="Local (This story only)", variable=var_scope, value="local")
+            rb_loc = ctk.CTkRadioButton(scope_frame, text="Local (This story only)", variable=var_scope, value="local", command=mark_dirty)
             rb_loc.pack(side="left", padx=10)
             
-            rb_glo = ctk.CTkRadioButton(scope_frame, text="Global (Shared Universe)", variable=var_scope, value="global")
+            rb_glo = ctk.CTkRadioButton(scope_frame, text="Global (Shared Universe)", variable=var_scope, value="global", command=mark_dirty)
             rb_glo.pack(side="left", padx=10)
 
-        # --- ALIAS EDITOR ---
         alias_frame = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         alias_frame.pack(fill="x", padx=10, pady=(5, 20))
+        
         ctk.CTkLabel(alias_frame, text="Aliases (Comma separated):", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
         
         all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(scope, {}).setdefault(ledger_type, {})
         current_aliases = [k for k, v in all_aliases.items() if v == entity_name]
         
         var_aliases = ctk.StringVar(value=", ".join(current_aliases))
-        ctk.CTkEntry(alias_frame, textvariable=var_aliases, font=("Arial", 12), fg_color="transparent", width=400).pack(side="left", padx=10)
+        var_aliases.trace_add("write", mark_dirty)
+        
+        entry_alias = ctk.CTkEntry(alias_frame, textvariable=var_aliases, font=("Arial", 12), fg_color="transparent", width=400)
+        entry_alias.pack(side="left", padx=10)
 
-        # --- AUTHOR'S NOTES ---
+        # --- 6. AUTHOR'S NOTES ---
         notes_frame = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         notes_frame.pack(fill="x", padx=10, pady=(5, 10))
         
-        lbl_notes = ctk.CTkLabel(notes_frame, text="Author's Notes (Indestructible):", font=("Arial", 14, "bold"), text_color="#4CAF50")
-        lbl_notes.pack(anchor="w")
+        ctk.CTkLabel(notes_frame, text="Author's Notes (Indestructible):", font=("Arial", 14, "bold"), text_color="#4CAF50").pack(anchor="w")
+        
         var_notes = ctk.CTkTextbox(notes_frame, height=80, wrap="word", font=("Arial", 14))
         var_notes.insert("1.0", active_data.get("author_notes", ""))
+        var_notes.bind("<KeyRelease>", mark_dirty)
         var_notes.pack(fill="x", pady=(5, 0))
 
-        # --- SECTION 1: CHARACTERISTICS DICTIONARY ---
+        # --- 7. CHARACTERISTICS DICTIONARY ---
         ctk.CTkLabel(self.editor_frame, text="Static Characteristics (Traits, Appearance, Quirks)", font=("Arial", 14, "bold"), text_color="#00ACC1").pack(anchor="w", padx=10, pady=(10, 5))
+        
         dict_container = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         dict_container.pack(fill="x", padx=10)
         
         trait_vars = []
-        traits = active_data.get("characteristics", {})
         
         def delete_trait(row_widget, tuple_ref):
             row_widget.destroy()
-            if tuple_ref in trait_vars: trait_vars.remove(tuple_ref)
+            if tuple_ref in trait_vars: 
+                trait_vars.remove(tuple_ref)
+            mark_dirty()
             
-        for k, v in sorted(traits.items(), key=lambda item: str(item[0]).lower()):
+        def add_trait_row(k_val, v_val):
             row = ctk.CTkFrame(dict_container, fg_color="transparent")
             row.pack(fill="x", pady=2)
-            var_k = ctk.StringVar(value=str(k))
-            var_v = ctk.StringVar(value=str(v))
-            ctk.CTkEntry(row, textvariable=var_k, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
-            ctk.CTkEntry(row, textvariable=var_v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            tuple_ref = (var_k, var_v)
-            trait_vars.append(tuple_ref)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, tr=tuple_ref: delete_trait(rw, tr)).pack(side="left", padx=(5, 0))
             
-        def add_trait():
-            row = ctk.CTkFrame(dict_container, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            var_k = ctk.StringVar(value="New_Trait")
-            var_v = ctk.StringVar(value="Value")
-            ctk.CTkEntry(row, textvariable=var_k, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
-            ctk.CTkEntry(row, textvariable=var_v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            tuple_ref = (var_k, var_v)
-            trait_vars.append(tuple_ref)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, tr=tuple_ref: delete_trait(rw, tr)).pack(side="left", padx=(5, 0))
+            vk = ctk.StringVar(value=str(k_val))
+            vv = ctk.StringVar(value=str(v_val))
             
-        ctk.CTkButton(self.editor_frame, text="+ Add Trait", fg_color="#4A4A4A", command=add_trait).pack(pady=(5, 20))
+            vk.trace_add("write", mark_dirty)
+            vv.trace_add("write", mark_dirty)
+            
+            ctk.CTkEntry(row, textvariable=vk, width=150, font=("Arial", 14, "bold")).pack(side="left", padx=5)
+            ctk.CTkEntry(row, textvariable=vv, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
+            
+            tup = (vk, vv)
+            trait_vars.append(tup)
+            
+            btn_x = ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda r=row, t=tup: delete_trait(r, t))
+            btn_x.pack(side="left", padx=(5, 0))
+            
+        for k, v in sorted(active_data.get("characteristics", {}).items()): 
+            add_trait_row(k, v)
+            
+        btn_add_trait = ctk.CTkButton(self.editor_frame, text="+ Add Trait", fg_color="#4A4A4A", command=lambda: [add_trait_row("New_Trait", "Value"), mark_dirty()])
+        btn_add_trait.pack(pady=(5, 20))
 
-        # --- SECTION 2: EVENT LEDGER (Bullets) ---
+        # --- 8. EVENT LEDGER ---
         ctk.CTkLabel(self.editor_frame, text="Chronological Event Ledger", font=("Arial", 14, "bold"), text_color="#FFCA28").pack(anchor="w", padx=10, pady=(10, 5))
+        
         list_container = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
         list_container.pack(fill="x", padx=10)
-
+        
         bullet_vars = []
-        bullets = active_data.get("ledger", [])
-
+        
         def delete_bullet(row_widget, var_ref):
             row_widget.destroy()
-            if var_ref in bullet_vars: bullet_vars.remove(var_ref)
+            if var_ref in bullet_vars: 
+                bullet_vars.remove(var_ref)
+            mark_dirty()
 
-        for b_text in bullets:
+        def add_bullet_row(val):
             row = ctk.CTkFrame(list_container, fg_color="transparent")
             row.pack(fill="x", pady=2)
-            var = ctk.StringVar(value=str(b_text))
+            
+            v = ctk.StringVar(value=str(val))
+            v.trace_add("write", mark_dirty)
+            
             ctk.CTkLabel(row, text="•", font=("Arial", 16, "bold")).pack(side="left", padx=5)
-            ctk.CTkEntry(row, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            bullet_vars.append(var)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, vr=var: delete_bullet(rw, vr)).pack(side="left", padx=(5, 0))
+            ctk.CTkEntry(row, textvariable=v, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
+            
+            bullet_vars.append(v)
+            
+            btn_x = ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda r=row, bv=v: delete_bullet(r, bv))
+            btn_x.pack(side="left", padx=(5, 0))
+            
+        for b_text in active_data.get("ledger", []): 
+            add_bullet_row(b_text)
+            
+        btn_add_event = ctk.CTkButton(self.editor_frame, text="+ Add Event", fg_color="#4A4A4A", command=lambda: [add_bullet_row("New event..."), mark_dirty()])
+        btn_add_event.pack(pady=(5, 15))
 
-        def add_bullet():
-            row = ctk.CTkFrame(list_container, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            var = ctk.StringVar(value="New event...")
-            ctk.CTkLabel(row, text="•", font=("Arial", 16, "bold")).pack(side="left", padx=5)
-            ctk.CTkEntry(row, textvariable=var, font=("Arial", 14)).pack(side="left", fill="x", expand=True)
-            bullet_vars.append(var)
-            ctk.CTkButton(row, text="X", width=24, fg_color="#B71C1C", hover_color="#7F0000", command=lambda rw=row, vr=var: delete_bullet(rw, vr)).pack(side="left", padx=(5, 0))
-
-        ctk.CTkButton(self.editor_frame, text="+ Add Event", fg_color="#4A4A4A", command=add_bullet).pack(pady=(5, 15))
-
-        
-        # --- SAVE ENTITY BUTTON & SCOPE HANDLER ---
+        # --- 9. SAVE & COLLISION HANDLERS ---
         def save_entity():
-            target_name = entity_name
             new_name = var_entity_name.get().strip()
             new_scope = var_scope.get()
             
             is_rename = (new_name != entity_name)
             is_promotion = (scope != new_scope)
 
-            # Abstract the Deep Rename logic so it can be called after any collision resolutions
-            def prompt_deep_rename(merged=False):
-                if is_rename:
-                    warn_msg = f"You renamed '{entity_name}' to '{new_name}'.\n\nWould you like to run a Deep Search & Replace to update all historical mentions of their old name across the actual STORY PROSE (history.json, setup.json, etc.)?"
-                    if new_scope == "global" or scope == "global": 
-                        warn_msg += "\n\n(WARNING: Because this involves a Global scope, this will scan EVERY story inside this Universe)."
-                    
-                    self.winfo_toplevel().configure(cursor="watch")
-                    
-                    def worker():
-                        # Analyze using the OLD name to find mentions in the raw story text
-                        affected = self.engine.analyze_deep_rename(entity_name, new_scope)
-                        
-                        def show_review_ui():
-                            self.winfo_toplevel().configure(cursor="")
-                            
-                            if not affected["ram"] and not affected["files"]:
-                                finalize_save(new_name, new_scope, merged)
-                                return
-                                
-                            dialog = ctk.CTkToplevel(self)
-                            dialog.title("Deep Rename Review (Story Text)")
-                            dialog.geometry("600x450")
-                            dialog.attributes("-topmost", True)
-                            dialog.grab_set()
-                            
-                            from ui.tooltip import center_window_on_parent
-                            center_window_on_parent(dialog, self.winfo_toplevel())
-                            
-                            ctk.CTkLabel(dialog, text=f"Replace '{entity_name}' -> '{new_name}' in Story", font=("Arial", 18, "bold"), text_color="#FF9800").pack(pady=(20, 10))
-                            ctk.CTkLabel(dialog, text="The engine found mentions of this name in the raw story text. Uncheck any files you do NOT want to physically modify.", wraplength=550, text_color="gray").pack(padx=20, pady=(0, 15))
-                            
-                            scroll = ctk.CTkScrollableFrame(dialog, fg_color="#2B2B2B", corner_radius=6)
-                            scroll.pack(fill="both", expand=True, padx=20, pady=5)
-                            
-                            ram_var = None
-                            if affected["ram"]:
-                                ram_var = ctk.BooleanVar(value=True)
-                                ctk.CTkCheckBox(scroll, text="Current Active Story (RAM & Local Files)", variable=ram_var, font=("Arial", 14, "bold"), text_color="#00BCD4").pack(anchor="w", padx=10, pady=10)
-                                
-                            file_vars = {}
-                            if affected["files"]:
-                                ctk.CTkLabel(scroll, text="Other Offline Stories in Universe:", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(15, 5))
-                                from api import ADV_DIR
-                                import os
-                                for f_path in affected["files"]:
-                                    var = ctk.BooleanVar(value=True)
-                                    file_vars[f_path] = var
-                                    rel_display = os.path.relpath(f_path, ADV_DIR)
-                                    ctk.CTkCheckBox(scroll, text=f"📁 {rel_display}", variable=var, font=("Arial", 13)).pack(anchor="w", padx=20, pady=5)
-                                    
-                            def execute_rename():
-                                auth_ram = ram_var.get() if ram_var else False
-                                auth_files = [f for f, var in file_vars.items() if var.get()]
-                                
-                                self.winfo_toplevel().configure(cursor="watch")
-                                dialog.destroy()
-                                
-                                def bg_exec():
-                                    self.engine.execute_deep_rename(entity_name, new_name, new_scope, auth_ram, auth_files)
-                                    self.after(0, lambda: [self.winfo_toplevel().configure(cursor=""), finalize_save(new_name, new_scope, merged)])
-                                import threading
-                                threading.Thread(target=bg_exec, daemon=True).start()
-                                
-                            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-                            btn_frame.pack(fill="x", padx=20, pady=15)
-                            
-                            # If they skip, it just finishes saving the RAG changes WITHOUT touching the story text
-                            ctk.CTkButton(btn_frame, text="Skip (Keep old name in story)", width=120, fg_color="#4A4A4A", hover_color="#333333", command=lambda: [dialog.destroy(), finalize_save(new_name, new_scope, merged)]).pack(side="left")
-                            ctk.CTkButton(btn_frame, text="Execute Rename", width=140, font=("Arial", 14, "bold"), fg_color="#E65100", hover_color="#BF360C", command=execute_rename).pack(side="right")
-                            
-                        self.after(0, show_review_ui)
-                    import threading
-                    threading.Thread(target=worker, daemon=True).start()
-                else:
-                    finalize_save(new_name, new_scope, merged)
-
-
-            # --- COLLISION HANDLER ---
+            # --- A. COLLISION CHECK ---
             if (is_rename or is_promotion) and new_name in self.engine.memory[ledger_type].get(new_scope, {}):
                 dialog = ctk.CTkToplevel(self)
                 dialog.title("Collision Detected")
-                dialog.geometry("400x250")
+                dialog.geometry("400x280")
                 dialog.attributes("-topmost", True)
                 dialog.grab_set()
                 
@@ -907,7 +958,7 @@ class MemoryTab(ctk.CTkFrame):
                 
                 ctk.CTkLabel(dialog, text=f"'{new_name}' already exists in {new_scope.capitalize()} Memory.", font=("Arial", 14, "bold"), text_color="#F57C00").pack(pady=20)
                 
-                def do_merge():
+                def on_collision_merge():
                     target = self.engine.memory[ledger_type][new_scope][new_name]
                     current = self.engine.memory[ledger_type][scope][entity_name]
                     
@@ -916,37 +967,105 @@ class MemoryTab(ctk.CTkFrame):
                     
                     del self.engine.memory[ledger_type][scope][entity_name]
                     dialog.destroy()
-                    # Trigger the Deep Rename on the story text now that RAG is merged!
-                    prompt_deep_rename(merged=True) 
+                    prompt_deep_rename(merged=True)
                     
-                def keep_both():
+                def on_collision_override(): 
                     var_scope.set("local")
-                    dialog.destroy()
-                    # It's still a rename, so trigger the prompt!
-                    prompt_deep_rename(merged=False) 
-                    
-                def overwrite_target():
-                    del self.engine.memory[ledger_type][new_scope][new_name]
                     dialog.destroy()
                     prompt_deep_rename(merged=False)
                     
-                ctk.CTkButton(dialog, text="Merge into Existing", fg_color="#2E7D32", hover_color="#1B5E20", command=do_merge).pack(pady=5)
-                if is_promotion:
-                    ctk.CTkButton(dialog, text="Keep Both (Local Override)", fg_color="#1F6AA5", hover_color="#144870", command=keep_both).pack(pady=5)
-                ctk.CTkButton(dialog, text="Overwrite Existing", fg_color="#B71C1C", hover_color="#7F0000", command=overwrite_target).pack(pady=5)
-                ctk.CTkButton(dialog, text="Cancel Save", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(pady=5)
-                return
+                def on_collision_overwrite(): 
+                    del self.engine.memory[ledger_type][new_scope][new_name]
+                    dialog.destroy()
+                    prompt_deep_rename(merged=False)
+                
+                ctk.CTkButton(dialog, text="Merge into Existing", fg_color="#2E7D32", hover_color="#1B5E20", command=on_collision_merge).pack(pady=5)
+                
+                if is_promotion: 
+                    ctk.CTkButton(dialog, text="Keep Both (Local Override)", fg_color="#1F6AA5", hover_color="#144870", command=on_collision_override).pack(pady=5)
                     
+                ctk.CTkButton(dialog, text="Overwrite Existing", fg_color="#B71C1C", hover_color="#7F0000", command=on_collision_overwrite).pack(pady=5)
+                ctk.CTkButton(dialog, text="Cancel", fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(pady=5)
+                return
+
+            # --- B. DEEP RENAME LOGIC ---
+            def prompt_deep_rename(merged=False):
+                if is_rename:
+                    warn_msg = f"Run Deep Search & Replace for '{entity_name}' -> '{new_name}' in Story Prose?"
+                    if messagebox.askyesno("Deep Rename", warn_msg):
+                        self.winfo_toplevel().configure(cursor="watch")
+                        
+                        def worker():
+                            affected = self.engine.analyze_deep_rename(entity_name, new_scope)
+                            self.after(0, lambda: [self.winfo_toplevel().configure(cursor=""), show_review_ui(affected, merged)])
+                            
+                        import threading
+                        threading.Thread(target=worker, daemon=True).start()
+                        return
+                        
+                finalize_save(new_name, new_scope, merged)
+
+            def show_review_ui(affected, merged):
+                if not affected["ram"] and not affected["files"]: 
+                    finalize_save(new_name, new_scope, merged)
+                    return
+                    
+                rv = ctk.CTkToplevel(self)
+                rv.title("Review Changes")
+                rv.geometry("600x450")
+                rv.attributes("-topmost", True)
+                rv.grab_set()
+                
+                from ui.tooltip import center_window_on_parent
+                center_window_on_parent(rv, self.winfo_toplevel())
+                
+                ctk.CTkLabel(rv, text=f"Replace '{entity_name}' -> '{new_name}'", font=("Arial", 18, "bold"), text_color="#FF9800").pack(pady=15)
+                
+                sc = ctk.CTkScrollableFrame(rv, fg_color="#2B2B2B")
+                sc.pack(fill="both", expand=True, padx=20, pady=5)
+                
+                r_v = None
+                if affected["ram"]: 
+                    r_v = ctk.BooleanVar(value=True)
+                    ctk.CTkCheckBox(sc, text="Current Story", variable=r_v).pack(anchor="w", padx=10, pady=5)
+                    
+                f_vs = {}
+                for f_p in affected["files"]:
+                    v = ctk.BooleanVar(value=True)
+                    f_vs[f_p] = v
+                    ctk.CTkCheckBox(sc, text=f"📁 {f_p}", variable=v).pack(anchor="w", padx=10, pady=5)
+                    
+                def on_exec():
+                    self.winfo_toplevel().configure(cursor="watch")
+                    rv.destroy()
+                    
+                    def bg(): 
+                        auth_ram = r_v.get() if r_v else False
+                        auth_files = [f for f, v in f_vs.items() if v.get()]
+                        self.engine.execute_deep_rename(entity_name, new_name, new_scope, auth_ram, auth_files)
+                        self.after(0, lambda: [self.winfo_toplevel().configure(cursor=""), finalize_save(new_name, new_scope, merged)])
+                        
+                    import threading
+                    threading.Thread(target=bg, daemon=True).start()
+                    
+                f_r = ctk.CTkFrame(rv, fg_color="transparent")
+                f_r.pack(fill="x", padx=20, pady=15)
+                
+                ctk.CTkButton(f_r, text="Skip Story Patch", fg_color="#4A4A4A", hover_color="#333333", command=lambda: [rv.destroy(), finalize_save(new_name, new_scope, merged)]).pack(side="left")
+                ctk.CTkButton(f_r, text="Execute Rename", fg_color="#E65100", hover_color="#BF360C", command=on_exec).pack(side="right")
+
+            # Demotion check
             if scope == "global" and new_scope == "local":
-                if not messagebox.askyesno("Demote Entity", f"Moving '{new_name}' to Local means other stories in this Universe will no longer see them.\n\nProceed?"):
-                    var_scope.set("global")
+                if not messagebox.askyesno("Demote", "Proceed with isolation?"): 
                     return
                     
             prompt_deep_rename(merged=False)
 
         def finalize_save(new_name, final_scope, merged=False):
+            # Intelligent Refresh: Only rebuild UI if identity or scope changed
+            is_structural = (new_name != entity_name) or (final_scope != scope) or merged
+            
             if not merged:
-                # Standard Move/Update
                 obj = self.engine.memory[ledger_type][scope].pop(entity_name)
                 self.engine.memory[ledger_type][final_scope][new_name] = obj
                 
@@ -954,92 +1073,77 @@ class MemoryTab(ctk.CTkFrame):
                 obj["ledger"] = [v.get().strip() for v in bullet_vars if v.get().strip()]
                 obj["author_notes"] = var_notes.get("1.0", "end").strip()
                 
-                if final_scope == "global" and self.engine.is_universe_thread:
+                if final_scope == "global" and self.engine.is_universe_thread: 
                     self.engine.memory.setdefault("global_states", {}).setdefault(new_name, {})["state"] = var_state.get()
-                else:
+                else: 
                     obj["state"] = var_state.get()
             else:
-                # If merged, the target object already exists. We just need to apply any newly typed UI data to it!
-                target_obj = self.engine.memory[ledger_type][final_scope][new_name]
+                t_o = self.engine.memory[ledger_type][final_scope][new_name]
+                
                 new_traits = {vk.get().strip(): vv.get().strip() for vk, vv in trait_vars if vk.get().strip()}
-                self.engine._smart_merge_traits(target_obj["characteristics"], new_traits)
-                target_obj["ledger"].extend([v.get().strip() for v in bullet_vars if v.get().strip()])
+                self.engine._smart_merge_traits(t_o["characteristics"], new_traits)
+                t_o["ledger"].extend([v.get().strip() for v in bullet_vars if v.get().strip()])
                 
                 ui_notes = var_notes.get("1.0", "end").strip()
-                ex_notes = target_obj.get("author_notes", "").strip()
+                ex_notes = t_o.get("author_notes", "").strip()
                 if ui_notes and ui_notes not in ex_notes:
-                    target_obj["author_notes"] = f"{ex_notes}\n\n{ui_notes}".strip()
+                    t_o["author_notes"] = f"{ex_notes}\n\n{ui_notes}".strip()
                     
-                if final_scope == "global" and self.engine.is_universe_thread:
+                if final_scope == "global" and self.engine.is_universe_thread: 
                     self.engine.memory.setdefault("global_states", {}).setdefault(new_name, {})["state"] = var_state.get()
-                else:
-                    target_obj["state"] = var_state.get()
+                else: 
+                    t_o["state"] = var_state.get()
 
             # Handle Aliases
-            all_aliases = self.engine.memory.setdefault("aliases", {}).setdefault(final_scope, {}).setdefault(ledger_type, {})
-            for k in list(all_aliases.keys()):
-                if all_aliases[k] == entity_name: del all_aliases[k]
+            all_a = self.engine.memory.setdefault("aliases", {}).setdefault(final_scope, {}).setdefault(ledger_type, {})
+            for k in list(all_a.keys()):
+                if all_a[k] == entity_name: del all_a[k]
+                
             for a in var_aliases.get().split(","):
-                clean_a = a.strip()
-                if clean_a: all_aliases[clean_a] = new_name
+                cl_a = a.strip()
+                if cl_a: all_a[cl_a] = new_name
 
             self.engine._resync_all_visibility()
             self.engine.save_state()
             
-            prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
-            self.active_selection.set(f"{prefix}_{final_scope}_{new_name}")
-            
-            messagebox.showinfo("Saved", f"'{new_name}' updated successfully.")
-            self._refresh_nav()
-            self._render_view()
+            if is_structural:
+                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
+                self.active_selection.set(f"{prefix}_{final_scope}_{new_name}")
+                self._refresh_nav()
+            else: 
+                mark_clean()
 
-        # --- FOOTER BUTTONS ---
-        footer = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
+        # --- 10. FOOTER BUTTONS ---
         footer.pack(fill="x", pady=20)
-        
-        # Centering container
-        center_frame = ctk.CTkFrame(footer, fg_color="transparent")
         center_frame.pack(expand=True)
 
-        # 1. The Surgical Deep Scan Button
         def trigger_deep_scan():
             btn_scan.configure(state="disabled", text="Scanning...")
             self.winfo_toplevel().configure(cursor="watch")
             
-            def on_progress(current, total, start_t=None, end_t=None):
-                if start_t is not None and end_t is not None:
-                    msg = f"Scanning Turns {start_t}-{end_t}..."
-                else:
-                    msg = f"Scanning Part {current}/{total}..."
-                self.after(0, lambda: btn_scan.configure(text=msg))
+            def on_p(c, t, st, et): 
+                self.after(0, lambda: btn_scan.configure(text=f"Turns {st}-{et}..."))
                 
             def worker():
-                succ, msg = self.engine.perform_surgical_deep_scan(entity_name, ledger_type, scope, progress_callback=on_progress)
-                def update_ui():
+                succ, msg = self.engine.perform_surgical_deep_scan(entity_name, ledger_type, scope, progress_callback=on_p)
+                def up():
                     self.winfo_toplevel().configure(cursor="")
                     btn_scan.configure(state="normal", text="✨ Deep-Scan History")
-                    if succ:
+                    if succ: 
                         messagebox.showinfo("Deep Scan", msg)
-                        self._render_view() # Reload the UI to show the newly extracted traits/events
-                    else:
-                        messagebox.showerror("Error", msg)
-                self.after(0, update_ui)
+                        self._render_view()
+                self.after(0, up)
                 
             import threading
             threading.Thread(target=worker, daemon=True).start()
             
-        btn_scan = ctk.CTkButton(
-            center_frame, text="✨ Deep-Scan History", font=("Arial", 14, "bold"),
-            fg_color="#00ACC1", hover_color="#00838F", height=36, command=trigger_deep_scan
-        )
+        btn_scan = ctk.CTkButton(center_frame, text="✨ Deep-Scan History", font=("Arial", 14, "bold"), fg_color="#00ACC1", hover_color="#00838F", height=36, command=trigger_deep_scan)
         btn_scan.pack(side="left", padx=10)
-        Tooltip(btn_scan, "Forces the AI to aggressively re-read every single turn of your entire history specifically searching for new lore about this entity.")
-
-        # 2. The Save Button
-        ctk.CTkButton(
-            center_frame, text="💾 Save Entity Lore", font=("Arial", 14, "bold"), 
-            fg_color="#2E7D32", hover_color="#1B5E20", height=36, command=save_entity
-        ).pack(side="left", padx=10)
+        
+        btn_save_lore.configure(command=save_entity)
+        btn_save_lore.pack(side="left", padx=10)
+        
+        mark_clean()
         
         
     # ---------------------------------------------------------
@@ -1138,7 +1242,7 @@ class MemoryTab(ctk.CTkFrame):
         for chunk, box in self.plot_ui_references:
             chunk["summary"] = box.get("1.0", "end").strip()
         self.engine.save_state()
-        messagebox.showinfo("Saved", "Plot Ledger updated successfully.")
+        #messagebox.showinfo("Saved", "Plot Ledger updated successfully.")
         self._render_view()
 
     def _save_chapter_ledger(self):
@@ -1148,5 +1252,5 @@ class MemoryTab(ctk.CTkFrame):
             chunk["summary"] = box.get("1.0", "end").strip()
             chunk["tags"] = [t.strip() for t in tags_var.get().split(",") if t.strip()]
         self.engine.save_state()
-        messagebox.showinfo("Saved", "Chapter Summaries updated successfully.")
+        #messagebox.showinfo("Saved", "Chapter Summaries updated successfully.")
         self._render_view()
