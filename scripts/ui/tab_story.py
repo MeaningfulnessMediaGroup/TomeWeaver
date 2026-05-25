@@ -218,7 +218,17 @@ class StoryTab(ctk.CTkFrame):
         self.btn_start_adv.pack(expand=True)
 
         # Initial Boot: Try to load the bookmark
+        self._active_theme = None
         self.refresh_timeline(go_to_last=True, use_bookmark=True)
+
+    def apply_theme(self, theme):
+        """Apply atmospheric skin to the story card and luminance-flipped text."""
+        from ui.theme_utils import apply_card_style, apply_card_text_colors, apply_story_tab_chrome
+
+        self._active_theme = theme
+        apply_story_tab_chrome(self, theme)
+        apply_card_style(self.card_frame, theme)
+        apply_card_text_colors(self, theme)
 
 
     # ---------------------------------------------------------
@@ -412,6 +422,10 @@ class StoryTab(ctk.CTkFrame):
             chap_title = f"~ {chap_display} ~"
             
         self.lbl_chapter.configure(text=chap_title)
+        
+        if self._active_theme:
+            from ui.theme_utils import apply_card_text_colors
+            apply_card_text_colors(self, self._active_theme)
         
         loc_raw = turn.get("location", "Unknown").strip()
         pov_raw = turn.get("pov_character", "Unknown").strip()

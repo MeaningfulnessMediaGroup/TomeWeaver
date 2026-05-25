@@ -40,6 +40,9 @@ The filter bar lets you instantly narrow the library:
 *   **Custom Icons:** Right-click folder cards to assign a custom PNG/JPG thumbnail for at-a-glance recognition.
 *   **Breadcrumb Navigation:** Drill into nested Universe folders; the **+ Create New Story** menu adapts to offer **Create Thread** when inside a universe.
 
+### Global Settings & Themes
+Open **⚙ Settings** to configure API keys, engine rules, and the **Active Theme** preset. Use the **…** button beside the theme dropdown to open the visual theme editor (colors, borders, relief styles). The chosen preset applies globally to the dashboard and all workspaces. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for `themes.json` details.
+
 ---
 
 ## 2. The World Builder (Codex)

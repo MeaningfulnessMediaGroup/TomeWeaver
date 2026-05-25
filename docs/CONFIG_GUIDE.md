@@ -30,8 +30,19 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`log_raw_json_on_failure`** | When `true`, always logs raw model output on JSON parse failures—even if verbose logging is off. |
 | **`max_inventory_keys`** | Maximum tracked inventory slots in the World Builder pill editor (default 8). |
 | **`adventures_dir`** | Absolute path to the story library root. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` is stored inside this folder. |
+| **`global_theme_name`** | Name of the active UI skin preset from `configs/themes.json` (e.g., `"Default Dark"`, `"Parchment"`). |
 
 **Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse button).
+
+---
+
+## 🎨 Visual Theme Presets (`configs/themes.json`)
+
+Stores named UI skins (outer/mid/inner colors, border width, corner rounding, relief). Built-in presets include **Default Dark**, **Parchment**, **Horror**, and **Cyberpunk**.
+
+**Access in UI:** Dashboard → `⚙ Settings` → **Active Theme** dropdown and **…** (theme editor).
+
+Each preset is a JSON object with keys such as `outer`, `mid`, `inner`, `border_w`, `rounding`, and `relief`. The active preset name is saved in `engine_config.json` as `global_theme_name`.
 
 ---
 

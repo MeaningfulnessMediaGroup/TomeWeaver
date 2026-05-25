@@ -423,7 +423,8 @@ def load_engine_config():
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
         "max_inventory_keys": 8,
-        "adventures_dir": ""
+        "adventures_dir": "",
+        "global_theme_name": "Default Dark"
     }
     
     if not config_path.exists():
@@ -445,7 +446,7 @@ def load_engine_config():
             needs_update = True
             
     # Clean up legacy volatile keys from engine_config
-    for legacy_key in ["window_geometry", "window_state", "last_active_story", "memory_chunk_size"]:
+    for legacy_key in ["window_geometry", "window_state", "last_active_story", "memory_chunk_size", "use_local_theme_override"]:
         if legacy_key in config:
             del config[legacy_key]
             needs_update = True
@@ -454,6 +455,99 @@ def load_engine_config():
         save_json_atomically(config, config_path)
             
     return config
+
+
+# ---------------------------------------------------------
+# VISUAL THEMES (Atmospheric Skinning)
+# ---------------------------------------------------------
+
+DEFAULT_THEME_PRESET = "Default Dark"
+
+DEFAULT_THEME = {
+    "outer": "#121212",
+    "mid": "#1e1e1e",
+    "inner": "#2a2a2a",
+    "border_w": 1,
+    "relief": "flat",
+    "rounding": 10,
+}
+
+
+def get_default_theme():
+    """Return a copy of the built-in default theme dict."""
+    return dict(DEFAULT_THEME)
+
+
+def load_themes():
+    """Load preset gallery from ``configs/themes.json``, merging defaults if missing."""
+    configs_dir = ROOT_DIR / "configs"
+    configs_dir.mkdir(exist_ok=True)
+    themes_path = configs_dir / "themes.json"
+
+    seed = {
+        DEFAULT_THEME_PRESET: dict(DEFAULT_THEME),
+        "Parchment": {
+            "outer": "#d2b48c",
+            "mid": "#e5d3b3",
+            "inner": "#f5f5dc",
+            "border_w": 2,
+            "relief": "ridge",
+            "rounding": 2,
+        },
+        "Horror": {
+            "outer": "#0a0000",
+            "mid": "#1a0505",
+            "inner": "#2d0a0a",
+            "border_w": 2,
+            "relief": "sunken",
+            "rounding": 4,
+        },
+        "Cyberpunk": {
+            "outer": "#0a0e14",
+            "mid": "#0f1a2e",
+            "inner": "#152238",
+            "border_w": 1,
+            "relief": "flat",
+            "rounding": 16,
+        },
+    }
+
+    if not themes_path.exists():
+        save_json_atomically(seed, themes_path)
+        return seed
+
+    try:
+        data = load_json_safely(themes_path, "themes.json")
+        if not isinstance(data, dict):
+            raise ValueError("themes.json is not an object")
+    except Exception:
+        print(f"{Fore.YELLOW}Warning: themes.json was corrupted. Rebuilding defaults.{Style.RESET_ALL}")
+        save_json_atomically(seed, themes_path)
+        return seed
+
+    changed = False
+    if DEFAULT_THEME_PRESET not in data:
+        data[DEFAULT_THEME_PRESET] = dict(DEFAULT_THEME)
+        changed = True
+
+    for name, preset in data.items():
+        if not isinstance(preset, dict):
+            continue
+        for key, val in DEFAULT_THEME.items():
+            if key not in preset:
+                preset[key] = val
+                changed = True
+
+    if changed:
+        save_json_atomically(data, themes_path)
+
+    return data
+
+
+def save_themes(themes_dict):
+    """Persist the full preset gallery to ``configs/themes.json``."""
+    save_json_atomically(themes_dict, ROOT_DIR / "configs" / "themes.json")
+
 
 def load_instance_config():
     """Loads volatile session settings safely. Heals the file automatically if corrupted."""

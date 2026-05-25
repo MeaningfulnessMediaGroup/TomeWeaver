@@ -10,6 +10,7 @@ from ui.tab_story import StoryTab
 from ui.tab_codex import CodexTab  
 from ui.tab_chapters import ChapterTab
 from ui.tooltip import Tooltip
+from ui.theme_utils import apply_workspace_chrome, resolve_theme
 
 
 class WorkspaceFrame(ctk.CTkFrame):
@@ -33,6 +34,7 @@ class WorkspaceFrame(ctk.CTkFrame):
 
        # --- Top Header ---
         header = ctk.CTkFrame(self)
+        self.header_frame = header
         header.pack(fill="x", padx=10, pady=5)
         
         # Determine Mode and Color
@@ -69,6 +71,7 @@ class WorkspaceFrame(ctk.CTkFrame):
 
         # --- Tab Control ---
         self.tabs = ctk.CTkTabview(self, command=self._on_tab_change)
+        self.tabview = self.tabs
         self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
 
         self.t_story = self.tabs.add("Story Mode")
@@ -107,6 +110,18 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.codex_tab = None
         self.memory_tab = None
         self.chapters_tab = None
+
+        self._active_theme = resolve_theme()
+        self.apply_visual_theme(self._active_theme)
+
+    def apply_visual_theme(self, theme=None):
+        """Paint workspace chrome + story card from the global theme preset."""
+        if theme is None:
+            theme = resolve_theme()
+        self._active_theme = theme
+        apply_workspace_chrome(self, theme)
+        if hasattr(self, "story_tab") and self.story_tab is not None:
+            self.story_tab.apply_theme(theme)
 
     def _show_integrity_warnings(self):
         """Displays a modal listing data corruptions caught and healed by the engine on boot."""

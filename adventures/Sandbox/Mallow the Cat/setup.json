@@ -21,5 +21,9 @@
         "New_Key": "New_Value"
     },
     "last_compile_mode": "missing",
-    "auto_reconcile": true
+    "auto_reconcile": true,
+    "chapter_tags": "Exploration, Dialogue, Puzzle, Lore",
+    "track_factions": false,
+    "inventory_dictionary": {},
+    "visual_theme": "Cyberpunk"
 }

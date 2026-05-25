@@ -12,12 +12,12 @@
     "log_verbose": true,
     "log_raw_json_on_failure": true,
     "prose_font_family": "Arial",
+    "global_theme_name": "Cyberpunk",
     "active_api_profile": "LM_Studio",
     "api_url": "http://localhost:1234/v1/chat/completions",
     "api_key": "",
     "model": "loaded-model",
     "max_query_per_minute": 0,
     "max_tokens": 5000,
-    "adventures_dir": "",
-    "max_inventory_keys": 8
+    "adventures_dir": ""
 }

@@ -168,10 +168,13 @@ Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stag
 ### 11. Modern Native UX
 TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
 
-### 12. Storybook Compiler (Export)
+### 12. Atmospheric Theme Engine
+Customize the app's look from **Dashboard → ⚙ Settings**. Pick a preset (Default Dark, Parchment, Horror, Cyberpunk, or your own), edit colors and card borders in the theme editor, and apply one global skin across the library and all workspaces. Presets live in `configs/themes.json`; the active choice is stored as `global_theme_name` in `engine_config.json`.
+
+### 13. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
-### 13. Autonomous Long-Term Memory (RAG Engine)
+### 14. Autonomous Long-Term Memory (RAG Engine)
 Play infinitely without breaking your model's context limit. TomeWeaver features a background Retrieval-Augmented Generation (RAG) engine that silently compiles your history into dense, token-efficient ledgers.
 *   **Dual-Tiered Memory:** Entities are scoped to "Local" (This story only) or "Global" (The Shared Universe).
 *   **Tiered Summarization:** Automatically compresses 10-turn chunks into "Parts," and finished chapters into high-level summaries.
@@ -180,28 +183,28 @@ Play infinitely without breaking your model's context limit. TomeWeaver features
 
 🧠 **[Read the deep dive into the RAG Engine (docs/RAG.md)](docs/RAG.md)**
 
-### 14. The Memory & Lore Editor (Visual RAG Console)
+### 15. The Memory & Lore Editor (Visual RAG Console)
 The **Memory & Lore** tab is a full narrative database UI—not a raw JSON editor. Browse Plot Ledger chunks and Entity profiles in a master-detail layout, pin important characters so they never decay, merge duplicate entities (e.g. "Vance" and "Captain Vance") with zero data-loss trait combining, and run **Deep Scan** or **Deep Rename** operations that crawl history and even offline universe files when authorized.
 
-### 15. Bulk Turn Import (Writer's Pipeline)
+### 16. Bulk Turn Import (Writer's Pipeline)
 Authors can paste large blocks of pre-written prose directly into a running adventure via **Options → Import Turns...** The engine parses `>` or `=` action markers into structured turns, splices them into the Master Clock, and re-indexes chapter boundaries automatically—ideal for importing a novella draft or co-written scenes.
 
-### 16. Adventure Recap & Bridge Catch-Up
+### 17. Adventure Recap & Bridge Catch-Up
 *   **Generate Recap:** Summarizes the entire story so far into a readable briefing (useful after a long break or before sharing a save).
 *   **Generate Missing Bridges:** Manually triggers the narrative bridge novelizer across history—handy when `auto_narrative_bridge` is off or after timeline surgery.
 
-### 17. ZIP Cartridge Import & Export
+### 18. ZIP Cartridge Import & Export
 Share entire adventures as portable `.zip` cartridges. Export from any story card's **Options** menu; import from the Dashboard **Import .zip** button. Cartridges include all JSON, prompts, and lore—perfect for backups, collaboration, or publishing sample worlds.
 
-### 18. Scalable Library Index
+### 19. Scalable Library Index
 The Dashboard maintains an autonomous `index.json` cache so you can search, sort, and paginate through **thousands** of nested folders and universe threads without the UI freezing. Custom folder icons (PNG/JPG) are supported for visual organization at a glance.
 
-### 19. Prologue, Epilogue & Story Seeds
+### 20. Prologue, Epilogue & Story Seeds
 *   **`prologue.txt` / `epilogue.txt`:** Hand-written bookends loaded as-is on first launch or campaign conclusion—no AI roll required.
 *   **`start_turn.json`:** A saved "Story Seed" guarantees every restart begins at your curated Turn 1 hook (set via **💾 Set as Story Seed** in the scene editor).
 
-### 20. Headless Engine & Automated Tests (Developers)
-The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay) runs fully **headless**—no GUI required. A pytest suite under `/tests` validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
+### 21. Headless Engine & Automated Tests (Developers)
+The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
 
 ---
 

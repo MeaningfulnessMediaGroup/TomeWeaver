@@ -40,9 +40,11 @@ class DashboardFrame(ctk.CTkFrame):
 
         # --- TOP HEADER BAR ---
         header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame = header
         header.pack(fill="x", padx=20, pady=(20, 5))
         
-        ctk.CTkLabel(header, text="TomeWeaver Library", font=("Georgia", 28, "bold")).pack(side="left")
+        self.lbl_library_title = ctk.CTkLabel(header, text="TomeWeaver Library", font=("Georgia", 28, "bold"))
+        self.lbl_library_title.pack(side="left")
         
         # New Feature: The Split Dropdown Button
         self.new_story_var = ctk.StringVar(value="+ Create New Story")
@@ -81,6 +83,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         # --- SEARCH & FILTER BAR ---
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.search_frame = search_frame
         search_frame.pack(fill="x", padx=20, pady=(0, 10))
         
         # --- Group 1: SEARCH ACTION (Left Aligned) ---
@@ -135,6 +138,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         # --- PAGINATION FOOTER ---
         footer = ctk.CTkFrame(self, fg_color="transparent")
+        self.footer_frame = footer
         footer.pack(fill="x", padx=20, pady=10)
 
         # Items per page dropdown
@@ -168,6 +172,18 @@ class DashboardFrame(ctk.CTkFrame):
 
         # Load initial data
         self.load_data()
+        self.apply_dashboard_theme()
+
+
+    def apply_dashboard_theme(self):
+        """Apply the global theme preset to dashboard chrome and library cards."""
+        from ui.theme_utils import apply_dashboard_chrome, resolve_dashboard_theme
+
+        theme = resolve_dashboard_theme()
+        self._active_theme = theme
+        apply_dashboard_chrome(self, theme)
+        if hasattr(self, "card_pool") and self.card_pool and hasattr(self, "filtered_stories"):
+            self.render_page()
 
 
     def change_dir(self, new_dir):
@@ -474,6 +490,17 @@ class DashboardFrame(ctk.CTkFrame):
         end_idx = start_idx + self.items_per_page
         page_slice = self.filtered_stories[start_idx:end_idx]
 
+        from ui.theme_utils import (
+            get_contrast_color,
+            get_muted_text_color,
+            apply_card_style,
+            resolve_theme,
+            repaint_library_card,
+        )
+
+        app_theme = resolve_theme()
+        default_card_theme = app_theme
+
         for i, item in enumerate(page_slice):
             if i >= len(self.card_pool):
                 self.card_pool.append(self._create_card_widget())
@@ -490,9 +517,11 @@ class DashboardFrame(ctk.CTkFrame):
                 
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
-                refs["f_icon_lbl"].configure(text="🔙", text_color="white")
-                refs["f_title_lbl"].configure(text="[ .. ] Go back")
-                refs["f_count_lbl"].configure(text="(Parent Directory)")
+                apply_card_style(refs["frame"], default_card_theme)
+                folder_text = get_contrast_color(default_card_theme["inner"])
+                refs["f_icon_lbl"].configure(text="🔙", text_color=folder_text)
+                refs["f_title_lbl"].configure(text="[ .. ] Go back", text_color=folder_text)
+                refs["f_count_lbl"].configure(text="(Parent Directory)", text_color=get_muted_text_color(default_card_theme["inner"]))
                 refs["f_opt_menu"].pack_forget()
                 
             elif item.get("is_folder") or item.get("type") == "universe":
@@ -500,6 +529,10 @@ class DashboardFrame(ctk.CTkFrame):
                 
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
+                apply_card_style(refs["frame"], default_card_theme)
+                folder_text = get_contrast_color(default_card_theme["inner"])
+                refs["f_title_lbl"].configure(text_color=folder_text)
+                refs["f_count_lbl"].configure(text_color=get_muted_text_color(default_card_theme["inner"]))
                 
                 # --- IMAGE LOGIC (FOLDERS/UNIVERSES) ---
                 from api import get_adv_dir
@@ -591,6 +624,9 @@ class DashboardFrame(ctk.CTkFrame):
                 
                 opt_values = ["Options...", "Customize Icon...", "Restart", "Export to .zip", "Rename", "Move...", "Delete", "Browse Here"]
                 refs["opt_menu"].configure(values=opt_values)
+
+                card_theme = resolve_theme()
+                repaint_library_card(refs, card_theme)
             
             refs["frame"].pack(fill="x", pady=4, padx=10)
             
@@ -1571,7 +1607,7 @@ class DashboardFrame(ctk.CTkFrame):
         
         dialog = ctk.CTkToplevel(self)
         dialog.title("Global Engine Settings")
-        dialog.geometry("600x820")
+        dialog.geometry("700x820")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -1687,6 +1723,40 @@ class DashboardFrame(ctk.CTkFrame):
         add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True, tooltip_text="Scales the entire application interface for 4K/high-res monitors. Requires restart.")
         add_field("Story Font Size:", "prose_font_size", is_number=True, tooltip_text="The point size of the prose text in the main workspace.")
         add_field("Text Wrap Margin (Pixels):", "ui_wrap_margin", is_number=True, tooltip_text="Adjusts the right-side padding for text in the timeline. Increase this if your text is being cut off on the right.")
+
+        ctk.CTkLabel(scroll, text="--- Visual Theming ---", text_color="gray").pack(pady=(20, 5))
+
+        theme_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        theme_row.pack(fill="x", pady=5)
+        lbl_theme = ctk.CTkLabel(theme_row, text="Active Theme:", font=("Arial", 14, "bold"), width=200, anchor="e")
+        lbl_theme.pack(side="left", padx=(0, 15))
+        Tooltip(lbl_theme, "Global UI skin from configs/themes.json. Applies to the dashboard and all workspaces.")
+
+        from config import load_themes
+        theme_names = sorted(load_themes().keys())
+        theme_menu = ctk.CTkOptionMenu(theme_row, values=theme_names, width=300)
+        theme_menu.set(current_config.get("global_theme_name", "Default Dark"))
+        theme_menu.pack(side="left", expand=True, fill="x")
+
+        def open_theme_editor():
+            from ui.theme_editor import ThemeEditorDialog
+
+            def refresh_dashboard_theme():
+                theme_menu.set(ENGINE_CONFIG.get("global_theme_name", "Default Dark"))
+                self.apply_dashboard_theme()
+
+            ThemeEditorDialog(dialog, on_theme_applied=refresh_dashboard_theme)
+
+        btn_theme_edit = ctk.CTkButton(
+            theme_row,
+            text="...",
+            width=36,
+            fg_color="#1F6AA5",
+            command=open_theme_editor,
+        )
+        btn_theme_edit.pack(side="left", padx=(8, 0))
+        Tooltip(btn_theme_edit, "Edit Themes")
+
         ctk.CTkLabel(scroll, text="(Requires application restart to fully apply UI scaling)", font=("Arial", 11, "italic"), text_color="gray").pack()
 
         ctk.CTkLabel(scroll, text="--- Developer Logging ---", text_color="gray").pack(pady=(20, 5))
@@ -1710,6 +1780,7 @@ class DashboardFrame(ctk.CTkFrame):
                         new_config[k] = val
             
             new_config["prose_font_family"] = font_menu.get().strip()
+            new_config["global_theme_name"] = theme_menu.get().strip()
             
             # Read the selected API profile and inject its connection details into the engine config
             selected_prof = api_var.get()
@@ -1747,7 +1818,8 @@ class DashboardFrame(ctk.CTkFrame):
                     if hasattr(self.app, "last_dashboard_dir"):
                         self.app.last_dashboard_dir = ""
                     self.load_data()
-                    
+
+                self.apply_dashboard_theme()
                 messagebox.showinfo("Saved", "Global Engine Settings saved successfully.")
                 dialog.destroy()
             except Exception as e:
