@@ -133,7 +133,11 @@ class DashboardFrame(ctk.CTkFrame):
         self.update_breadcrumbs()
 
         # --- STORY GRID (SCROLLABLE) ---
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        from ui.theme_utils import resolve_dashboard_theme
+
+        self.scroll = ctk.CTkScrollableFrame(
+            self, fg_color=resolve_dashboard_theme()["mid"]
+        )
         self.scroll.pack(fill="both", expand=True, padx=20, pady=5)
 
         # --- PAGINATION FOOTER ---
@@ -493,7 +497,7 @@ class DashboardFrame(ctk.CTkFrame):
         from ui.theme_utils import (
             get_contrast_color,
             get_muted_text_color,
-            apply_card_style,
+            apply_library_card_style,
             resolve_theme,
             repaint_library_card,
         )
@@ -517,7 +521,7 @@ class DashboardFrame(ctk.CTkFrame):
                 
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
-                apply_card_style(refs["frame"], default_card_theme)
+                apply_library_card_style(refs["frame"], default_card_theme)
                 folder_text = get_contrast_color(default_card_theme["inner"])
                 refs["f_icon_lbl"].configure(text="🔙", text_color=folder_text)
                 refs["f_title_lbl"].configure(text="[ .. ] Go back", text_color=folder_text)
@@ -529,7 +533,7 @@ class DashboardFrame(ctk.CTkFrame):
                 
                 refs["story_container"].pack_forget()
                 refs["folder_container"].pack(fill="both", expand=True)
-                apply_card_style(refs["frame"], default_card_theme)
+                apply_library_card_style(refs["frame"], default_card_theme)
                 folder_text = get_contrast_color(default_card_theme["inner"])
                 refs["f_title_lbl"].configure(text_color=folder_text)
                 refs["f_count_lbl"].configure(text_color=get_muted_text_color(default_card_theme["inner"]))
@@ -639,7 +643,7 @@ class DashboardFrame(ctk.CTkFrame):
 
     def _create_card_widget(self):
         """Instantiates a single, dual-purpose (Folder/Story) reusable Card object."""
-        card = ctk.CTkFrame(self.scroll, corner_radius=8, cursor="hand2")
+        card = ctk.CTkFrame(self.scroll, corner_radius=8, border_width=0, cursor="hand2")
         
         # State Dictionary for this specific card
         refs = {

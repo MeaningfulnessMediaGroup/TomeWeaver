@@ -38,11 +38,11 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 
 ## 🎨 Visual Theme Presets (`configs/themes.json`)
 
-Stores named UI skins (outer/mid/inner colors, border width, corner rounding, relief). Built-in presets include **Default Dark**, **Parchment**, **Horror**, and **Cyberpunk**.
+Stores named UI skins (outer/mid/inner colors, border width, corner rounding). Built-in presets include **Default Dark**, **Default Light**, **Parchment**, **Horror**, **Cyberpunk**, **Forest**, **Ocean Deep**, **Sunset Ember**, **Slate Light**, **Rosewood**, and **Nord Frost**.
 
 **Access in UI:** Dashboard → `⚙ Settings` → **Active Theme** dropdown and **…** (theme editor).
 
-Each preset is a JSON object with keys such as `outer`, `mid`, `inner`, `border_w`, `rounding`, and `relief`. The active preset name is saved in `engine_config.json` as `global_theme_name`.
+Each preset is a JSON object with keys such as `outer`, `mid`, `inner`, `border_w`, and `rounding`. The active preset name is saved in `engine_config.json` as `global_theme_name`.
 
 ---
 

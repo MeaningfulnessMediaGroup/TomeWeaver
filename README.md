@@ -169,7 +169,7 @@ Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stag
 TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
 
 ### 12. Atmospheric Theme Engine
-Customize the app's look from **Dashboard → ⚙ Settings**. Pick a preset (Default Dark, Parchment, Horror, Cyberpunk, or your own), edit colors and card borders in the theme editor, and apply one global skin across the library and all workspaces. Presets live in `configs/themes.json`; the active choice is stored as `global_theme_name` in `engine_config.json`.
+Customize the app's look from **Dashboard → ⚙ Settings**. Pick a built-in preset (**Default Dark**, **Default Light**, **Parchment**, **Horror**, **Cyberpunk**, **Forest**, **Ocean Deep**, and others) or create your own, edit colors and card borders in the theme editor, and apply one global skin across the library and all workspaces. Presets live in `configs/themes.json`; the active choice is stored as `global_theme_name` in `engine_config.json`.
 
 ### 13. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.

@@ -12,8 +12,6 @@ from config import (
     load_themes,
 )
 
-VALID_RELIEFS = ("flat", "groove", "raised", "ridge", "sunken")
-
 
 def normalize_theme(raw):
     """Merge partial theme dict with defaults and coerce types."""
@@ -36,10 +34,6 @@ def normalize_theme(raw):
         theme["rounding"] = max(0, min(30, int(raw.get("rounding", theme["rounding"]))))
     except (TypeError, ValueError):
         pass
-
-    relief = str(raw.get("relief", theme["relief"])).lower()
-    if relief in VALID_RELIEFS:
-        theme["relief"] = relief
 
     return theme
 
@@ -94,60 +88,29 @@ def resolve_theme_for_story_folder(folder_name):
     return resolve_theme()
 
 
-def effective_canvas_borderwidth(relief, border_w):
-    """Tk 3D reliefs need at least 2px on the internal canvas to render shading."""
-    relief = str(relief).lower() if relief else "flat"
-    try:
-        border_w = max(0, int(border_w))
-    except (TypeError, ValueError):
-        border_w = 0
-    if relief == "flat" or relief not in VALID_RELIEFS:
-        return 0
-    return max(2, border_w)
+LIBRARY_CARD_ROUNDING = 8
 
 
-def apply_ctk_canvas_relief(widget, relief, border_w):
-    """Force native Tk relief on the CTkFrame's internal canvas (CustomTkinter canvas hack)."""
-    if not widget:
+def apply_library_card_style(frame, theme):
+    """Dashboard folder/story tiles: themed fill with fixed rounded corners (no theme border)."""
+    if not frame or not theme:
         return
-    relief = str(relief).lower() if relief else "flat"
-    if relief not in VALID_RELIEFS:
-        relief = "flat"
-
-    canvas_bw = effective_canvas_borderwidth(relief, border_w)
-    try:
-        canvas = widget._canvas
-        if relief == "flat":
-            canvas.configure(relief="flat", borderwidth=0)
-        else:
-            canvas.configure(relief=relief, borderwidth=float(canvas_bw))
-    except Exception:
-        try:
-            widget.configure(relief=relief)
-        except Exception:
-            pass
-
-
-def apply_frame_relief(widget, relief, border_w=1):
-    """Backward-compatible alias for canvas relief application."""
-    apply_ctk_canvas_relief(widget, relief, border_w)
+    frame.configure(
+        fg_color=theme["inner"],
+        border_width=0,
+        corner_radius=LIBRARY_CARD_ROUNDING,
+    )
 
 
 def apply_card_style(frame, theme, *, use_inner=True):
-    """Apply inner-card colors, border, rounding, and native canvas relief to a CTkFrame."""
+    """Apply inner-card colors, border, and rounding to a CTkFrame."""
     if not frame or not theme:
         return
     bg = theme["inner"] if use_inner else theme.get("mid", theme["inner"])
     border_w = theme.get("border_w", 1)
     rounding = theme.get("rounding", 10)
-    relief = theme.get("relief", "flat")
     contrast = get_contrast_color(bg)
-
-    # Mid-tone borders give ridge/groove/sunken room to shade lighter and darker.
-    if relief != "flat":
-        border_color = "#808080"
-    else:
-        border_color = "#888888" if contrast == "black" else "#444444"
+    border_color = "#888888" if contrast == "black" else "#444444"
 
     frame.configure(
         fg_color=bg,
@@ -155,7 +118,6 @@ def apply_card_style(frame, theme, *, use_inner=True):
         corner_radius=rounding,
         border_color=border_color,
     )
-    apply_ctk_canvas_relief(frame, relief, border_w)
 
 
 def apply_workspace_chrome(workspace, theme):
@@ -187,9 +149,9 @@ def apply_dashboard_chrome(dashboard, theme):
     if hasattr(dashboard, "app") and hasattr(dashboard.app, "container"):
         dashboard.app.container.configure(fg_color=outer)
 
-    # Title, search, breadcrumb, pagination, and scroll list share the outer zone —
+    # Title, search, breadcrumb, and pagination share the outer zone —
     # mid color on these bars created visible horizontal bands.
-    for attr in ("header_frame", "search_frame", "breadcrumb_frame", "footer_frame", "scroll"):
+    for attr in ("header_frame", "search_frame", "breadcrumb_frame", "footer_frame"):
         frame = getattr(dashboard, attr, None)
         if frame is not None:
             try:
@@ -197,16 +159,25 @@ def apply_dashboard_chrome(dashboard, theme):
             except Exception:
                 pass
 
+    mid = theme["mid"]
+    if hasattr(dashboard, "scroll") and dashboard.scroll is not None:
+        try:
+            dashboard.scroll.configure(fg_color=mid)
+        except Exception:
+            pass
+
     text = get_contrast_color(outer)
     muted = get_muted_text_color(outer)
     if hasattr(dashboard, "lbl_library_title"):
         dashboard.lbl_library_title.configure(text_color=text)
     if hasattr(dashboard, "lbl_page"):
         dashboard.lbl_page.configure(text_color=text)
+
+    mid_muted = get_muted_text_color(mid)
     if hasattr(dashboard, "lbl_loading"):
-        dashboard.lbl_loading.configure(text_color=muted)
+        dashboard.lbl_loading.configure(text_color=mid_muted)
     if hasattr(dashboard, "lbl_empty"):
-        dashboard.lbl_empty.configure(text_color=muted)
+        dashboard.lbl_empty.configure(text_color=mid_muted)
 
 
 def apply_story_tab_chrome(story_tab, theme):
@@ -242,7 +213,7 @@ def repaint_library_card(refs, theme):
     """Re-style a pooled dashboard card to match a story's resolved theme."""
     if not refs or not theme:
         return
-    apply_card_style(refs["frame"], theme, use_inner=True)
+    apply_library_card_style(refs["frame"], theme)
     text = get_contrast_color(theme["inner"])
     muted = get_muted_text_color(theme["inner"])
 

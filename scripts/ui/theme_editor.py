@@ -16,7 +16,6 @@ from config import (
     save_themes,
 )
 from ui.theme_utils import (
-    VALID_RELIEFS,
     apply_card_style,
     get_contrast_color,
     get_muted_text_color,
@@ -147,21 +146,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
             controls, "Corner Rounding", 0, 30, self._draft["rounding"], self._on_round_change
         )
 
-        relief_row = ctk.CTkFrame(controls, fg_color="transparent")
-        relief_row.pack(fill="x", pady=6)
-        ctk.CTkLabel(relief_row, text="Relief:", font=("Arial", 12, "bold"), width=130, anchor="e").pack(
-            side="left"
-        )
-        self.relief_var = ctk.StringVar(value=self._draft["relief"])
-        relief_menu = ctk.CTkOptionMenu(
-            relief_row,
-            variable=self.relief_var,
-            values=list(VALID_RELIEFS),
-            width=160,
-            command=lambda _v: self._sync_draft_from_controls(),
-        )
-        relief_menu.pack(side="left", padx=6)
-
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=16, pady=8)
 
@@ -240,7 +224,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
                 "inner": self.color_vars["inner"].get(),
                 "border_w": int(self.border_slider.get()),
                 "rounding": int(self.round_slider.get()),
-                "relief": self.relief_var.get(),
             }
         )
 
@@ -256,7 +239,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
         self.color_vars["inner"].set(self._draft["inner"])
         self.border_slider.set(self._draft["border_w"])
         self.round_slider.set(self._draft["rounding"])
-        self.relief_var.set(self._draft["relief"])
         self._refresh_preview()
 
     def _refresh_preview(self):

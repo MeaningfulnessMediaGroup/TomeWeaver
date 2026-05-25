@@ -3,7 +3,14 @@
 import pytest
 
 from config import ENGINE_CONFIG
-from ui.theme_utils import get_contrast_color, normalize_theme, resolve_theme, get_global_theme_preset_name
+from ui.theme_utils import (
+    get_contrast_color,
+    normalize_theme,
+    resolve_theme,
+    get_global_theme_preset_name,
+    apply_library_card_style,
+    LIBRARY_CARD_ROUNDING,
+)
 
 
 class TestGetContrastColor:
@@ -29,6 +36,13 @@ class TestResolveTheme:
         monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Horror")
         theme = resolve_theme()
         assert theme["inner"] == "#2d0a0a"
+
+    def test_loads_default_light_preset(self, monkeypatch):
+        monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Default Light")
+        theme = resolve_theme()
+        assert theme["outer"] == "#e6e6e6"
+        assert theme["inner"] == "#cccccc"
+        assert get_contrast_color(theme["inner"]) == "black"
 
     def test_falls_back_to_default_when_preset_missing(self, monkeypatch):
         monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Does Not Exist")
@@ -57,22 +71,24 @@ class TestNormalizeTheme:
     """Partial theme payloads merge with safe defaults."""
 
     def test_clamps_border_and_rounding(self):
-        theme = normalize_theme({"border_w": 99, "rounding": -5, "relief": "invalid"})
+        theme = normalize_theme({"border_w": 99, "rounding": -5})
         assert theme["border_w"] == 5
         assert theme["rounding"] == 0
-        assert theme["relief"] == "flat"
 
 
-class TestCanvasReliefBorderwidth:
-    """3D Tk reliefs require at least 2px on the internal canvas."""
+class TestLibraryCardStyle:
+    """Dashboard tiles keep fixed rounding independent of theme border settings."""
 
-    def test_flat_relief_uses_zero_canvas_border(self):
-        from ui.theme_utils import effective_canvas_borderwidth
+    def test_library_card_uses_fixed_rounding(self):
+        class FakeFrame:
+            config = {}
 
-        assert effective_canvas_borderwidth("flat", 3) == 0
+            def configure(self, **kwargs):
+                self.config.update(kwargs)
 
-    def test_ridge_enforces_minimum_two_pixels(self):
-        from ui.theme_utils import effective_canvas_borderwidth
-
-        assert effective_canvas_borderwidth("ridge", 1) == 2
-        assert effective_canvas_borderwidth("groove", 3) == 3
+        frame = FakeFrame()
+        theme = {"inner": "#2a2a2a", "border_w": 3, "rounding": 16}
+        apply_library_card_style(frame, theme)
+        assert frame.config["corner_radius"] == LIBRARY_CARD_ROUNDING
+        assert frame.config["border_width"] == 0
+        assert frame.config["fg_color"] == "#2a2a2a"

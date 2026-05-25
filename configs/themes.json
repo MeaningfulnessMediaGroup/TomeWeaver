@@ -4,7 +4,13 @@
         "mid": "#1e1e1e",
         "inner": "#2a2a2a",
         "border_w": 1,
-        "relief": "flat",
+        "rounding": 10
+    },
+    "Default Light": {
+        "outer": "#e6e6e6",
+        "mid": "#d9d9d9",
+        "inner": "#cccccc",
+        "border_w": 1,
         "rounding": 10
     },
     "Parchment": {
@@ -12,7 +18,6 @@
         "mid": "#e5d3b3",
         "inner": "#f5f5dc",
         "border_w": 2,
-        "relief": "ridge",
         "rounding": 2
     },
     "Horror": {
@@ -20,7 +25,6 @@
         "mid": "#1a0505",
         "inner": "#2d0a0a",
         "border_w": 2,
-        "relief": "sunken",
         "rounding": 4
     },
     "Cyberpunk": {
@@ -28,7 +32,48 @@
         "mid": "#0f1a2e",
         "inner": "#152238",
         "border_w": 1,
-        "relief": "flat",
         "rounding": 16
+    },
+    "Forest": {
+        "outer": "#0d1810",
+        "mid": "#152318",
+        "inner": "#1e3024",
+        "border_w": 1,
+        "rounding": 8
+    },
+    "Ocean Deep": {
+        "outer": "#0a1520",
+        "mid": "#0f1f2e",
+        "inner": "#152a3d",
+        "border_w": 1,
+        "rounding": 12
+    },
+    "Sunset Ember": {
+        "outer": "#1a1208",
+        "mid": "#2a1a0e",
+        "inner": "#3d2512",
+        "border_w": 2,
+        "rounding": 6
+    },
+    "Slate Light": {
+        "outer": "#e4e8ec",
+        "mid": "#d8dde3",
+        "inner": "#ccd2d9",
+        "border_w": 1,
+        "rounding": 8
+    },
+    "Rosewood": {
+        "outer": "#1a0f14",
+        "mid": "#2a1620",
+        "inner": "#3a1f2c",
+        "border_w": 1,
+        "rounding": 10
+    },
+    "Nord Frost": {
+        "outer": "#2e3440",
+        "mid": "#3b4252",
+        "inner": "#434c5e",
+        "border_w": 1,
+        "rounding": 10
     }
 }

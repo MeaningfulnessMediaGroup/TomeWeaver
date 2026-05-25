@@ -468,8 +468,81 @@ DEFAULT_THEME = {
     "mid": "#1e1e1e",
     "inner": "#2a2a2a",
     "border_w": 1,
-    "relief": "flat",
     "rounding": 10,
+}
+
+BUILTIN_THEME_PRESETS = {
+    DEFAULT_THEME_PRESET: dict(DEFAULT_THEME),
+    "Default Light": {
+        "outer": "#e6e6e6",
+        "mid": "#d9d9d9",
+        "inner": "#cccccc",
+        "border_w": 1,
+        "rounding": 10,
+    },
+    "Parchment": {
+        "outer": "#d2b48c",
+        "mid": "#e5d3b3",
+        "inner": "#f5f5dc",
+        "border_w": 2,
+        "rounding": 2,
+    },
+    "Horror": {
+        "outer": "#0a0000",
+        "mid": "#1a0505",
+        "inner": "#2d0a0a",
+        "border_w": 2,
+        "rounding": 4,
+    },
+    "Cyberpunk": {
+        "outer": "#0a0e14",
+        "mid": "#0f1a2e",
+        "inner": "#152238",
+        "border_w": 1,
+        "rounding": 16,
+    },
+    "Forest": {
+        "outer": "#0d1810",
+        "mid": "#152318",
+        "inner": "#1e3024",
+        "border_w": 1,
+        "rounding": 8,
+    },
+    "Ocean Deep": {
+        "outer": "#0a1520",
+        "mid": "#0f1f2e",
+        "inner": "#152a3d",
+        "border_w": 1,
+        "rounding": 12,
+    },
+    "Sunset Ember": {
+        "outer": "#1a1208",
+        "mid": "#2a1a0e",
+        "inner": "#3d2512",
+        "border_w": 2,
+        "rounding": 6,
+    },
+    "Slate Light": {
+        "outer": "#e4e8ec",
+        "mid": "#d8dde3",
+        "inner": "#ccd2d9",
+        "border_w": 1,
+        "rounding": 8,
+    },
+    "Rosewood": {
+        "outer": "#1a0f14",
+        "mid": "#2a1620",
+        "inner": "#3a1f2c",
+        "border_w": 1,
+        "rounding": 10,
+    },
+    "Nord Frost": {
+        "outer": "#2e3440",
+        "mid": "#3b4252",
+        "inner": "#434c5e",
+        "border_w": 1,
+        "rounding": 10,
+    },
 }
 
 
@@ -484,33 +557,7 @@ def load_themes():
     configs_dir.mkdir(exist_ok=True)
     themes_path = configs_dir / "themes.json"
 
-    seed = {
-        DEFAULT_THEME_PRESET: dict(DEFAULT_THEME),
-        "Parchment": {
-            "outer": "#d2b48c",
-            "mid": "#e5d3b3",
-            "inner": "#f5f5dc",
-            "border_w": 2,
-            "relief": "ridge",
-            "rounding": 2,
-        },
-        "Horror": {
-            "outer": "#0a0000",
-            "mid": "#1a0505",
-            "inner": "#2d0a0a",
-            "border_w": 2,
-            "relief": "sunken",
-            "rounding": 4,
-        },
-        "Cyberpunk": {
-            "outer": "#0a0e14",
-            "mid": "#0f1a2e",
-            "inner": "#152238",
-            "border_w": 1,
-            "relief": "flat",
-            "rounding": 16,
-        },
-    }
+    seed = {name: dict(preset) for name, preset in BUILTIN_THEME_PRESETS.items()}
 
     if not themes_path.exists():
         save_json_atomically(seed, themes_path)
@@ -526,9 +573,10 @@ def load_themes():
         return seed
 
     changed = False
-    if DEFAULT_THEME_PRESET not in data:
-        data[DEFAULT_THEME_PRESET] = dict(DEFAULT_THEME)
-        changed = True
+    for name, preset in seed.items():
+        if name not in data:
+            data[name] = dict(preset)
+            changed = True
 
     for name, preset in data.items():
         if not isinstance(preset, dict):
