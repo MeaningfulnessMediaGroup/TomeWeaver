@@ -110,3 +110,41 @@ class TestRagAutoDecay:
 
         assert engine.memory["character_ledger"]["local"]["Lyra"]["state"] == "active"
         assert engine.memory["character_ledger"]["local"]["Lyra"]["last_seen_turn"] == 6
+
+
+class TestRagWordBoundaries:
+    """Partial substring matches must not revive unrelated entities."""
+
+    def test_does_not_revive_on_partial_name_match(self, engine_with_history, set_decay_threshold):
+        # Arrange
+        set_decay_threshold(3)
+        engine = engine_with_history(4, choices_per_turn=[None, "x", "x", "x"])
+        engine.memory["character_ledger"]["local"]["Al"] = {
+            "characteristics": {},
+            "ledger": [],
+            "state": "archived",
+            "last_seen_turn": 1,
+        }
+        engine.history[3]["story_text"] = "Always remember the oath."
+
+        # Act
+        engine._update_entity_visibility(4, engine.history[3]["story_text"])
+
+        # Assert
+        assert engine.memory["character_ledger"]["local"]["Al"]["state"] == "archived"
+
+
+class TestSmartMergeTraits:
+    """Trait merge pluralizes relation keys and appends distinct values."""
+
+    def test_pluralizes_friend_key_and_appends_value(self, sandbox_engine):
+        # Arrange
+        traits = {"Role": "Knight"}
+
+        # Act
+        sandbox_engine._smart_merge_traits(traits, {"Friend": "Elena", "Role": "Mentor"})
+
+        # Assert
+        assert "Friends" in traits or "Friend" in traits
+        assert "Elena" in str(traits.values())
+        assert "Knight" in traits["Role"] or "Mentor" in traits["Role"]

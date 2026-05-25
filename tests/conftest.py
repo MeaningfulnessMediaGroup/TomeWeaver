@@ -17,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from campaign import CampaignEngine
 from config import create_boilerplate_files, load_json_safely, save_json_atomically
 from sandbox import SandboxEngine
 
@@ -46,13 +47,23 @@ def make_turn(
 
 
 def write_json(path, data):
-    """Write JSON to a path using the same atomic helper as production code.
-
-    Args:
-        path: Destination file path.
-        data: JSON-serializable object.
-    """
+    """Write JSON atomically (same helper the engine uses on disk)."""
     save_json_atomically(data, path)
+
+
+def build_engine(adv_dir, *, history=None, chapters=None, memory_flat=None, mode="sandbox"):
+    """Construct a fresh engine from on-disk cartridge files."""
+    if history is not None:
+        write_json(adv_dir / "history.json", history)
+    if chapters is not None:
+        write_json(adv_dir / "chapters.json", chapters)
+    if memory_flat is not None:
+        write_json(adv_dir / "memory.json", memory_flat)
+
+    setup = load_json_safely(adv_dir / "setup.json", "setup.json")
+    if mode == "campaign":
+        return CampaignEngine(adv_dir, setup)
+    return SandboxEngine(adv_dir, setup)
 
 
 @pytest.fixture
@@ -65,10 +76,26 @@ def mock_adventure_dir(tmp_path):
 
 
 @pytest.fixture
+def mock_campaign_dir(tmp_path):
+    """Temporary campaign cartridge with plot_outline from template."""
+    adv = tmp_path / "mock_campaign"
+    adv.mkdir()
+    create_boilerplate_files(adv, "campaign")
+    return adv
+
+
+@pytest.fixture
 def sandbox_engine(mock_adventure_dir):
     """Empty SandboxEngine on a disposable adventure folder."""
     setup = load_json_safely(mock_adventure_dir / "setup.json", "setup.json")
     return SandboxEngine(mock_adventure_dir, setup)
+
+
+@pytest.fixture
+def campaign_engine(mock_campaign_dir):
+    """Empty CampaignEngine on a disposable campaign folder."""
+    setup = load_json_safely(mock_campaign_dir / "setup.json", "setup.json")
+    return CampaignEngine(mock_campaign_dir, setup)
 
 
 @pytest.fixture
@@ -94,27 +121,39 @@ def engine_with_history(mock_adventure_dir):
                 pc = choices_per_turn[i - 1]
             history.append(make_turn(i, player_choice=pc))
 
-        write_json(mock_adventure_dir / "history.json", history)
-
-        if chapters is not None:
-            write_json(mock_adventure_dir / "chapters.json", chapters)
-        else:
-            write_json(
-                mock_adventure_dir / "chapters.json",
-                [
-                    {
-                        "chapter_number": 1,
-                        "title": "Chapter One",
-                        "start_turn": 1,
-                        "end_turn": turn_count if turn_count else None,
-                    }
-                ],
-            )
-
-        if memory_flat is not None:
-            write_json(mock_adventure_dir / "memory.json", memory_flat)
-
-        setup = load_json_safely(mock_adventure_dir / "setup.json", "setup.json")
-        return SandboxEngine(mock_adventure_dir, setup)
+        return build_engine(
+            mock_adventure_dir,
+            history=history,
+            chapters=chapters,
+            memory_flat=memory_flat,
+            mode="sandbox",
+        )
 
     return _factory
+
+
+@pytest.fixture
+def set_decay_threshold(monkeypatch):
+    """Patch ENGINE_CONFIG memory_decay_threshold for RAG visibility tests."""
+
+    def _apply(threshold):
+        from config import ENGINE_CONFIG
+
+        monkeypatch.setitem(ENGINE_CONFIG, "memory_decay_threshold", threshold)
+
+    return _apply
+
+
+@pytest.fixture
+def set_adventures_dir(monkeypatch, tmp_path):
+    """Patch ENGINE_CONFIG adventures_dir to a disposable library root."""
+
+    def _apply(custom_path=None):
+        from config import ENGINE_CONFIG
+
+        if custom_path is None:
+            custom_path = tmp_path / "library"
+            custom_path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(Path(custom_path).resolve()))
+
+    return _apply

@@ -1,12 +1,8 @@
 """Suite D: JSON Fortress — ``sanitize_json`` repair pipeline tests."""
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from llm import sanitize_json
 
@@ -62,3 +58,52 @@ class TestSanitizerArraySoup:
         assert "Go north" in data["choices"][0]
         assert "hidden" in data["choices"][1]
         assert data["choices"][2] == "Wait here"
+
+
+class TestSanitizerTrailingCommas:
+    """Trailing commas before closing braces are stripped."""
+
+    def test_strips_trailing_comma_before_closing_brace(self):
+        # Arrange
+        garbage = '{"story_text": "Done.", "choices": [],}'
+
+        # Act
+        data = _parse_sanitized(garbage)
+
+        # Assert
+        assert data["story_text"] == "Done."
+        assert data["choices"] == []
+
+
+class TestSanitizerSingleQuotedKeys:
+    """Single-quoted JSON keys and values are normalized."""
+
+    def test_converts_single_quoted_pairs(self):
+        # Arrange
+        garbage = "{'story_text': 'A quiet room.', 'choices': []}"
+
+        # Act
+        data = _parse_sanitized(garbage)
+
+        # Assert
+        assert data["story_text"] == "A quiet room."
+        assert data["choices"] == []
+
+
+class TestSanitizerMarkdownWrapper:
+    """Prose wrappers around JSON blocks are ignored."""
+
+    def test_extracts_json_from_markdown_fence(self):
+        # Arrange
+        garbage = """Here is the turn:
+```json
+{"story_text": "Wrapped output.", "choices": ["Continue"]}
+```
+Thanks."""
+
+        # Act
+        data = _parse_sanitized(garbage)
+
+        # Assert
+        assert data["story_text"] == "Wrapped output."
+        assert "Continue" in data["choices"][0]
