@@ -12,6 +12,26 @@ import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
 
+# Timeline navigation glyphs (media-control style; tooltips carry the full labels)
+_NAV_ICON_FIRST = "⏮"
+_NAV_ICON_PREV_CHAPTER = "⏪"
+_NAV_ICON_PREV_TURN = "⏴"
+_NAV_ICON_NEXT_TURN = "⏵"
+_NAV_ICON_NEXT_CHAPTER = "⏩"
+_NAV_ICON_LAST = "⏭"
+_NAV_BTN_FONT = ("Segoe UI Symbol", 16)
+_NAV_TURN_BTN_FONT = ("Segoe UI Symbol", 15)
+_NAV_BTN_STYLE = {
+    "fg_color": "#4A4A4A",
+    "hover_color": "#333333",
+    "font": _NAV_BTN_FONT,
+    "height": 28,
+}
+_NAV_TURN_BTN_STYLE = {
+    **_NAV_BTN_STYLE,
+    "font": _NAV_TURN_BTN_FONT,
+}
+
 
 def get_darker_shade(hex_color, factor=0.4):
     """Generates a deep-background pill color from a bright hex code."""
@@ -156,30 +176,66 @@ class StoryTab(ctk.CTkFrame):
         
         # Consistent padx=2 between ALL buttons in a group, and padx=10 framing the slider
         
-        self.btn_first = ctk.CTkButton(self.timeline_frame, text="|<<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("first"))
+        self.btn_first = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_FIRST,
+            width=36,
+            command=lambda: self._navigate_timeline("first"),
+            **_NAV_BTN_STYLE,
+        )
         self.btn_first.pack(side="left", padx=2, pady=5)
         Tooltip(self.btn_first, "Jump to the First Turn of the Story")
         
-        self.btn_prev_chap = ctk.CTkButton(self.timeline_frame, text="<|", width=35, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("prev_chapter"))
+        self.btn_prev_chap = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_PREV_CHAPTER,
+            width=36,
+            command=lambda: self._navigate_timeline("prev_chapter"),
+            **_NAV_BTN_STYLE,
+        )
         self.btn_prev_chap.pack(side="left", padx=2, pady=5)
         Tooltip(self.btn_prev_chap, "Jump to Previous Chapter")
         
-        self.btn_prev = ctk.CTkButton(self.timeline_frame, text="<", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("prev"))
+        self.btn_prev = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_PREV_TURN,
+            width=36,
+            command=lambda: self._navigate_timeline("prev"),
+            **_NAV_TURN_BTN_STYLE,
+        )
         self.btn_prev.pack(side="left", padx=(2, 10), pady=5)
         Tooltip(self.btn_prev, "Go to Previous Turn")
         
         self.slider = ctk.CTkSlider(self.timeline_frame, command=self._on_slider_move)
         self.slider.pack(side="left", fill="x", expand=True, padx=10, pady=5)
                
-        self.btn_next = ctk.CTkButton(self.timeline_frame, text=">", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("next"))
+        self.btn_next = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_NEXT_TURN,
+            width=36,
+            command=lambda: self._navigate_timeline("next"),
+            **_NAV_TURN_BTN_STYLE,
+        )
         self.btn_next.pack(side="left", padx=(10, 2), pady=5)
         Tooltip(self.btn_next, "Go to the Next Turn")
         
-        self.btn_next_chap = ctk.CTkButton(self.timeline_frame, text="|>", width=35, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("next_chapter"))
+        self.btn_next_chap = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_NEXT_CHAPTER,
+            width=36,
+            command=lambda: self._navigate_timeline("next_chapter"),
+            **_NAV_BTN_STYLE,
+        )
         self.btn_next_chap.pack(side="left", padx=2, pady=5)
         Tooltip(self.btn_next_chap, "Jump to Next Chapter")
         
-        self.btn_last = ctk.CTkButton(self.timeline_frame, text=">>|", width=40, fg_color="#4A4A4A", hover_color="#333333", command=lambda: self._navigate_timeline("last"))
+        self.btn_last = ctk.CTkButton(
+            self.timeline_frame,
+            text=_NAV_ICON_LAST,
+            width=36,
+            command=lambda: self._navigate_timeline("last"),
+            **_NAV_BTN_STYLE,
+        )
         self.btn_last.pack(side="left", padx=2, pady=5)
         Tooltip(self.btn_last, "Jump to the Last Turn of the Story")
         
@@ -829,7 +885,7 @@ class StoryTab(ctk.CTkFrame):
         try:
             dialog = ctk.CTkToplevel(self)
             dialog.title("Force New Chapter (Cold Open)")
-            dialog.geometry("750x650")
+            dialog.geometry("750x700")
             dialog.attributes("-topmost", True)
             dialog.grab_set()
 
@@ -932,6 +988,47 @@ class StoryTab(ctk.CTkFrame):
             add_field("Location / Environment:", "location", is_multiline=True, tooltip_text="The exact setting the new chapter opens in.")
             add_field("Synopsis / Starting Situation:", "synopsis", is_multiline=True, tooltip_text="What is the protagonist doing exactly as the chapter begins?", default_val=initial_idea)
 
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
+
+            transition_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+            transition_frame.pack(fill="x", pady=(14, 4))
+            ctk.CTkLabel(
+                transition_frame,
+                text="Chapter transition:",
+                font=("Arial", 14, "bold"),
+            ).pack(anchor="w")
+
+            saved_mode = INSTANCE_CONFIG.get("force_chapter_transition_mode", "wrap_up")
+            if saved_mode not in ("wrap_up", "immediate"):
+                saved_mode = "wrap_up"
+            transition_var = ctk.StringVar(value=saved_mode)
+
+            rb_wrap = ctk.CTkRadioButton(
+                transition_frame,
+                text="Conclude current scene first",
+                variable=transition_var,
+                value="wrap_up",
+            )
+            rb_wrap.pack(anchor="w", padx=8, pady=(6, 2))
+            Tooltip(
+                rb_wrap,
+                "The AI writes one more turn to wrap up this chapter, then offers "
+                "'Start Chapter X' as the only choice. The cold open begins on the turn after that.",
+            )
+
+            rb_immediate = ctk.CTkRadioButton(
+                transition_frame,
+                text="Begin next chapter immediately",
+                variable=transition_var,
+                value="immediate",
+            )
+            rb_immediate.pack(anchor="w", padx=8, pady=(2, 6))
+            Tooltip(
+                rb_immediate,
+                "This turn ends the chapter. Your action is set to 'Start Chapter X: …' and "
+                "the new chapter cold-opens on the very next turn — no AI wrap-up.",
+            )
+
             def on_submit_modal():
                 chap_data = {
                     "title": c_vars["title"].get().strip(),
@@ -940,11 +1037,15 @@ class StoryTab(ctk.CTkFrame):
                     "location": c_vars["location"].get("1.0", "end").strip(),
                     "synopsis": c_vars["synopsis"].get("1.0", "end").strip()
                 }
+                immediate = transition_var.get() == "immediate"
+
+                INSTANCE_CONFIG["force_chapter_transition_mode"] = transition_var.get()
+                save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
                 
                 dialog.destroy()
                 self._lock_ui("Architecting transition...")
                 def worker():
-                    result = self.engine.trigger_manual_chapter(chap_data)
+                    result = self.engine.trigger_manual_chapter(chap_data, immediate=immediate)
                     
                     def update_ui():
                         self.refresh_timeline(go_to_last=True)
@@ -974,9 +1075,9 @@ class StoryTab(ctk.CTkFrame):
             btn_frame.pack(fill="x", padx=20, pady=15)
             ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left")
             
-            btn_submit = ctk.CTkButton(btn_frame, text="Submit & Wrap-up Current Scene", font=("Arial", 14, "bold"), fg_color="#00BCD4", hover_color="#0097A7", command=on_submit_modal)
+            btn_submit = ctk.CTkButton(btn_frame, text="Submit", font=("Arial", 14, "bold"), fg_color="#00BCD4", hover_color="#0097A7", command=on_submit_modal)
             btn_submit.pack(side="right")
-            Tooltip(btn_submit, "The AI will automatically generate the conclusion to the current chapter before starting the new one.")
+            Tooltip(btn_submit, "Apply the chapter setup using the selected transition mode above.")
             
         except Exception as e:
             # If the modal crashed while trying to render, show us the exact error!

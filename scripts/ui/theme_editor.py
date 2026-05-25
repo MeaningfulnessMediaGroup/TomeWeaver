@@ -38,7 +38,7 @@ class ThemeEditorDialog(ctk.CTkToplevel):
         self._suppress_preset_sync = False
 
         self.title("Visual Settings — Theme Editor")
-        self.geometry("720x620")
+        self.geometry("720x680")
         self.attributes("-topmost", True)
         self.grab_set()
         center_window_on_parent(self, parent.winfo_toplevel())
@@ -122,7 +122,13 @@ class ThemeEditorDialog(ctk.CTkToplevel):
 
         self.color_vars = {}
         self.color_buttons = {}
-        for label, key in (("Outer Background", "outer"), ("Mid Container", "mid"), ("Inner Card", "inner")):
+        for label, key in (
+            ("Outer Background", "outer"),
+            ("Mid Container", "mid"),
+            ("Inner Card", "inner"),
+            ("Chapter Title", "chapter_title"),
+            ("Player Action", "player_action"),
+        ):
             row = ctk.CTkFrame(controls, fg_color="transparent")
             row.pack(fill="x", pady=4)
             ctk.CTkLabel(row, text=f"{label}:", font=("Arial", 12, "bold"), width=130, anchor="e").pack(
@@ -222,6 +228,8 @@ class ThemeEditorDialog(ctk.CTkToplevel):
                 "outer": self.color_vars["outer"].get(),
                 "mid": self.color_vars["mid"].get(),
                 "inner": self.color_vars["inner"].get(),
+                "chapter_title": self.color_vars["chapter_title"].get(),
+                "player_action": self.color_vars["player_action"].get(),
                 "border_w": int(self.border_slider.get()),
                 "rounding": int(self.round_slider.get()),
             }
@@ -237,6 +245,8 @@ class ThemeEditorDialog(ctk.CTkToplevel):
         self.color_vars["outer"].set(self._draft["outer"])
         self.color_vars["mid"].set(self._draft["mid"])
         self.color_vars["inner"].set(self._draft["inner"])
+        self.color_vars["chapter_title"].set(self._draft["chapter_title"])
+        self.color_vars["player_action"].set(self._draft["player_action"])
         self.border_slider.set(self._draft["border_w"])
         self.round_slider.set(self._draft["rounding"])
         self._refresh_preview()
@@ -249,9 +259,9 @@ class ThemeEditorDialog(ctk.CTkToplevel):
         apply_card_style(self.preview_card, theme)
         text = get_contrast_color(theme["inner"])
         muted = get_muted_text_color(theme["inner"])
-        self.preview_chapter.configure(text_color=text)
+        self.preview_chapter.configure(text_color=theme["chapter_title"])
         self.preview_meta.configure(text_color=muted)
-        self.preview_action.configure(text_color=text)
+        self.preview_action.configure(text_color=theme["player_action"])
         self.preview_prose.configure(text_color=text)
         self._update_color_swatches()
 

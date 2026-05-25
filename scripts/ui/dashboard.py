@@ -1824,7 +1824,6 @@ class DashboardFrame(ctk.CTkFrame):
                     self.load_data()
 
                 self.apply_dashboard_theme()
-                messagebox.showinfo("Saved", "Global Engine Settings saved successfully.")
                 dialog.destroy()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save config: {e}")

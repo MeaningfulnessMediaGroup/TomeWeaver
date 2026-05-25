@@ -75,6 +75,11 @@ class TestNormalizeTheme:
         assert theme["border_w"] == 5
         assert theme["rounding"] == 0
 
+    def test_backfills_card_label_accent_colors(self):
+        theme = normalize_theme({"outer": "#121212"})
+        assert theme["chapter_title"] == "#00ACC1"
+        assert theme["player_action"] == "#4CAF50"
+
 
 class TestLibraryCardStyle:
     """Dashboard tiles keep fixed rounding independent of theme border settings."""

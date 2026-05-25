@@ -20,7 +20,7 @@ def normalize_theme(raw):
         return base
 
     theme = dict(base)
-    for key in ("outer", "mid", "inner"):
+    for key in ("outer", "mid", "inner", "chapter_title", "player_action"):
         val = raw.get(key)
         if isinstance(val, str) and val.startswith("#"):
             theme[key] = val
@@ -198,8 +198,8 @@ def apply_card_text_colors(story_tab, theme):
     muted = get_muted_text_color(inner)
 
     story_tab.lbl_meta.configure(text_color=muted)
-    story_tab.lbl_chapter.configure(text_color=text)
-    story_tab.lbl_action.configure(text_color=text)
+    story_tab.lbl_chapter.configure(text_color=theme["chapter_title"])
+    story_tab.lbl_action.configure(text_color=theme["player_action"])
 
     tb = story_tab.prose_box._textbox
     tb.configure(fg=text, insertbackground=text)

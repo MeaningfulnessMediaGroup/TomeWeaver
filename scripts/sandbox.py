@@ -324,12 +324,15 @@ class SandboxEngine(BaseEngine):
     # HEADLESS API ENDPOINT: MANUAL CHAPTER WIZARD
     # ---------------------------------------------------------
     
-    def trigger_manual_chapter(self, chapter_data):
+    def trigger_manual_chapter(self, chapter_data, immediate=False):
         """
-        RESTORED CINEMATIC TRANSITION:
-        1. Takes structured chapter data from the Director's UI.
-        2. Saves new chapter with explicit POV, Time, and Setting overrides.
-        3. AI generates a Wrap-up for the OLD chapter with a single 'Start' choice.
+        Director UI: register a new chapter and transition from the current scene.
+
+        Args:
+            chapter_data: Title, POV, time, location, synopsis from the modal.
+            immediate: If True, the current turn ends the chapter and the next turn
+                cold-opens the new chapter (action auto-set to Start Chapter X).
+                If False (default), the AI writes one wrap-up turn first.
         """
         # --- SELF-HEALING GHOST CHAPTERS ---
         # If the user previously forced a chapter but the AI failed to generate the transition,
@@ -358,8 +361,14 @@ class SandboxEngine(BaseEngine):
         self.chapters.append(new_chap)
         self.save_state()
         
-        # Step 3: Trigger the Wrap-up LLM Call for the CURRENT scene
-        # Note: We use a specific delimiter (Chapter X: Title) so our deduplication logic catches it
-        action_instruction = f"DIRECTOR INSTRUCTION: Wrap up the current scene. Provide exactly ONE choice in the 'choices' array: 'Start Chapter {c_num}: {new_chap['title']}'"
+        c_title = new_chap["title"]
+        if immediate:
+            action_instruction = f"Start Chapter {c_num}: {c_title}"
+        else:
+            action_instruction = (
+                f"DIRECTOR INSTRUCTION: Wrap up the current scene. "
+                f"Provide exactly ONE choice in the 'choices' array: "
+                f"'Start Chapter {c_num}: {c_title}'"
+            )
         
         return self.submit_action(action_instruction)
