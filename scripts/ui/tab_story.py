@@ -1845,7 +1845,14 @@ class StoryTab(ctk.CTkFrame):
         self.cmd_dropdown.configure(state="disabled")
         self.slider.configure(state="disabled")
         
-        for w in [self.btn_first, self.btn_prev, self.btn_next, self.btn_last]:
+        for w in [
+            self.btn_first,
+            self.btn_prev,
+            self.btn_prev_chap,
+            self.btn_next_chap,
+            self.btn_next,
+            self.btn_last,
+        ]:
             w.configure(state="disabled")
             
         for panel in [self.bridge_tools, self.story_tools, self.choices_frame, self.hdr_frame]:
@@ -1869,6 +1876,21 @@ class StoryTab(ctk.CTkFrame):
             self.btn_prev.configure(state="normal" if self.current_turn_idx > 0 else "disabled")
             self.btn_next.configure(state="normal" if self.current_turn_idx < len(self.engine.history) - 1 else "disabled")
             self.btn_last.configure(state="normal" if self.current_turn_idx < len(self.engine.history) - 1 else "disabled")
+
+            curr_turn_val = self.engine.history[self.current_turn_idx].get("turn", 0)
+            has_prev_chap = any(
+                c.get("start_turn") is not None and c.get("start_turn") < curr_turn_val
+                for c in self.engine.chapters
+            )
+            has_next_chap = any(
+                c.get("start_turn") is not None and c.get("start_turn") > curr_turn_val
+                for c in self.engine.chapters
+            )
+            if not has_prev_chap and curr_turn_val > 0:
+                has_prev_chap = True
+
+            self.btn_prev_chap.configure(state="normal" if has_prev_chap else "disabled")
+            self.btn_next_chap.configure(state="normal" if has_next_chap else "disabled")
             
         is_game_over = False
         if self.engine.history:
