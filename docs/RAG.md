@@ -4,7 +4,25 @@ One of the greatest challenges of playing AI text adventures is the "Context Lim
 
 TomeWeaver solves this by implementing an autonomous **Retrieval-Augmented Generation (RAG) Engine**.
 
-![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the Left Nav and the Plot Ledger.")
+![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
+
+---
+
+## 🖥️ Memory & Lore Tab (UI Layout)
+
+The **Memory & Lore** workspace tab uses a **top tab bar** instead of one long sidebar list:
+
+| Tab | Layout | Contents |
+| :--- | :--- | :--- |
+| **Chapters** | Full width | High-level chapter summaries (condensed from Plot Parts). |
+| **Plot** | Full width | Chronological Part summaries (10-turn chunks by default). |
+| **Characters / Locations / Artifacts / Factions** | List + editor | Left: filterable entity list; right: Lore Bible editor. |
+
+**Tab badges** show live counts (e.g. `Characters (17)`). On entity tabs with more than **15** entries, a **Filter list…** field appears above the list.
+
+Each entity tab remembers your **last selected entity** when you switch away and return. Global header actions (**Compile Missing History**, **Clear…**) apply across all tabs.
+
+To add a new ledger category in code, append an entry to `MEMORY_TAB_REGISTRY` in `scripts/ui/tab_memory.py`.
 
 ---
 

@@ -161,15 +161,22 @@ When **Log Verbose** is enabled in Global Settings, full prompts and raw LLM res
 
 The **Memory & Lore** tab is your visual interface to the long-term memory system. It is available for every story and becomes especially powerful inside Shared Universes.
 
-![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the Left Nav and the Plot Ledger.")
+![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
 
-### Plot Ledger (Left Navigation)
-Chronological **Part** summaries (10-turn chunks by default) and **Chapter** summaries appear here. Each card supports:
+### Tab Bar Navigation
+The UI is organized by **top tabs** (with live count badges):
+
+*   **Chapters** — Full-width editor for high-level chapter summaries.
+*   **Plot** — Full-width editor for chronological Part summaries.
+*   **Characters / Locations / Artifacts / Factions** — Master-detail layout: a scrollable entity list on the left (with an optional name filter when count > 15) and the Lore Bible editor on the right. Each entity tab remembers your last selection.
+
+### Plot & Chapter Ledgers
+On the **Plot** and **Chapters** tabs, each summary card supports:
 *   **✔️ Validate** — Fidelity score vs. raw history.
 *   **🔧 Auto-Patch Summary** — Rewrite a summary using the QA report.
 
-### Entity Ledgers (Characters, Locations, Artifacts, Factions)
-Select any entity to edit traits, author notes, event history, and visibility state:
+### Entity Lore Bible
+Select any entity from a ledger tab to edit traits, author notes, event history, and visibility state:
 *   **Active / Archived / Pinned** — Control whether the entity is injected into prompts (see [RAG.md](RAG.md)).
 *   **🔗 Merge...** — Combine duplicates with smart trait merging and alias creation.
 *   **Deep Rename** — Two-phase scan + authorized rename across RAM and universe files.
@@ -191,6 +198,7 @@ When a story is tethered to a Shared Universe, a **Universe** tab appears alongs
 *   **Only three turns render at once** in Story Mode for performance; older turns load when you scrub the Time Travel slider—they are not lost, just virtualized.
 *   **Auto-Play is Campaign-only** because Sandbox has no defined "win" condition to test against.
 *   **Universe tabs and orange Global entity icons** only appear for threads inside a properly configured Shared Universe folder.
+*   **Memory & Lore entity tabs** show a name filter only when that ledger has more than 15 entries.
 *   **Custom folder icons** are cosmetic; they do not affect engine logic or prompts.
 *   **The GUI does not surface every engine_config key.** Some advanced settings (e.g., `max_inventory_keys`) are edited via Global Settings or direct JSON edit.
 

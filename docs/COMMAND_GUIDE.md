@@ -127,6 +127,9 @@ Shadows swallow me whole. A flickering neon sign buzzes overhead.
 
 The engine splices parsed turns after your current timeline position, right-shifts the Master Clock, adjusts chapter boundaries, and invalidates affected Plot Ledger entries (recompile afterward).
 
+### Integration Evaluation (pre-import check)
+Before importing, click **Integration Evaluation** in the import dialog. The engine scores the pasted text (0–100) against this story's local RAG and, when applicable, the shared universe lore—paying special attention to protagonist names and continuity. Review the fit/misfit reasons, then choose **Import & Splice Timeline** or **Cancel**.
+
 ---
 
 ## 📋 Generate Recap
@@ -143,7 +146,7 @@ If **Auto Narrative Bridge** is disabled—or you performed timeline surgery—t
 
 ## 🧠 Memory & Lore Tools (Entity Editor)
 
-Open the **Memory & Lore** tab for advanced continuity management:
+Open the **Memory & Lore** tab for advanced continuity management. Use the **top tab bar** to switch between Chapters, Plot, and entity ledgers (Characters, Locations, Artifacts, Factions). Entity tabs show a filterable list (when count > 15) and remember your last selected entry per tab.
 
 | Tool | Description |
 | :--- | :--- |

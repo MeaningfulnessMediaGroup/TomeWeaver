@@ -184,10 +184,10 @@ Play infinitely without breaking your model's context limit. TomeWeaver features
 🧠 **[Read the deep dive into the RAG Engine (docs/RAG.md)](docs/RAG.md)**
 
 ### 15. The Memory & Lore Editor (Visual RAG Console)
-The **Memory & Lore** tab is a full narrative database UI—not a raw JSON editor. Browse Plot Ledger chunks and Entity profiles in a master-detail layout, pin important characters so they never decay, merge duplicate entities (e.g. "Vance" and "Captain Vance") with zero data-loss trait combining, and run **Deep Scan** or **Deep Rename** operations that crawl history and even offline universe files when authorized.
+The **Memory & Lore** tab is a full narrative database UI—not a raw JSON editor. A **top tab bar** separates Chapters, Plot, and entity ledgers (Characters, Locations, Artifacts, Factions), each with live count badges. Summary tabs use the full width; entity tabs show a filterable list plus Lore Bible editor. Pin important characters so they never decay, merge duplicate entities (e.g. "Vance" and "Captain Vance") with zero data-loss trait combining, and run **Deep Scan** or **Deep Rename** operations that crawl history and even offline universe files when authorized.
 
 ### 16. Bulk Turn Import (Writer's Pipeline)
-Authors can paste large blocks of pre-written prose directly into a running adventure via **Options → Import Turns...** The engine parses `>` or `=` action markers into structured turns, splices them into the Master Clock, and re-indexes chapter boundaries automatically—ideal for importing a novella draft or co-written scenes.
+Authors can paste large blocks of pre-written prose directly into a running adventure via **Options → Import Turns...** The engine parses `>` or `=` action markers into structured turns, splices them into the Master Clock, and re-indexes chapter boundaries automatically—ideal for importing a novella draft or co-written scenes. Use **Integration Evaluation** in the import dialog to score narrative fit against local and universe memory before splicing.
 
 ### 17. Adventure Recap & Bridge Catch-Up
 *   **Generate Recap:** Summarizes the entire story so far into a readable briefing (useful after a long break or before sharing a save).

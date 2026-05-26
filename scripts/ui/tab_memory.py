@@ -1,20 +1,139 @@
 """
-    TomeWeaver: Memory & Lore UI
-    ----------------------------
-    Provides a RAG (Retrieval-Augmented Generation) viewer for long-term memory.
-    Displays the AI-generated Plot Summaries and the evolving Character/Location states.
+TomeWeaver: Memory & Lore UI
+----------------------------
+RAG (Retrieval-Augmented Generation) viewer for long-term story memory.
+
+Layout (tabbed navigation):
+    - Top tab bar: Chapters, Plot, Characters, Locations, Artifacts, Factions.
+    - Summary tabs (Chapters / Plot): full-width ledger editors; no side list.
+    - Entity tabs: 280px entity list (with optional name filter) + Lore Bible editor.
+
+Extend ``MEMORY_TAB_REGISTRY`` to add new ledger categories without rewriting navigation.
 """
 import json
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
 
+# Registry of top-level Memory tab definitions.
+#
+# Keys per entry:
+#   id            — internal tab identifier (stored in active_tab)
+#   label         — button caption (badge count appended at runtime)
+#   kind          — "summary" (full-width ledger) or "ledger" (entity list + editor)
+#   selection     — active_selection value for summary tabs (e.g. PLOT_LEDGER)
+#   ledger_type   — engine.memory key for entity tabs
+#   prefix        — entity selection token prefix (CHAR, LOC, ART, FAC)
+#   emoji         — list icon for entity rows
+#   add_label     — singular noun for the "+ Add …" button
+#   requires_factions — if True, tab hidden unless track_factions is enabled
+#   badge         — callable(engine) -> int shown in tab label
+MEMORY_TAB_REGISTRY = [
+    {
+        "id": "chapters",
+        "label": "Chapters",
+        "kind": "summary",
+        "selection": "CHAPTER_LEDGER",
+        "badge": lambda engine: len(engine.memory.get("chapter_ledger", [])),
+    },
+    {
+        "id": "plot",
+        "label": "Plot",
+        "kind": "summary",
+        "selection": "PLOT_LEDGER",
+        "badge": lambda engine: len(engine.memory.get("plot_ledger", [])),
+    },
+    {
+        "id": "characters",
+        "label": "Characters",
+        "kind": "ledger",
+        "ledger_type": "character_ledger",
+        "prefix": "CHAR",
+        "emoji": "👤",
+        "add_label": "Character",
+        "badge": lambda engine: _count_ledger_entities(engine, "character_ledger"),
+    },
+    {
+        "id": "locations",
+        "label": "Locations",
+        "kind": "ledger",
+        "ledger_type": "location_ledger",
+        "prefix": "LOC",
+        "emoji": "📍",
+        "add_label": "Location",
+        "badge": lambda engine: _count_ledger_entities(engine, "location_ledger"),
+    },
+    {
+        "id": "artifacts",
+        "label": "Artifacts",
+        "kind": "ledger",
+        "ledger_type": "artifact_ledger",
+        "prefix": "ART",
+        "emoji": "💎",
+        "add_label": "Artifact",
+        "badge": lambda engine: _count_ledger_entities(engine, "artifact_ledger"),
+    },
+    {
+        "id": "factions",
+        "label": "Factions",
+        "kind": "ledger",
+        "ledger_type": "faction_ledger",
+        "prefix": "FAC",
+        "emoji": "🛡️",
+        "add_label": "Faction",
+        "requires_factions": True,
+        "badge": lambda engine: _count_ledger_entities(engine, "faction_ledger"),
+    },
+]
+
+# Show the entity-list filter field when a ledger tab exceeds this many entries.
+ENTITY_FILTER_THRESHOLD = 15
+
+
+def _count_ledger_entities(engine, ledger_type):
+    """Return the number of distinct entity names in a ledger (local + global).
+
+    Args:
+        engine: Active headless engine with loaded ``memory.json``.
+        ledger_type: One of ``character_ledger``, ``location_ledger``, etc.
+
+    Returns:
+        int: Count of unique keys across both scopes.
+    """
+    seen = set()
+    for scope in ("global", "local"):
+        bucket = engine.memory.get(ledger_type, {}).get(scope, {})
+        if isinstance(bucket, dict):
+            seen.update(bucket.keys())
+    return len(seen)
+
+
+def _ledger_tab_id(ledger_type):
+    """Map an engine ledger key to its Memory tab ``id``.
+
+    Args:
+        ledger_type: Engine memory key (e.g. ``character_ledger``).
+
+    Returns:
+        str | None: Tab id from ``MEMORY_TAB_REGISTRY``, or None if unknown.
+    """
+    for tab in MEMORY_TAB_REGISTRY:
+        if tab.get("ledger_type") == ledger_type:
+            return tab["id"]
+    return None
+
+
 class MemoryTab(ctk.CTkFrame):
+    """Memory & Lore workspace tab: tabbed RAG viewer and entity editor.
+
+    Navigation state:
+        active_tab       — current top-level tab id (chapters, plot, characters, …)
+        active_selection — CHAPTER_LEDGER / PLOT_LEDGER or ``PREFIX_scope_name``
+        _tab_selections  — per-tab last entity selection (restored when revisiting)
     """
-    Memory & Lore UI (RAG Viewer)
-    """
+
     def __init__(self, parent, engine):
-        """Build the RAG memory viewer and entity editor UI.
+        """Build the tab bar, optional entity list pane, and editor region.
 
         Args:
             parent: Workspace tab container.
@@ -36,29 +155,63 @@ class MemoryTab(ctk.CTkFrame):
         
         self.btn_clear = ctk.CTkButton(hdr, text="🧨 Clear...", font=("Arial", 12, "bold"), fg_color="#D32F2F", hover_color="#9A0007", command=self._show_clear_dialog)
         self.btn_clear.pack(side="right", padx=(10, 0))
-        
-        # --- RESIZABLE SPLIT PANE LAYOUT ---
-        import tkinter as tk
-        self.paned_window = tk.PanedWindow(self, orient="horizontal", bg="#212121", bd=0, sashwidth=6, sashcursor="sb_h_double_arrow")
-        self.paned_window.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        left_bucket = ctk.CTkFrame(self.paned_window, fg_color="transparent")
-        right_bucket = ctk.CTkFrame(self.paned_window, fg_color="transparent")
-        
-        self.paned_window.add(left_bucket, minsize=200)
-        self.paned_window.add(right_bucket, minsize=400)
-        
-        self.nav_frame = ctk.CTkScrollableFrame(left_bucket, width=280)
-        self.nav_frame.pack(fill="both", expand=True)
-        
-        # CRITICAL FIX: The master editor frame is now a standard container.
-        self.editor_master = ctk.CTkFrame(right_bucket, fg_color="transparent")
-        self.editor_master.pack(fill="both", expand=True)
-        
-        # We will dynamically recreate the sticky header and the scrollable body inside editor_master!
-        
+
+        # Tab navigation state (see class docstring).
+        self.active_tab = ctk.StringVar(value="plot")
         self.active_selection = ctk.StringVar(value="PLOT_LEDGER")
-        self._refresh_nav()
+        self._tab_selections = {}
+        self._left_pane_visible = False
+        self.entity_filter_var = ctk.StringVar(value="")
+        self._tab_buttons = {}
+        self._suppress_filter_trace = False
+
+        # --- TOP TAB BAR ---
+        tab_bar = ctk.CTkFrame(self, fg_color="transparent")
+        tab_bar.pack(fill="x", padx=10, pady=(0, 4))
+        self._build_tab_bar(tab_bar)
+
+        # --- MAIN CONTENT (grid: optional left list + right editor) ---
+        self.content = ctk.CTkFrame(self, fg_color="transparent")
+        self.content.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.content.grid_columnconfigure(1, weight=1)
+        self.content.grid_rowconfigure(0, weight=1)
+
+        self.left_bucket = ctk.CTkFrame(self.content, width=280, fg_color="transparent")
+        self.left_bucket.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self.left_bucket.grid_rowconfigure(1, weight=1)
+        self.left_bucket.grid_columnconfigure(0, weight=1)
+
+        self.right_bucket = ctk.CTkFrame(self.content, fg_color="transparent")
+        self.right_bucket.grid(row=0, column=1, sticky="nsew")
+
+        self.filter_frame = ctk.CTkFrame(self.left_bucket, fg_color="transparent")
+        self.filter_entry = ctk.CTkEntry(
+            self.filter_frame,
+            textvariable=self.entity_filter_var,
+            placeholder_text="Filter list…",
+            font=("Arial", 13),
+        )
+        self.filter_entry.pack(fill="x", padx=4, pady=(4, 6))
+        Tooltip(self.filter_entry, "Filter the entity list by name (shown when there are more than 15 entries).")
+        self.entity_filter_var.trace_add("write", lambda *_: self._on_filter_changed())
+
+        # Entity list (ledger tabs only).
+        self.nav_frame = ctk.CTkScrollableFrame(self.left_bucket, width=260)
+        self.nav_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+
+        self.btn_add_entity = ctk.CTkButton(
+            self.left_bucket,
+            text="+ Add",
+            fg_color="#4A4A4A",
+            hover_color="#333333",
+            command=self._add_entity_for_active_tab,
+        )
+        self.btn_add_entity.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 4))
+
+        self.editor_master = ctk.CTkFrame(self.right_bucket, fg_color="transparent")
+        self.editor_master.pack(fill="both", expand=True)
+
+        self._switch_tab("plot", initial=True)
 
     def _compile_history(self):
         dialog = ctk.CTkToplevel(self)
@@ -123,8 +276,7 @@ class MemoryTab(ctk.CTkFrame):
                     else:
                         messagebox.showinfo("Complete", msg)
                         
-                    self._refresh_nav()
-                    self._render_view()
+                    self._refresh_all()
                 self.after(0, update_ui)
                 
             self.engine.compile_missing_memories(
@@ -242,8 +394,8 @@ class MemoryTab(ctk.CTkFrame):
                     self.engine.memory["global_states"] = {}
                 
             self.engine.save_state()
-            self.active_selection.set("PLOT_LEDGER")
-            self._refresh_nav()
+            self.active_tab.set("plot")
+            self._switch_tab("plot")
             dialog.destroy()
             messagebox.showinfo("Memory Pruned", f"Successfully updated {scope} memory banks.")
 
@@ -252,123 +404,338 @@ class MemoryTab(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left", padx=10)
         ctk.CTkButton(btn_frame, text="Execute Prune", width=120, fg_color="#B71C1C", hover_color="#7F0000", command=apply_clear).pack(side="right", padx=10)
 
+    # ---------------------------------------------------------
+    # TAB NAVIGATION (top bar + entity list pane)
+    # ---------------------------------------------------------
 
-    def _refresh_nav(self):
-        for w in self.nav_frame.winfo_children(): w.destroy()
-        
+    def _get_visible_tabs(self):
+        """Return registry entries visible for the current story settings."""
+        tabs = []
+        for tab in MEMORY_TAB_REGISTRY:
+            if tab.get("requires_factions") and not self.engine.setup_data.get("track_factions", False):
+                continue
+            tabs.append(tab)
+        return tabs
+
+    def _get_tab_config(self, tab_id):
+        """Resolve a tab id to its registry dict, falling back to the first visible tab."""
+        for tab in self._get_visible_tabs():
+            if tab["id"] == tab_id:
+                return tab
+        return self._get_visible_tabs()[0]
+
+    def _tab_label(self, tab):
+        """Format a tab button caption with live badge count."""
+        count = tab["badge"](self.engine)
+        return f"{tab['label']} ({count})"
+
+    def _build_tab_bar(self, parent):
+        """Create top-level Memory tab buttons from ``MEMORY_TAB_REGISTRY``."""
+        for tab in self._get_visible_tabs():
+            btn = ctk.CTkButton(
+                parent,
+                text=self._tab_label(tab),
+                height=32,
+                fg_color="#4A4A4A",
+                hover_color="#333333",
+                command=lambda tid=tab["id"]: self._switch_tab(tid),
+            )
+            btn.pack(side="left", padx=(0, 6), pady=4)
+            self._tab_buttons[tab["id"]] = btn
+
+    def _update_tab_badges(self):
+        """Refresh badge counts on all tab buttons after memory changes."""
+        for tab in self._get_visible_tabs():
+            btn = self._tab_buttons.get(tab["id"])
+            if btn:
+                btn.configure(text=self._tab_label(tab))
+
+    def _on_filter_changed(self):
+        """Re-render the entity list when the filter field changes."""
+        if self._suppress_filter_trace:
+            return
+        self._refresh_entity_list()
+
+    def _set_left_pane_visible(self, visible):
+        """Show or hide the entity list column (grid_remove for summary tabs).
+
+        Uses ``grid`` / ``grid_remove`` instead of ``PanedWindow.forget`` so
+        CustomTkinter frames remain reliable on Windows.
+        """
+        if visible:
+            self.left_bucket.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+            self.content.grid_columnconfigure(0, minsize=280, weight=0)
+        else:
+            self.left_bucket.grid_remove()
+            self.content.grid_columnconfigure(0, minsize=0, weight=0)
+        self._left_pane_visible = visible
+
+    def _switch_tab(self, tab_id, initial=False):
+        """Activate a top-level tab and sync list pane, selection, and editor.
+
+        Args:
+            tab_id: Registry tab id (e.g. ``characters``).
+            initial: If True, skip persisting the previous tab's selection.
+        """
+        if not initial:
+            prev = self._get_tab_config(self.active_tab.get())
+            if prev["kind"] == "ledger":
+                self._tab_selections[prev["id"]] = self.active_selection.get()
+            elif prev["kind"] == "summary":
+                self._tab_selections[prev["id"]] = prev["selection"]
+
+        tab = self._get_tab_config(tab_id)
+        self.active_tab.set(tab["id"])
+
+        for tid, btn in self._tab_buttons.items():
+            if tid == tab["id"]:
+                btn.configure(fg_color="#1565C0", hover_color="#0D47A1")
+            else:
+                btn.configure(fg_color="#4A4A4A", hover_color="#333333")
+
+        if tab["kind"] == "summary":
+            self._set_left_pane_visible(False)
+            self.active_selection.set(tab["selection"])
+        else:
+            self._set_left_pane_visible(True)
+            self._suppress_filter_trace = True
+            self.entity_filter_var.set("")
+            self._suppress_filter_trace = False
+            saved = self._tab_selections.get(tab["id"], "")
+            if saved and self._selection_matches_tab(saved, tab):
+                self.active_selection.set(saved)
+            else:
+                self.active_selection.set("")
+            self.btn_add_entity.configure(text=f"+ Add {tab['add_label']}")
+            self._refresh_entity_list()
+
+        self._update_tab_badges()
+        self._render_view()
+
+    def _selection_matches_tab(self, selection, tab):
+        """Return True if ``selection`` belongs to the given ledger tab."""
+        if not selection or tab.get("kind") != "ledger":
+            return False
+        prefix = tab.get("prefix", "")
+        return selection.startswith(f"{prefix}_")
+
+    def _refresh_all(self):
+        """Rebuild badges, entity list (if applicable), and the active editor view."""
+        self._update_tab_badges()
+        tab = self._get_tab_config(self.active_tab.get())
+        if tab["kind"] == "ledger":
+            self._refresh_entity_list()
+        self._render_view()
+
+    def _refresh_entity_list(self):
+        """Populate the left-pane list for the active ledger tab.
+
+        Shows a name filter when entry count exceeds ``ENTITY_FILTER_THRESHOLD``.
+        Entity rows use ``PREFIX_scope_name`` selection tokens consumed by ``_render_view``.
+        """
+        tab = self._get_tab_config(self.active_tab.get())
+        if tab["kind"] != "ledger":
+            return
+
+        for w in self.nav_frame.winfo_children():
+            w.destroy()
+
+        ledger_type = tab["ledger_type"]
+        entity_count = _count_ledger_entities(self.engine, ledger_type)
+        filter_text = self.entity_filter_var.get().strip().lower()
+
+        if entity_count > ENTITY_FILTER_THRESHOLD:
+            self.filter_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        else:
+            self.filter_frame.grid_remove()
+            if filter_text:
+                self._suppress_filter_trace = True
+                self.entity_filter_var.set("")
+                self._suppress_filter_trace = False
+
         def get_state_icon(data_obj, entity_name, scope):
-            if not isinstance(data_obj, dict): return ""
-            
+            if not isinstance(data_obj, dict):
+                return ""
             if scope == "global" and self.engine.is_universe_thread:
                 s = self.engine.memory.get("global_states", {}).get(entity_name, {}).get("state", "archived")
             else:
                 s = data_obj.get("state", "active")
-                
-            if s == "pinned": return "📌 "
-            if s == "archived": return "📦 "
+            if s == "pinned":
+                return "📌 "
+            if s == "archived":
+                return "📦 "
             return ""
-            
-        # 1. Plot & Chapter Summaries
-        row_c = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
-        row_c.pack(fill="x", pady=(0, 5))
-        ctk.CTkRadioButton(row_c, text="📚 Chapter Summaries", font=("Arial", 14, "bold"), variable=self.active_selection, value="CHAPTER_LEDGER", command=self._render_view).pack(side="left")
-        
-        row_p = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
-        row_p.pack(fill="x", pady=(0, 15))
-        ctk.CTkRadioButton(row_p, text="📖 Plot Ledger (Parts)", font=("Arial", 14, "bold"), variable=self.active_selection, value="PLOT_LEDGER", command=self._render_view).pack(side="left")
-        
-        def render_ledger_nav(title, ledger_type, prefix, emoji):
-            ctk.CTkLabel(self.nav_frame, text=title, font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", pady=(5, 2))
-            
-            entities = {}
-            for scope in ["global", "local"]:
-                for name, data in self.engine.memory.get(ledger_type, {}).get(scope, {}).items():
-                    if isinstance(data, list): continue
-                    entities.setdefault(name, []).append((scope, data))
-                    
-            mode_color = "#2196F3" if self.engine.setup_data.get("mode", "sandbox") == "sandbox" else "#9C27B0"
-            is_univ = self.engine.is_universe_thread
-                    
-            for name in sorted(entities.keys()):
-                for scope, data in entities[name]:
-                    r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
-                    r.pack(fill="x", pady=2)
-                    
-                    s_icon = get_state_icon(data, name, scope)
-                    
-                    # Context-Aware Coloring: Only use colors if we are actually in a Universe!
-                    if is_univ:
-                        e_color = "#FF9800" if scope == "global" else mode_color
-                    else:
-                        e_color = "white" # Standard theme color for standalone
-                        
-                    display_text = f"{emoji} {s_icon}{name}"
-                    
-                    rb = ctk.CTkRadioButton(r, text=display_text, text_color=e_color, variable=self.active_selection, value=f"{prefix}_{scope}_{name}", command=self._render_view)
-                    rb.pack(side="left")
-                    
-                    ctk.CTkButton(r, text="X", width=20, fg_color="#B71C1C", hover_color="#7F0000", command=lambda n=name, s=scope, lt=ledger_type: self._delete_entity(n, s, lt)).pack(side="right")
-            
-            ctk.CTkButton(self.nav_frame, text=f"+ Add {title[:-1]}", fg_color="#4A4A4A", hover_color="#333333", command=lambda lt=ledger_type: self._add_entity(lt)).pack(fill="x", pady=(5, 15))
 
-        render_ledger_nav("Characters", "character_ledger", "CHAR", "👤")
-        render_ledger_nav("Locations", "location_ledger", "LOC", "📍")
-        render_ledger_nav("Artifacts", "artifact_ledger", "ART", "💎")
-        if self.engine.setup_data.get("track_factions", False):
-            render_ledger_nav("Factions & Orgs", "faction_ledger", "FAC", "🛡️")
+        entities = {}
+        for scope in ["global", "local"]:
+            for name, data in self.engine.memory.get(ledger_type, {}).get(scope, {}).items():
+                if isinstance(data, list):
+                    continue
+                entities.setdefault(name, []).append((scope, data))
 
+        mode_color = "#2196F3" if self.engine.setup_data.get("mode", "sandbox") == "sandbox" else "#9C27B0"
+        is_univ = self.engine.is_universe_thread
+        visible_rows = 0
+
+        for name in sorted(entities.keys()):
+            for scope, data in entities[name]:
+                if filter_text and filter_text not in name.lower():
+                    continue
+
+                r = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+                r.pack(fill="x", pady=2)
+                visible_rows += 1
+
+                s_icon = get_state_icon(data, name, scope)
+                e_color = "#FF9800" if (is_univ and scope == "global") else (mode_color if is_univ else "white")
+                display_text = f"{tab['emoji']} {s_icon}{name}"
+                sel_val = f"{tab['prefix']}_{scope}_{name}"
+
+                rb = ctk.CTkRadioButton(
+                    r,
+                    text=display_text,
+                    text_color=e_color,
+                    variable=self.active_selection,
+                    value=sel_val,
+                    command=self._on_entity_selected,
+                )
+                rb.pack(side="left", fill="x", expand=True)
+
+                ctk.CTkButton(
+                    r,
+                    text="X",
+                    width=20,
+                    fg_color="#B71C1C",
+                    hover_color="#7F0000",
+                    command=lambda n=name, s=scope, lt=ledger_type: self._delete_entity(n, s, lt),
+                ).pack(side="right")
+
+        if filter_text and visible_rows == 0:
+            ctk.CTkLabel(
+                self.nav_frame,
+                text="No matches for this filter.",
+                font=("Arial", 12, "italic"),
+                text_color="gray",
+            ).pack(pady=20)
+        elif entity_count == 0:
+            ctk.CTkLabel(
+                self.nav_frame,
+                text=f"No {tab['label'].lower()} tracked yet.",
+                font=("Arial", 12, "italic"),
+                text_color="gray",
+            ).pack(pady=20)
+
+    def _on_entity_selected(self):
+        """Persist the current entity selection for this tab and refresh the editor."""
+        tab = self._get_tab_config(self.active_tab.get())
+        if tab["kind"] == "ledger":
+            self._tab_selections[tab["id"]] = self.active_selection.get()
         self._render_view()
 
+    def _add_entity_for_active_tab(self):
+        """Route the '+ Add' button to the ledger type of the active tab."""
+        tab = self._get_tab_config(self.active_tab.get())
+        if tab["kind"] == "ledger":
+            self._add_entity(tab["ledger_type"])
+
     def _delete_entity(self, name, scope, ledger_type):
+        """Remove an entity from memory and clear the tab selection."""
         if messagebox.askyesno("Delete", f"Stop tracking {scope} memory for '{name}'?"):
             if name in self.engine.memory[ledger_type].get(scope, {}):
                 del self.engine.memory[ledger_type][scope][name]
                 self.engine.save_state()
-                self.active_selection.set("PLOT_LEDGER")
-                self._refresh_nav()
+                tab_id = _ledger_tab_id(ledger_type)
+                if tab_id:
+                    self._tab_selections[tab_id] = ""
+                self.active_selection.set("")
+                self._refresh_all()
 
     def _add_entity(self, ledger_type):
-        if ledger_type == "character_ledger": type_str = "Character"
-        elif ledger_type == "location_ledger": type_str = "Location"
-        elif ledger_type == "faction_ledger": type_str = "Faction / Org"
-        else: type_str = "Artifact"
-        
+        """Prompt for a name and seed a new local entity in the given ledger."""
+        if ledger_type == "character_ledger":
+            type_str = "Character"
+        elif ledger_type == "location_ledger":
+            type_str = "Location"
+        elif ledger_type == "faction_ledger":
+            type_str = "Faction / Org"
+        else:
+            type_str = "Artifact"
+
         dialog = ctk.CTkInputDialog(text=f"Enter the exact name of a {type_str} to track:", title=f"Add {type_str}")
         name = dialog.get_input()
         if name and name.strip():
             clean_name = name.strip()
-            # New entities default to LOCAL
             if clean_name not in self.engine.memory[ledger_type].get("local", {}):
-                self.engine.memory[ledger_type].setdefault("local", {})[clean_name] = {"characteristics": {}, "ledger": [], "author_notes": "", "state": "active"}
+                self.engine.memory[ledger_type].setdefault("local", {})[clean_name] = {
+                    "characteristics": {},
+                    "ledger": [],
+                    "author_notes": "",
+                    "state": "active",
+                }
                 self.engine.save_state()
-                
-                prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
-                self.active_selection.set(f"{prefix}_local_{clean_name}")
-                self._refresh_nav()
+
+                prefix = (
+                    "CHAR_"
+                    if ledger_type == "character_ledger"
+                    else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
+                )
+                sel = f"{prefix}_local_{clean_name}"
+                tab_id = _ledger_tab_id(ledger_type)
+                if tab_id:
+                    self._tab_selections[tab_id] = sel
+                self.active_selection.set(sel)
+                self._refresh_all()
+
+    def _render_empty_entity_state(self, tab):
+        """Show a placeholder when no entity is selected on a ledger tab."""
+        for w in self.editor_master.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(
+            self.editor_master,
+            text=f"Select a {tab['add_label'].lower()} from the list,\nor use “+ Add {tab['add_label']}” to start tracking one.",
+            font=("Arial", 15, "italic"),
+            text_color="gray",
+            justify="center",
+        ).pack(expand=True, pady=80)
 
     def _render_view(self):
+        """Route the right-hand editor to the active tab and selection."""
         import time
         self._last_render_time = time.time()
-        
-        for w in self.editor_master.winfo_children(): w.destroy()
-        
-        # If it's an entity, we just turn editor_frame back into the main scrolling container
-        # Since Entity Editor has its save button at the bottom, it can safely occupy the whole master
-        self.editor_frame = ctk.CTkScrollableFrame(self.editor_master, fg_color="transparent")
-        self.editor_frame.pack(fill="both", expand=True)
-        
+
+        for w in self.editor_master.winfo_children():
+            w.destroy()
+
         selection = self.active_selection.get()
-        
-        if selection == "CHAPTER_LEDGER": self._render_chapter_ledger()
-        elif selection == "PLOT_LEDGER": self._render_plot_ledger()
+        tab = self._get_tab_config(self.active_tab.get())
+
+        if tab["kind"] == "summary":
+            if selection == "CHAPTER_LEDGER":
+                self._render_chapter_ledger()
+            else:
+                self._render_plot_ledger()
+            return
+
+        if not selection or not self._selection_matches_tab(selection, tab):
+            self._render_empty_entity_state(tab)
+            return
+
+        parts = selection.split("_", 2)
+        if len(parts) != 3:
+            self._render_empty_entity_state(tab)
+            return
+
+        prefix, scope, entity_name = parts
+        if prefix == "CHAR":
+            self._render_entity_editor(entity_name, scope, "character_ledger")
+        elif prefix == "LOC":
+            self._render_entity_editor(entity_name, scope, "location_ledger")
+        elif prefix == "ART":
+            self._render_entity_editor(entity_name, scope, "artifact_ledger")
+        elif prefix == "FAC":
+            self._render_entity_editor(entity_name, scope, "faction_ledger")
         else:
-            parts = selection.split("_", 2)
-            if len(parts) == 3:
-                prefix, scope, entity_name = parts
-                if prefix == "CHAR": self._render_entity_editor(entity_name, scope, "character_ledger")
-                elif prefix == "LOC": self._render_entity_editor(entity_name, scope, "location_ledger")
-                elif prefix == "ART": self._render_entity_editor(entity_name, scope, "artifact_ledger")
-                elif prefix == "FAC": self._render_entity_editor(entity_name, scope, "faction_ledger")
+            self._render_empty_entity_state(tab)
                 
                 
     # ---------------------------------------------------------
@@ -707,8 +1074,13 @@ class MemoryTab(ctk.CTkFrame):
         
         # --- 1. DATA EXTRACTION ---
         active_data = self.engine.memory[ledger_type].get(scope, {}).get(entity_name, {})
-        if not active_data: 
-            return 
+        if not active_data:
+            tab = self._get_tab_config(self.active_tab.get())
+            self._render_empty_entity_state(tab)
+            return
+
+        self.editor_frame = ctk.CTkScrollableFrame(self.editor_master, fg_color="transparent")
+        self.editor_frame.pack(fill="both", expand=True)
 
         # --- 2. DIRTY STATE TRACKER ---
         footer = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
@@ -823,7 +1195,7 @@ class MemoryTab(ctk.CTkFrame):
                 
                 prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
                 self.active_selection.set(f"{prefix}_{master_scope}_{master_name}")
-                self._refresh_nav()
+                self._refresh_all()
                 
             ctk.CTkButton(dialog, text="Confirm Merge", font=("Arial", 14, "bold"), fg_color="#7B1FA2", hover_color="#4A148C", command=apply_merge).pack(pady=20)
             
@@ -1115,7 +1487,7 @@ class MemoryTab(ctk.CTkFrame):
             if is_structural:
                 prefix = "CHAR_" if ledger_type == "character_ledger" else ("LOC_" if ledger_type == "location_ledger" else ("FAC_" if ledger_type == "faction_ledger" else "ART_"))
                 self.active_selection.set(f"{prefix}_{final_scope}_{new_name}")
-                self._refresh_nav()
+                self._refresh_all()
             else: 
                 mark_clean()
 
