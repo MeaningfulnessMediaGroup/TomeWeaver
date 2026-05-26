@@ -853,6 +853,126 @@ class BaseEngine:
         from exporter import export_story
         return export_story(self.adv_dir, self.setup_data, self.history, self.chapters, export_type, use_novelization, custom_path)
 
+    def _turn_index(self, turn_number: int):
+        """Return the 0-based history index for a Master Clock turn number."""
+        for i, t in enumerate(self.history):
+            if int(t.get("turn", 0)) == int(turn_number):
+                return i
+        return None
+
+    def can_fork_at_turn(self, fork_turn_number: int) -> tuple[bool, str]:
+        """True when turn N has a committed choice and future turns exist to truncate."""
+        idx = self._turn_index(fork_turn_number)
+        if idx is None:
+            return False, "Turn not found."
+        if not self.history[idx].get("player_choice"):
+            return False, "This turn has no committed choice yet."
+        if idx >= len(self.history) - 1:
+            return False, "Cannot fork from the live timeline tail."
+        return True, ""
+
+    def _heal_after_timeline_truncate(self, fork_turn_number: int) -> None:
+        """Heal chapter bounds and RAG ledgers after dropping turns after ``fork_turn_number``."""
+        affected_chapters = set()
+        kept_chapters = []
+
+        for c in self.chapters:
+            c_num = c.get("chapter_number")
+            s_turn = c.get("start_turn")
+            e_turn = c.get("end_turn")
+
+            if s_turn is not None and s_turn > fork_turn_number:
+                if c_num is not None:
+                    affected_chapters.add(c_num)
+                continue
+
+            if e_turn is not None and e_turn > fork_turn_number:
+                c["end_turn"] = None
+                if c_num is not None:
+                    affected_chapters.add(c_num)
+
+            kept_chapters.append(c)
+
+        self.chapters = kept_chapters
+
+        self.memory["plot_ledger"] = [
+            p for p in self.memory.get("plot_ledger", [])
+            if p.get("start_turn", 0) <= fork_turn_number
+            and p.get("chapter_number") not in affected_chapters
+        ]
+        self.memory["chapter_ledger"] = [
+            cl for cl in self.memory.get("chapter_ledger", [])
+            if cl.get("chapter_number") not in affected_chapters
+        ]
+
+        for ledger_key in ["character_ledger", "location_ledger", "artifact_ledger", "faction_ledger"]:
+            ledger = self.memory.get(ledger_key, {})
+            for scope in ("local", "global"):
+                bucket = ledger.get(scope, {})
+                if not isinstance(bucket, dict):
+                    continue
+                for data in bucket.values():
+                    if isinstance(data, dict):
+                        last_seen = data.get("last_seen_turn")
+                        if isinstance(last_seen, (int, float)) and last_seen > fork_turn_number:
+                            data["last_seen_turn"] = fork_turn_number
+
+        for state in self.memory.get("global_states", {}).values():
+            if isinstance(state, dict):
+                last_seen = state.get("last_seen_turn")
+                if isinstance(last_seen, (int, float)) and last_seen > fork_turn_number:
+                    state["last_seen_turn"] = fork_turn_number
+
+    def fork_at_turn(self, fork_turn_number: int, archive_label: str | None = None) -> tuple[bool, str, str | None]:
+        """Archive the full timeline, truncate after turn N, and register parent + branch snapshots."""
+        from logger import log_event
+        from run_tree import (
+            archive_current_run,
+            auto_branch_label,
+            auto_fork_archive_label,
+            load_manifest,
+            set_active_run_id,
+        )
+
+        ok, err = self.can_fork_at_turn(fork_turn_number)
+        if not ok:
+            return False, err, None
+
+        idx = self._turn_index(fork_turn_number)
+        log_event(self.adv_dir, f"Command: FORK AT TURN {fork_turn_number}")
+        self.save_state()
+
+        manifest = load_manifest(self.adv_dir)
+        label = (archive_label or auto_fork_archive_label(fork_turn_number)).strip()
+        original_id, arch_msg = archive_current_run(
+            self.adv_dir,
+            label=label,
+            parent_id=manifest.get("active_run_id"),
+            fork_at_turn=fork_turn_number,
+            run_kind="original",
+        )
+        if original_id is None:
+            return False, arch_msg, None
+
+        self.history = self.history[: idx + 1]
+        self.history[idx]["player_choice"] = None
+
+        self._heal_after_timeline_truncate(fork_turn_number)
+        self.save_state()
+
+        branch_id, branch_msg = archive_current_run(
+            self.adv_dir,
+            label=auto_branch_label(fork_turn_number),
+            parent_id=original_id,
+            fork_at_turn=fork_turn_number,
+            run_kind="branch",
+        )
+        if branch_id is None:
+            return False, branch_msg, None
+
+        set_active_run_id(self.adv_dir, branch_id)
+        return True, f"Forked at Turn {fork_turn_number}. Choose again.", branch_id
+
 
     # ---------------------------------------------------------
     # NARRATIVE SURGERY (THE TIMELINE EDITOR)

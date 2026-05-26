@@ -157,3 +157,22 @@ def set_adventures_dir(monkeypatch, tmp_path):
         monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(Path(custom_path).resolve()))
 
     return _apply
+
+
+@pytest.fixture
+def library_cartridge(tmp_path, monkeypatch):
+    """Factory: disposable story folder registered in a patched adventures library."""
+
+    def _make(mode="sandbox", folder_name=None):
+        from config import ENGINE_CONFIG, create_boilerplate_files
+
+        library = tmp_path / "library"
+        library.mkdir(parents=True, exist_ok=True)
+        name = folder_name or f"test_{mode}"
+        story_dir = library / name
+        story_dir.mkdir(parents=True, exist_ok=True)
+        create_boilerplate_files(story_dir, mode)
+        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library.resolve()))
+        return story_dir, name
+
+    return _make

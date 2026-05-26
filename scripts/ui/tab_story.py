@@ -680,6 +680,25 @@ class StoryTab(ctk.CTkFrame):
                     btn_split = ctk.CTkButton(self.story_tools, text="✂ Split Chapter", width=100, height=24, font=("Arial", 11), fg_color="#00BCD4", hover_color="#0097A7", command=lambda: self._trigger_surgery("split", idx))
                     btn_split.pack(side="right", padx=2)
 
+            can_fork, _ = self.engine.can_fork_at_turn(actual_turn)
+            if can_fork:
+                btn_fork = ctk.CTkButton(
+                    self.story_tools,
+                    text="⑂ Fork Here",
+                    width=90,
+                    height=24,
+                    font=("Arial", 11),
+                    fg_color="#5E35B1",
+                    hover_color="#4527A0",
+                    command=lambda t_idx=idx: self._trigger_fork(t_idx),
+                )
+                btn_fork.pack(side="right", padx=2)
+                Tooltip(
+                    btn_fork,
+                    "Archive the full timeline, drop all turns after this one, "
+                    "and show this turn's choices again.",
+                )
+
         # Build Choices Area
         for w in self.choices_frame.winfo_children(): w.destroy()
         
@@ -1175,6 +1194,44 @@ class StoryTab(ctk.CTkFrame):
                     self.engine.cancel_draft()
                     self._unlock_ui("Ready.")
             self.after(0, update_ui)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _trigger_fork(self, turn_idx):
+        from tkinter import messagebox
+
+        turn_num = self.engine.history[turn_idx].get("turn")
+        ok, err = self.engine.can_fork_at_turn(turn_num)
+        if not ok:
+            messagebox.showwarning("Cannot Fork", err)
+            return
+
+        future_count = len(self.engine.history) - turn_idx - 1
+        warn = (
+            f"Fork from Turn {turn_num}?\n\n"
+            f"The full timeline will be archived as a saved run. "
+            f"{future_count} turn(s) after this point will be removed from the active line, "
+            f"and you will choose again at the end of Turn {turn_num}."
+        )
+        if not messagebox.askyesno("Fork Timeline", warn, icon="warning"):
+            return
+
+        self._lock_ui("Forking timeline...")
+        import threading
+
+        def worker():
+            success, msg, _run_id = self.engine.fork_at_turn(turn_num)
+
+            def update_ui():
+                if success:
+                    self.current_turn_idx = len(self.engine.history) - 1
+                    self.refresh_timeline(go_to_last=True)
+                    messagebox.showinfo("Fork Complete", msg)
+                else:
+                    messagebox.showerror("Fork Failed", msg)
+                self._unlock_ui("Ready.")
+
+            self.after(0, update_ui)
+
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_surgery(self, action, turn_idx):

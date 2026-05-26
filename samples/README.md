@@ -1,6 +1,6 @@
 # 📚 TomeWeaver Adventures
 
-This directory is the "Cartridge Slot" for TomeWeaver. Every folder inside here represents a unique, isolated story world containing its own configurations, characters, and save data.
+This directory is the "Cartridge Slot" for TomeWeaver. Every folder inside here represents a unique, isolated story world containing its own configurations, characters, and save data. Stories with forked timelines also store parallel saves under `runs/manifest.json` and `runs/snapshots/`.
 
 We have included several sample adventures to demonstrate the incredible flexibility of the dual-mode engine.
 

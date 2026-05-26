@@ -113,6 +113,18 @@ Global renames can propagate across universe threads; always review the authoriz
 
 ---
 
+## 🌳 Run Tree & Per-Timeline Memory
+
+Each Run Tree snapshot stores its **own** `memory.json` alongside `history.json` and `chapters.json`. When you **Switch** timelines, the cartridge root—and therefore the Memory & Lore tab—loads that snapshot's RAG state.
+
+*   **Fork Here** truncates history after turn N and runs `_heal_after_timeline_truncate`, removing plot/chapter ledger entries (and clamping entity `last_seen_turn` values) for turns after the fork point on the **new branch**.
+*   **Parent timelines** in the tree keep their pre-fork memory intact in their snapshot until you switch to them and play forward (which updates their snapshot on the next switch away).
+*   **Branch packs** import foreign snapshots with their memory ledgers; compare paths by switching, then recompile if you manually edit imported history.
+
+After switching to a timeline with stale ledgers post-surgery, run **Compile Missing History** on that branch.
+
+---
+
 ## 🔄 Timeline Surgery & Ledger Invalidation
 
 When you **insert**, **delete**, **split**, or **merge** chapters/turns, the engine invalidates Plot Ledger and Chapter Ledger entries for affected chapter numbers. This prevents stale summaries from contradicting the new Master Clock.
@@ -134,6 +146,7 @@ Campaign authors can define custom `chapter_tags` in `setup.json`. When chapter 
 *   **Local Overrides shadow Global entities in prompts** but do not delete Global data—prequel threads must still avoid contradicting universe canon manually.
 *   **Validate / Auto-Patch** depends on model honesty; low-quality models may produce falsely high Fidelity Scores.
 *   **Compile Missing History** calls the LLM and consumes tokens proportional to uncompiled turn count.
+*   **Run Tree branches** do not share one merged memory file—each snapshot is isolated until you switch and play.
 *   **Merging entities is irreversible** without manual JSON editing—always verify the merge target in the dialog.
 
 See the full **Known Limitations** list in the [root README](../README.md).

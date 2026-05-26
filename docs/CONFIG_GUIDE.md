@@ -163,9 +163,26 @@ Separate from engine behavior, `instance_config.json` stores **volatile UI sessi
 
 ---
 
+## 🌳 Run Tree (`runs/manifest.json`)
+
+Parallel timelines for a single cartridge live under `runs/`:
+
+| Path | Purpose |
+| :--- | :--- |
+| **`runs/manifest.json`** | Index of archived runs: labels, `parent_id` tree, `fork_at_turn`, `run_kind` (`original` / `branch` / `snapshot`), and `active_run_id` (which snapshot owns the cartridge root). |
+| **`runs/snapshots/<run_id>/`** | Per-timeline trio: `history.json`, `chapters.json`, `memory.json`, plus `meta.json` label metadata. |
+
+**UI:** Workspace **Options → Run Tree…** (switch, restore & fork, export/import branch packs).
+
+**On disk behavior:** The cartridge **root** always holds the hot copy of the active timeline. **Switch** overwrites the leaving node's snapshot from root, then copies the target snapshot to root. **Fork Here** creates two new nodes (parent archive + branch) at fork time.
+
+Branch packs export/import only the `runs/snapshots` data and `branch_pack.json`—not `setup.json`. See [COMMAND_GUIDE.md](COMMAND_GUIDE.md) for sharing workflows.
+
+---
+
 ## 📇 Autonomous Library Index (`adventures/index.json`)
 
-The Dashboard maintains a cached metadata index for fast search and pagination across large libraries. The index file lives at ``<adventures_dir>/index.json`` (inside whichever library folder is configured in Settings). The index rebuilds when stories are created, renamed, moved, or when you trigger a manual refresh. It is **never exported** inside ZIP cartridges (regenerated on import).
+The Dashboard maintains a cached metadata index for fast search and pagination across large libraries. The index file lives at ``<adventures_dir>/index.json`` (inside whichever library folder is configured in Settings). The index rebuilds when stories are created, renamed, moved, or when you trigger a manual refresh. It is **never exported** inside ZIP cartridges or branch packs (regenerated on import).
 
 ---
 

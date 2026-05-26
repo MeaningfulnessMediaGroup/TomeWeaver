@@ -57,7 +57,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         opt_menu = ctk.CTkOptionMenu(
             header, 
             variable=self.opt_var, 
-            values=["Generate Recap", "Generate Missing Bridges", "Fork Thread (Slice Chapters)...", "Import Turns...", "Export Story", "Restart Story"], 
+            values=["Generate Recap", "Generate Missing Bridges", "Slice Chapters...", "Import Turns...", "Export Story", "Run Tree...", "Restart Story"], 
             width=200,
             command=self._handle_options_menu
         )
@@ -197,7 +197,7 @@ class WorkspaceFrame(ctk.CTkFrame):
             else:
                 engine_save_time = getattr(self.engine, 'last_save_time', 0)
                 if engine_save_time > self.memory_tab._last_render_time:
-                    self.memory_tab._refresh_nav()
+                    self.memory_tab._refresh_all()
             # Reset all scrollable frames in the Memory Tab
             if hasattr(self.memory_tab, 'nav_frame'): self.after(10, lambda: self.memory_tab.nav_frame._parent_canvas.yview_moveto(0.0))
             if hasattr(self.memory_tab, 'editor_frame'): self.after(10, lambda: self.memory_tab.editor_frame._parent_canvas.yview_moveto(0.0))
@@ -226,7 +226,9 @@ class WorkspaceFrame(ctk.CTkFrame):
             self._show_import_dialog()
         elif choice == "Export Story":
             self._export_dialog()
-        elif choice == "Fork Thread (Slice Chapters)...":
+        elif choice == "Run Tree...":
+            self._show_run_tree_dialog()
+        elif choice == "Slice Chapters...":
             self._show_slice_dialog()
         elif choice == "Restart Story":
             self._restart_story()
@@ -359,12 +361,32 @@ class WorkspaceFrame(ctk.CTkFrame):
                     messagebox.showerror("Export Error", f"Failed to write file: {e}")
 
         ctk.CTkButton(dialog, text="Export", fg_color="#4CAF50", hover_color="#388E3C", command=on_export).pack(pady=10)
+
+    def _is_engine_busy(self):
+        """True while Story Mode is waiting on the LLM or a background worker."""
+        if not hasattr(self, "story_tab") or self.story_tab is None:
+            return False
+        status = self.story_tab.status_var.get()
+        if status and status != "Ready." and not status.startswith("Autopilot:"):
+            return True
+        return str(self.story_tab.btn_submit.cget("state")) == "disabled" and status != "Ready."
+
+    def _reload_workspace(self, target_tab="Story Mode"):
+        """Close and reopen this cartridge so RAM matches disk after run-tree ops."""
+        self.app.clear_container()
+        self.app.open_workspace(self.folder_name, target_tab=target_tab)
         
     def _restart_story(self):
         """Wipes history, resets chapters, and allows granular wiping of Long-Term Memory."""
+        from tkinter import messagebox
+
+        if self._is_engine_busy():
+            messagebox.showwarning("Busy", "Wait for the current operation to finish before restarting.")
+            return
+
         dialog = ctk.CTkToplevel(self)
         dialog.title("Restart Adventure")
-        dialog.geometry("450x400")
+        dialog.geometry("480x520")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -372,7 +394,13 @@ class WorkspaceFrame(ctk.CTkFrame):
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="⚠️ Restart Adventure", font=("Arial", 18, "bold"), text_color="#D32F2F").pack(pady=(20, 10))
-        ctk.CTkLabel(dialog, text="This will permanently delete all gameplay turns, choices, and the session log. You will return to Turn 0.", wraplength=400).pack(padx=20, pady=(0, 10))
+        ctk.CTkLabel(dialog, text="This will delete all gameplay turns, choices, and the session log. You will return to Turn 0.", wraplength=420).pack(padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(dialog, text="What should happen to the current run?", font=("Arial", 12, "bold"), text_color="#00ACC1").pack(pady=(10, 5))
+        v_run = ctk.StringVar(value="save")
+        ctk.CTkRadioButton(dialog, text="Save run (recommended — auto-named snapshot)", variable=v_run, value="save").pack(anchor="w", padx=40, pady=6)
+        ctk.CTkRadioButton(dialog, text="Discard run (no snapshot)", variable=v_run, value="discard").pack(anchor="w", padx=40, pady=6)
+
         ctk.CTkLabel(dialog, text="How should the Long-Term Memory (Lore Bible) be handled?", font=("Arial", 12, "bold"), text_color="#00ACC1").pack(pady=(10, 5))
 
         # Default to Nuclear Wipe for Campaigns to prevent premature goal completion
@@ -380,19 +408,30 @@ class WorkspaceFrame(ctk.CTkFrame):
         v_mem = ctk.StringVar(value=default_mem_action)
         
         rb1 = ctk.CTkRadioButton(dialog, text="Wipe AI Events (Keep Names & Author Notes)", variable=v_mem, value="wipe_ai")
-        rb1.pack(anchor="w", padx=40, pady=10)
+        rb1.pack(anchor="w", padx=40, pady=6)
         Tooltip(rb1, "Deletes the chronological events the AI tracked, but keeps all the Characters/Locations and any notes you manually typed.")
         
         rb2 = ctk.CTkRadioButton(dialog, text="Nuclear Wipe (Delete Everything)", variable=v_mem, value="nuclear")
-        rb2.pack(anchor="w", padx=40, pady=10)
+        rb2.pack(anchor="w", padx=40, pady=6)
         Tooltip(rb2, "Total reset. Deletes all Characters, Locations, Artifacts, and Factions. A completely blank slate.")
         
         rb3 = ctk.CTkRadioButton(dialog, text="Do Not Touch Memory", variable=v_mem, value="keep")
-        rb3.pack(anchor="w", padx=40, pady=10)
+        rb3.pack(anchor="w", padx=40, pady=6)
         Tooltip(rb3, "Start at Turn 1, but the AI will still remember everything that happened in the previous playthrough.")
 
         def apply_restart():
             from logger import log_event
+            from run_tree import archive_current_run, clear_active_run_id
+
+            save_run = v_run.get() == "save"
+            if save_run:
+                self.engine.save_state()
+                run_id, arch_msg = archive_current_run(self.engine.adv_dir)
+                if run_id is None and "Nothing to archive" not in arch_msg:
+                    messagebox.showerror("Save Failed", arch_msg)
+                    return
+            clear_active_run_id(self.engine.adv_dir)
+
             log_event(self.engine.adv_dir, "Command: RESTART ADVENTURE")
             
             # 1. Wipe History and Bookmarks
@@ -461,9 +500,8 @@ class WorkspaceFrame(ctk.CTkFrame):
                 self.story_tab.refresh_timeline()
             if hasattr(self, 'memory_tab'):
                 self.memory_tab.active_selection.set("PLOT_LEDGER")
-                self.memory_tab._refresh_nav()
+                self.memory_tab._refresh_all()
                 
-            from tkinter import messagebox
             messagebox.showinfo("Reset Complete", "The story has been reverted to Turn 0.\n\nYou may edit your world in the World Builder before clicking Start Adventure.")
 
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -684,11 +722,11 @@ class WorkspaceFrame(ctk.CTkFrame):
     def _show_slice_dialog(self):
         """Spawns the checklist modal to extract specific chapters into a new thread."""
         if not self.engine.chapters or len(self.engine.history) == 0:
-            messagebox.showinfo("Fork Thread", "You need to play some turns before you can slice the timeline!")
+            messagebox.showinfo("Slice Chapters", "You need to play some turns before you can slice the timeline!")
             return
             
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Fork Timeline Thread")
+        dialog.title("Slice Chapters")
         dialog.geometry("600x550")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
@@ -704,7 +742,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         f_top.pack(fill="x", padx=20, pady=5)
         
         ctk.CTkLabel(f_top, text="New Thread Title:", font=("Arial", 12, "bold")).pack(side="left")
-        v_title = ctk.StringVar(value=f"{self.engine.setup_data.get('title')} (Fork)")
+        v_title = ctk.StringVar(value=f"{self.engine.setup_data.get('title')} (Extract)")
         ctk.CTkEntry(f_top, textvariable=v_title, font=("Arial", 14), width=250).pack(side="left", padx=10)
         
         ctk.CTkLabel(f_top, text="Author:", font=("Arial", 12, "bold")).pack(side="left")
@@ -754,7 +792,7 @@ class WorkspaceFrame(ctk.CTkFrame):
             
             if success:
                 dialog.destroy()
-                messagebox.showinfo("Fork Successful", f"Thread successfully forked!\n\nThe new story is located at:\n{msg}")
+                messagebox.showinfo("Extract Complete", f"Chapters extracted into a new story:\n\n{msg}")
                 
                 # CRITICAL REFRESH: The slicing operation modified the Source story's history.json
                 # and chapters.json on disk. We must completely close and reload the current workspace 
@@ -763,9 +801,404 @@ class WorkspaceFrame(ctk.CTkFrame):
                 self.app.open_workspace(self.folder_name, target_tab="Story Mode")
                 
             else:
-                messagebox.showerror("Error", f"Failed to fork thread: {msg}")
+                messagebox.showerror("Error", f"Failed to extract chapters: {msg}")
 
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=15)
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#D32F2F", hover_color="#9A0007", command=dialog.destroy).pack(side="left")
-        ctk.CTkButton(btn_frame, text="Extract & Fork", width=140, font=("Arial", 14, "bold"), fg_color="#1F6AA5", hover_color="#144870", command=on_confirm).pack(side="right")
+        ctk.CTkButton(btn_frame, text="Extract Chapters", width=140, font=("Arial", 14, "bold"), fg_color="#1F6AA5", hover_color="#144870", command=on_confirm).pack(side="right")
+
+    def _show_run_tree_dialog(self):
+        """Browse archived runs (tree), switch, restore & fork, rename, or delete."""
+        from tkinter import messagebox, simpledialog
+        from run_tree import (
+            can_switch_to_run,
+            delete_run,
+            get_active_playback_id,
+            get_run_tree_rows,
+            list_fork_points_for_run,
+            load_manifest,
+            rename_run,
+            restore_and_fork,
+            runs_for_tree_display,
+            switch_run,
+        )
+
+        if self._is_engine_busy():
+            messagebox.showwarning("Busy", "Wait for the current operation to finish before using the run tree.")
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Run Tree")
+        dialog.geometry("700x520")
+        dialog.transient(self.winfo_toplevel())
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+
+        from ui.tooltip import center_window_on_parent
+        center_window_on_parent(dialog, self.winfo_toplevel())
+
+        header = ctk.CTkFrame(dialog, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(15, 5))
+        ctk.CTkLabel(header, text="Run Tree", font=("Arial", 18, "bold")).pack(anchor="w")
+        ctk.CTkLabel(
+            dialog,
+            text=(
+                "Each timeline has its own snapshot. Switch saves your current progress in place, "
+                "then loads the selected branch.\n"
+                "● playing now = active timeline · Fork Here creates a new parent + branch pair."
+            ),
+            font=("Arial", 11),
+            text_color="gray",
+            justify="left",
+            wraplength=640,
+        ).pack(anchor="w", padx=20, pady=(0, 8))
+
+        list_frame = ctk.CTkScrollableFrame(dialog, fg_color="#2B2B2B", height=280)
+        list_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        selected_var = ctk.StringVar(value="")
+        row_widgets = []
+        action_busy = {"on": False}
+        btn_switch_ref = {"btn": None}
+
+        def _modal_release():
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+
+        def _modal_restore():
+            try:
+                dialog.grab_set()
+            except Exception:
+                pass
+            dialog.attributes("-topmost", True)
+            dialog.lift()
+            dialog.focus_force()
+
+        def mb_showinfo(title, message):
+            _modal_release()
+            try:
+                messagebox.showinfo(title, message, parent=dialog)
+            finally:
+                _modal_restore()
+
+        def mb_showwarning(title, message):
+            _modal_release()
+            try:
+                messagebox.showwarning(title, message, parent=dialog)
+            finally:
+                _modal_restore()
+
+        def mb_showerror(title, message):
+            _modal_release()
+            try:
+                messagebox.showerror(title, message, parent=dialog)
+            finally:
+                _modal_restore()
+
+        def mb_askyesno(title, message, *, icon=None):
+            _modal_release()
+            try:
+                if icon:
+                    return messagebox.askyesno(title, message, icon=icon, parent=dialog)
+                return messagebox.askyesno(title, message, parent=dialog)
+            finally:
+                _modal_restore()
+
+        def ask_string(title, prompt, **kwargs):
+            _modal_release()
+            try:
+                return simpledialog.askstring(title, prompt, parent=dialog, **kwargs)
+            finally:
+                _modal_restore()
+
+        def run_action(fn):
+            if action_busy["on"]:
+                return
+            action_busy["on"] = True
+            try:
+                fn()
+            finally:
+                action_busy["on"] = False
+
+        def update_switch_state(*_):
+            btn = btn_switch_ref.get("btn")
+            if btn is None:
+                return
+            active_id = get_active_playback_id(self.engine.adv_dir)
+            sel = selected_var.get()
+            if not sel or sel == active_id:
+                btn.configure(state="disabled")
+            else:
+                btn.configure(state="normal")
+
+        def refresh_list():
+            for w in row_widgets:
+                w.destroy()
+            row_widgets.clear()
+
+            rows, default_id = get_run_tree_rows(self.engine.adv_dir)
+
+            if not rows:
+                empty = ctk.CTkLabel(
+                    list_frame,
+                    text="No archived runs yet. Use Fork Here on the timeline, or Restart with Save.",
+                    text_color="gray",
+                    wraplength=600,
+                    justify="left",
+                )
+                empty.pack(anchor="w", padx=8, pady=8)
+                row_widgets.append(empty)
+                selected_var.set("")
+                return
+
+            if not selected_var.get() or selected_var.get() not in {r["id"] for r in rows}:
+                selected_var.set(default_id or rows[0]["id"])
+
+            update_switch_state()
+
+            for row in rows:
+                frame = ctk.CTkFrame(list_frame, fg_color="transparent")
+                frame.pack(fill="x", pady=2)
+                row_widgets.append(frame)
+
+                text_color = "#FFB74D" if row["is_live"] else None
+                rb = ctk.CTkRadioButton(
+                    frame,
+                    text=row["line"],
+                    variable=selected_var,
+                    value=row["id"],
+                    font=("Consolas", 12),
+                    text_color=text_color,
+                )
+                rb.pack(anchor="w", padx=10, pady=4)
+
+        refresh_list()
+
+        def on_switch():
+            def _do():
+                run_id = selected_var.get()
+                if not run_id:
+                    mb_showwarning("Run Tree", "Select a saved run to switch to.")
+                    return
+                ok_sel, err_sel = can_switch_to_run(self.engine.adv_dir, run_id)
+                if not ok_sel:
+                    mb_showinfo("Run Tree", err_sel)
+                    return
+                if not mb_askyesno(
+                    "Switch Run",
+                    "Save progress on the current timeline and load the selected one?\n\nContinue?",
+                ):
+                    return
+
+                self.engine.save_state()
+                ok, msg = switch_run(self.engine.adv_dir, run_id)
+                if not ok:
+                    mb_showerror("Switch Failed", msg)
+                    refresh_list()
+                    return
+
+                dialog.destroy()
+                messagebox.showinfo("Run Switched", msg, parent=self.winfo_toplevel())
+                self._reload_workspace(target_tab="Story Mode")
+
+            run_action(_do)
+
+        def on_restore_and_fork():
+            def _do():
+                run_id = selected_var.get()
+                if not run_id:
+                    mb_showwarning("Run Tree", "Select an archived run first.")
+                    return
+                active_id = get_active_playback_id(self.engine.adv_dir)
+                if run_id == active_id:
+                    mb_showwarning("Run Tree", "You are already on this timeline.")
+                    return
+
+                ok_pts, pts_or_msg = list_fork_points_for_run(self.engine.adv_dir, run_id)
+                if not ok_pts:
+                    mb_showerror("Restore & Fork", str(pts_or_msg))
+                    return
+                fork_points = pts_or_msg
+                if not fork_points:
+                    mb_showinfo(
+                        "Restore & Fork",
+                        "This archive has no fork points (need a committed choice with turns after it).",
+                    )
+                    return
+
+                default_turn = fork_points[-1]
+                turn_str = ask_string(
+                    "Restore & Fork",
+                    f"Fork from which turn?\n\nValid turns: {', '.join(str(t) for t in fork_points)}",
+                    initialvalue=str(default_turn),
+                )
+                if not turn_str:
+                    return
+                try:
+                    fork_turn = int(turn_str.strip())
+                except ValueError:
+                    mb_showerror("Restore & Fork", "Enter a valid turn number.")
+                    return
+
+                if fork_turn not in fork_points:
+                    mb_showerror("Restore & Fork", f"Turn {fork_turn} is not a valid fork point for this run.")
+                    return
+
+                warn = (
+                    f"Restore archived run and fork @ Turn {fork_turn}?\n\n"
+                    "Your current timeline is saved first. The archive loads, then truncates "
+                    f"after turn {fork_turn} so you can choose again."
+                )
+                if not mb_askyesno("Restore & Fork", warn, icon="warning"):
+                    return
+
+                self.engine.save_state()
+                ok, msg = restore_and_fork(self.engine.adv_dir, run_id, fork_turn)
+                if not ok:
+                    mb_showerror("Restore & Fork Failed", msg)
+                    refresh_list()
+                    return
+
+                dialog.destroy()
+                messagebox.showinfo("Restore & Fork Complete", msg, parent=self.winfo_toplevel())
+                self._reload_workspace(target_tab="Story Mode")
+
+            run_action(_do)
+
+        def on_rename():
+            def _do():
+                run_id = selected_var.get()
+                if not run_id:
+                    return
+                active_id = get_active_playback_id(self.engine.adv_dir)
+                if run_id == active_id:
+                    return
+                tree_runs = runs_for_tree_display(self.engine.adv_dir)
+                current = next((r for r in tree_runs if r["id"] == run_id), None)
+                if not current:
+                    return
+                new_label = ask_string(
+                    "Rename Run",
+                    "New label:",
+                    initialvalue=current.get("label", ""),
+                )
+                if not new_label:
+                    return
+                ok, msg = rename_run(self.engine.adv_dir, run_id, new_label)
+                if ok:
+                    refresh_list()
+                else:
+                    mb_showerror("Rename Failed", msg)
+
+            run_action(_do)
+
+        def on_delete():
+            def _do():
+                run_id = selected_var.get()
+                if not run_id:
+                    return
+                active_id = get_active_playback_id(self.engine.adv_dir)
+                if run_id == active_id:
+                    return
+                manifest = load_manifest(self.engine.adv_dir)
+                active_id = manifest.get("active_run_id")
+                tree_runs = runs_for_tree_display(self.engine.adv_dir)
+                current = next((r for r in tree_runs if r["id"] == run_id), None)
+                if not current:
+                    return
+                warn = f"Permanently delete archived run?\n\n{current.get('label', run_id)}"
+                if active_id == run_id:
+                    warn += "\n\nThis run is marked active in the manifest (root may differ if you kept playing)."
+                if not mb_askyesno("Delete Run", warn, icon="warning"):
+                    return
+                ok, msg = delete_run(self.engine.adv_dir, run_id)
+                if ok:
+                    refresh_list()
+                else:
+                    mb_showerror("Delete Failed", msg)
+
+            run_action(_do)
+
+        def on_export_branches():
+            from ui.branch_pack_dialog import show_cartridge_export_dialog
+
+            _modal_release()
+            try:
+                show_cartridge_export_dialog(
+                    self,
+                    self.folder_name,
+                    preselect_run_id=selected_var.get() or None,
+                )
+            finally:
+                _modal_restore()
+
+        def on_import_branches():
+            from tkinter import filedialog
+            from ui.branch_pack_dialog import show_branch_import_dialog
+
+            _modal_release()
+            try:
+                path = filedialog.askopenfilename(
+                    parent=dialog,
+                    filetypes=[("Branch packs", "*.zip")],
+                )
+                if not path:
+                    return
+
+                def _after_import(_folder):
+                    refresh_list()
+
+                show_branch_import_dialog(
+                    self,
+                    path,
+                    target_folder_name=self.folder_name,
+                    on_success=_after_import,
+                )
+            finally:
+                _modal_restore()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=15)
+        ctk.CTkButton(btn_frame, text="Close", width=90, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left")
+        ctk.CTkButton(
+            btn_frame,
+            text="Import…",
+            width=80,
+            fg_color="#4A4A4A",
+            hover_color="#333333",
+            command=on_import_branches,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            btn_frame,
+            text="Export…",
+            width=80,
+            fg_color="#4A4A4A",
+            hover_color="#333333",
+            command=on_export_branches,
+        ).pack(side="left", padx=(5, 0))
+        ctk.CTkButton(btn_frame, text="Delete", width=90, fg_color="#B71C1C", hover_color="#7F0000", command=on_delete).pack(side="right", padx=5)
+        ctk.CTkButton(btn_frame, text="Rename", width=90, command=on_rename).pack(side="right", padx=5)
+        ctk.CTkButton(
+            btn_frame,
+            text="Restore & Fork…",
+            width=120,
+            fg_color="#5E35B1",
+            hover_color="#4527A0",
+            command=on_restore_and_fork,
+        ).pack(side="right", padx=5)
+        btn_switch = ctk.CTkButton(
+            btn_frame,
+            text="Switch",
+            width=90,
+            font=("Arial", 13, "bold"),
+            fg_color="#1F6AA5",
+            hover_color="#144870",
+            command=on_switch,
+        )
+        btn_switch.pack(side="right", padx=5)
+        btn_switch_ref["btn"] = btn_switch
+        selected_var.trace_add("write", update_switch_state)
+        update_switch_state()

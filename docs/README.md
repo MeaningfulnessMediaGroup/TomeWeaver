@@ -27,7 +27,7 @@ Clicking the green **+ Create New Story** dropdown in the top right offers three
 Once a story is created, the engine automatically routes you directly into the **World Builder** tab so you can review your configuration.
 
 ### Story Management
-Each card displays the story's mode, turn count, current location, and status. Click **Play** to enter the Workspace. You can also use the **Options** dropdown on any card to Rename, Move, Delete, or Export the story to a `.zip` file to share with friends.
+Each card displays the story's mode, turn count, current location, and status. Click **Play** to enter the Workspace. Use the **Options** dropdown on any card to Rename, Move, Delete, or **Export to .zip** (full cartridge or branch pack).
 
 ### Search, Sort & Pagination
 The filter bar lets you instantly narrow the library:
@@ -36,7 +36,7 @@ The filter bar lets you instantly narrow the library:
 *   **Pagination:** Adjust items-per-page for large libraries (10,000+ stories remain responsive thanks to the background `index.json` cache).
 
 ### Import & Organization
-*   **Import .zip:** Load a shared cartridge from disk (validates that `setup.json` and `system_prompt.txt` are present).
+*   **Import .zip:** Loads a **full cartridge** (new story folder) or a **branch pack** (merge shared timelines into an existing story). Full imports validate `setup.json` and `system_prompt.txt`; branch packs open a target-story picker with setup fingerprint checks.
 *   **Custom Icons:** Right-click folder cards to assign a custom PNG/JPG thumbnail for at-a-glance recognition.
 *   **Breadcrumb Navigation:** Drill into nested Universe folders; the **+ Create New Story** menu adapts to offer **Create Thread** when inside a universe.
 
@@ -88,10 +88,11 @@ Clicking "Play" on the Dashboard opens the Workspace. The **Story Mode** tab is 
 The top bar shows the active mode (Sandbox or Campaign) and story title. Use the **Options...** dropdown for advanced workflows:
 *   **Generate Recap** — AI summary of everything played so far.
 *   **Generate Missing Bridges** — Batch-novelize transition prose across history.
-*   **Fork Thread (Slice Chapters)...** — Extract selected chapters into a new standalone story.
+*   **Slice Chapters...** — Extract selected chapters into a new standalone story folder.
+*   **Run Tree...** — Browse timeline branches, switch between them, restore & fork, export/import branch packs.
 *   **Import Turns...** — Paste bulk prose with action markers to splice into the timeline.
-*   **Export Story** — Compile to TXT, Markdown, or HTML.
-*   **Restart Story** — Wipe history and begin fresh (respects Story Seed / prologue bypasses).
+*   **Export Story** — Compile the active timeline to TXT, Markdown, or HTML.
+*   **Restart Story** — Wipe root history (optional save to run tree first; respects Story Seed / prologue bypasses).
 
 Campaign mode also exposes **▶︎ Auto-Play** for stress-testing chapter goals.
 
@@ -117,7 +118,26 @@ When you scrub to an older turn via the Time Travel slider, a toolbar appears on
 *   **+ Insert Turn / X Delete Turn** — Master Clock surgery (see [COMMAND_GUIDE.md](COMMAND_GUIDE.md)).
 *   **↔ Turn to Bridge / ↔ Bridge to Turn** — Collapse or expand transition prose.
 *   **✂ Split Chapter / ← Merge Chapter** — Chapter boundary editing (Sandbox and Campaign).
+*   **⑂ Fork Here** — (When valid) Archive the full timeline and reopen choices at this turn, creating a parent + branch pair in the Run Tree.
 *   **✎ Edit Scene** — Open the full scene editor to manually rewrite prose, choices, location, inventory, or save a **Story Seed**.
+
+---
+
+## 4b. Run Tree (Alternate Timelines)
+
+Open **Options → Run Tree…** to manage parallel playthroughs stored in `runs/manifest.json`. Each row is a **live timeline** with its own snapshot (`history`, `chapters`, `memory`).
+
+| Action | What it does |
+| :--- | :--- |
+| **Switch** | Saves the current timeline to its snapshot, then loads the selected one. Disabled on the row marked **● playing now**. |
+| **Restore & Fork…** | Load an archive and fork @ a chosen turn (creates new parent + branch nodes). |
+| **Export…** | Package selected timelines as a **branch pack** `.zip` to share. |
+| **Import…** | Merge a friend's branch pack into this story (compare paths side by side via Switch). |
+| **Rename / Delete** | Manage labels or remove archived snapshots. |
+
+**Fork Here** on the timeline (historical turns with a committed choice and future turns) is the primary way to create branches during play. **Restart → Save** archives the current line before a wipe. Switching never creates extra tree nodes—it only updates snapshots in place.
+
+**Sharing workflow:** Export a branch pack → friend imports into their copy of the same story → both use Run Tree to flip between local and imported timelines.
 
 ---
 

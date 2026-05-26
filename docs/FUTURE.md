@@ -13,9 +13,9 @@ This document describes **planned** features—not shipped functionality. It is 
 
 ## Where We Are: v0.3 → v1.0
 
-TomeWeaver today is a **continuity-first narrative operating system** with Sandbox mode, Campaign mode, Shared Universes, dual-tiered RAG memory, timeline surgery, narrative bridges, and storybook export. That foundation is real and usable—but it is **not yet prime-time software**.
+TomeWeaver today is a **continuity-first narrative operating system** with Sandbox mode, Campaign mode, Shared Universes, dual-tiered RAG memory, timeline surgery, **Run Tree branching with branch-pack sharing**, narrative bridges, and storybook export. That foundation is real and usable—but it is **not yet prime-time software**.
 
-**Version 0.3** represents the current architectural milestone: the core engine, GUI, and memory systems are in place, and a growing headless test suite (`Run_Tests.bat`) covers timeline surgery, JSON sanitization, RAG behavior, export, and configuration paths. What remains before **v1.0** is not feature sprawl—it is **hardening**:
+**Version 0.3** represents the current architectural milestone: the core engine, GUI, and memory systems are in place, and a growing headless test suite (`Run_Tests.bat`) covers timeline surgery, run tree fork/switch/branch-pack I/O, JSON sanitization, RAG behavior, export, and configuration paths. What remains before **v1.0** is not feature sprawl—it is **hardening**:
 
 | Stabilization pillar | What “done” looks like for v1.0 |
 |---|---|

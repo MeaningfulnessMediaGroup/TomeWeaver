@@ -71,8 +71,43 @@ Sometimes the story needs pacing adjustments that an AI cannot handle natively. 
 *   **✂ Split Chapter:** Instantly slices the active chapter in half. The current card becomes Turn 1 of a brand new chapter.
 *   **← Merge Chapter:** (Only visible on the first turn of a chapter). Dissolves the chapter boundary, merging this chapter backward into the previous one.
 
-### 🍴 Forking Threads (Slicing)
-If you are playing a massive ensemble story and want to separate the timelines, use the **Options > Fork Thread (Slice Chapters)** tool in the workspace header. Check the boxes next to the chapters you want. The engine will perfectly extract them, mathematically re-index their Master Clocks and RAG memories, and spin them off into a brand new, playable standalone story in your Dashboard.
+### 🍴 Slice Chapters (New Story Folder)
+If you are playing a massive ensemble story and want to **spin off chapters into a separate cartridge**, use **Options → Slice Chapters...** in the workspace header. Check the boxes next to the chapters you want. The engine extracts them, re-indexes Master Clocks and RAG memories, and creates a **new story folder** on your Dashboard.
+
+> **Note:** This is different from **Fork Here** / **Run Tree**, which keep alternate timelines inside the *same* story cartridge.
+
+---
+
+## 🌳 Run Tree (Alternate Timelines)
+
+The Run Tree stores multiple playable timelines in one cartridge under `runs/manifest.json`. Each node has a snapshot folder with its own `history.json`, `chapters.json`, and `memory.json`.
+
+### Creating branches
+| Action | Result |
+| :--- | :--- |
+| **⑂ Fork Here** (Timeline Editor) | Archives the full timeline as a **parent** node, truncates after turn N, creates a **branch** snapshot, clears your choice on N so you can pick again. |
+| **Restart → Save** | Archives the current root line, then wipes history for a fresh start (no fork point). |
+| **Restore & Fork…** (Run Tree) | Loads an archived timeline, then forks @ a turn you specify. |
+
+Forks can nest: fork again on any branch to grow a tree. Sibling timelines do not overwrite each other when you switch.
+
+### Switching timelines
+Open **Options → Run Tree…**:
+1. The **● playing now** row is your active timeline (pre-selected).
+2. Select another row and click **Switch**.
+3. The engine **saves progress in place** to the leaving timeline's snapshot, then loads the target into the cartridge root.
+
+Switching does **not** create new tree nodes. Only Fork, Restart-save, and Restore & Fork add nodes.
+
+### Restore & Fork
+Select an archived timeline (not the active row), click **Restore & Fork…**, enter a valid fork turn (committed choice with turns after it). Your current timeline is saved first; the archive loads; then the engine forks @ that turn.
+
+### Sharing & comparing runs
+**Export branch pack:** Story card **Options → Export to .zip → Branch pack**, or **Run Tree → Export…**. Select timelines (ancestors are included automatically). Optional **Shared by** name is embedded in the pack.
+
+**Import branch pack:** Dashboard **Import .zip** (auto-detects format) or **Run Tree → Import…**. Pick your local copy of the story, choose which timelines to merge, set a label prefix (e.g. `[Alice] `). Imported rows appear in Run Tree—**Switch** to compare without losing your own branches.
+
+Branch packs carry a **setup fingerprint**. Importers warn if your `setup.json` differs (different title, mode, or campaign outline)—you can still force import, but fork alignment may not match.
 
 ---
 
@@ -170,12 +205,23 @@ Manual edits do not automatically recompile RAG memory—run **Compile Missing H
 
 ---
 
-## 📦 ZIP Cartridges (Share & Backup)
+## 📦 ZIP Cartridges & Branch Packs (Share & Backup)
 
-*   **Export:** Story card **Options → Export** (or Dashboard card menu) packages the folder into a `.zip` cartridge.
-*   **Import:** Dashboard **Import .zip** validates required files and creates a collision-safe folder name.
+TomeWeaver supports two `.zip` formats:
 
-Cartridges are ideal for sharing sample worlds, backing up before risky timeline surgery, or collaborating with co-authors.
+### Full cartridge
+*   **Export:** Story card **Options → Export to .zip → Full cartridge** (or universe folder export on Dashboard).
+*   **Import:** Dashboard **Import .zip** — creates a **new** story folder with collision-safe naming.
+*   **Contains:** `setup.json`, `system_prompt.txt`, root save files, run tree, prompts—everything except `index.json` (rebuilt locally).
+
+Ideal for backups, publishing sample worlds, or sending someone a complete adventure.
+
+### Branch pack
+*   **Export:** **Export to .zip → Branch pack** or **Run Tree → Export…** — selected run-tree snapshots + `branch_pack.json` metadata only.
+*   **Import:** Dashboard **Import .zip** or **Run Tree → Import…** — merges timelines into an **existing** story; does not replace setup or create a new folder.
+*   **Contains:** `branch_pack.json`, `branches/<id>/history|chapters|memory|meta.json`.
+
+Ideal for sharing “what if I chose B?” with a friend who has the same story setup, then comparing paths via Run Tree **Switch**.
 
 ---
 
@@ -186,6 +232,7 @@ Cartridges are ideal for sharing sample worlds, backing up before risky timeline
 *   **Import Turns** does not auto-generate narrative bridges or RAG summaries for imported text.
 *   **Deep Rename** on Global entities can touch multiple universe files—review the authorization dialog carefully.
 *   **Auto-Play** always picks the **first** green choice; it does not explore branching paths.
-*   **Undo (↶)** reverts the last committed choice; it cannot restore pre-Restart game state unless you have a backup cartridge.
+*   **Undo (↶)** reverts the last committed choice; it cannot restore pre-Restart root state unless you archived via Restart → Save or switched away from a Run Tree snapshot.
+*   **Run Tree imported branches** keep their own memory snapshots; switching timelines swaps local RAG context for that branch—recompile if you edit history manually after import.
 
 See also the full **Known Limitations** list in the [root README](../README.md).

@@ -95,6 +95,7 @@ Instead of relying purely on prompt context windows, TomeWeaver introduces syste
 - Non-destructive revision workflows
 - Continuity auditing
 - Timeline surgery (Insertion, Deletion, Slicing)
+- Run Tree branching, snapshot switch, and branch-pack sharing
 - Long-term compression via RAG ledgers
 
 The result is an experience designed not just for momentary generation, but for **sustained narrative integrity across long-form adventures**.
@@ -150,31 +151,38 @@ AI assistance isn't just for the main story. Every lore field, chapter goal, and
 *   **Sandbox Mode:** Open-ended world simulation. Use the Director tools to manually trigger scene shifts, POV changes, or time-jumps.
 *   **Campaign Mode:** Plot-driven adventures. The AI strictly follows a `plot_outline`, tracking goals and obstacles, and automatically triggers chapter transitions when you succeed.
 
-### 8. Thread Forking (Slicing)
-Playing a massive 300-turn ensemble epic? Check a few boxes to **Slice Chapters** out of the main timeline. The engine will perfectly extract those turns, mathematically re-index the master clock, and spin them off into a brand new, dedicated story thread.
+### 8. Thread Forking (Slice Chapters)
+Playing a massive 300-turn ensemble epic? Use **Options → Slice Chapters...** to check boxes next to chapters you want to extract. The engine re-indexes the master clock and spins them off into a **new standalone story folder** in your Dashboard—a derivative cartridge, not an in-place branch.
 
-### 9. Non-Destructive Narrative Bridging
+### 9. Run Tree (Multiverse Timelines)
+Explore “what if I chose differently?” **inside the same story cartridge** without losing your main line.
+*   **⑂ Fork Here** (Timeline Editor): Archives the full timeline, opens a new branch at turn N, and registers **parent + branch** snapshots in `runs/manifest.json`.
+*   **Run Tree…** (Workspace Options): Switch between timelines—progress saves **in place** to each branch’s snapshot (no new tree nodes on switch).
+*   **Restore & Fork…**: Load an archived timeline and fork again from a chosen turn.
+*   **Restart → Save**: Archives the current run before wiping the root for a fresh playthrough.
+
+### 10. Non-Destructive Narrative Bridging
 TomeWeaver solves the "narrative gap" common in AI games. 
 *   **The Problem:** You click "Go inside" and the next paragraph starts inside, leaving a jarring jump-cut.
 *   **The Solution:** TomeWeaver auto-generates a **Narrative Bridge**—a surgical patch that weaves your action into the prose. These bridges are stored as metadata, meaning your original human-curated prose is never modified.
 
-### 10. The "Fortress" JSON Sanitizer & Error Handler
+### 11. The "Fortress" JSON Sanitizer & Error Handler
 Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stage sanitizer is built for extreme resilience:
 *   **State-Machine Repair:** Differentiates between structural JSON markers and rogue dialogue quotes.
 *   **Surgical Repair:** Uses Python's error-coordinate metadata to "patch" missing quotes or trailing commas before giving up.
 *   **Truncation Recovery:** If the AI hits its token limit mid-sentence, the engine auto-balances the JSON so you can continue playing without a crash.
 *   **API Translator:** Gracefully intercepts network timeouts, 429 rate limits, and 502 bad gateways, providing human-readable UI alerts instead of crashing.
 
-### 11. Modern Native UX
+### 12. Modern Native UX
 TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
 
-### 12. Atmospheric Theme Engine
+### 13. Atmospheric Theme Engine
 Customize the app's look from **Dashboard → ⚙ Settings**. Pick a built-in preset (**Default Dark**, **Default Light**, **Parchment**, **Horror**, **Cyberpunk**, **Forest**, **Ocean Deep**, and others) or create your own, edit colors and card borders in the theme editor, and apply one global skin across the library and all workspaces. Presets live in `configs/themes.json`; the active choice is stored as `global_theme_name` in `engine_config.json`.
 
-### 13. Storybook Compiler (Export)
+### 14. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
 
-### 14. Autonomous Long-Term Memory (RAG Engine)
+### 15. Autonomous Long-Term Memory (RAG Engine)
 Play infinitely without breaking your model's context limit. TomeWeaver features a background Retrieval-Augmented Generation (RAG) engine that silently compiles your history into dense, token-efficient ledgers.
 *   **Dual-Tiered Memory:** Entities are scoped to "Local" (This story only) or "Global" (The Shared Universe).
 *   **Tiered Summarization:** Automatically compresses 10-turn chunks into "Parts," and finished chapters into high-level summaries.
@@ -183,27 +191,31 @@ Play infinitely without breaking your model's context limit. TomeWeaver features
 
 🧠 **[Read the deep dive into the RAG Engine (docs/RAG.md)](docs/RAG.md)**
 
-### 15. The Memory & Lore Editor (Visual RAG Console)
+### 16. The Memory & Lore Editor (Visual RAG Console)
 The **Memory & Lore** tab is a full narrative database UI—not a raw JSON editor. A **top tab bar** separates Chapters, Plot, and entity ledgers (Characters, Locations, Artifacts, Factions), each with live count badges. Summary tabs use the full width; entity tabs show a filterable list plus Lore Bible editor. Pin important characters so they never decay, merge duplicate entities (e.g. "Vance" and "Captain Vance") with zero data-loss trait combining, and run **Deep Scan** or **Deep Rename** operations that crawl history and even offline universe files when authorized.
 
-### 16. Bulk Turn Import (Writer's Pipeline)
+### 17. Bulk Turn Import (Writer's Pipeline)
 Authors can paste large blocks of pre-written prose directly into a running adventure via **Options → Import Turns...** The engine parses `>` or `=` action markers into structured turns, splices them into the Master Clock, and re-indexes chapter boundaries automatically—ideal for importing a novella draft or co-written scenes. Use **Integration Evaluation** in the import dialog to score narrative fit against local and universe memory before splicing.
 
-### 17. Adventure Recap & Bridge Catch-Up
+### 18. Adventure Recap & Bridge Catch-Up
 *   **Generate Recap:** Summarizes the entire story so far into a readable briefing (useful after a long break or before sharing a save).
 *   **Generate Missing Bridges:** Manually triggers the narrative bridge novelizer across history—handy when `auto_narrative_bridge` is off or after timeline surgery.
 
-### 18. ZIP Cartridge Import & Export
-Share entire adventures as portable `.zip` cartridges. Export from any story card's **Options** menu; import from the Dashboard **Import .zip** button. Cartridges include all JSON, prompts, and lore—perfect for backups, collaboration, or publishing sample worlds.
+### 19. ZIP Cartridges & Branch Packs (Share & Compare)
+Share adventures and individual timelines as portable `.zip` files.
+*   **Full cartridge** — entire story folder (setup, prompts, run tree, saves). Export from **Options → Export to .zip** on any story card; import from Dashboard **Import .zip** as a new story folder.
+*   **Branch pack** — selected run-tree timelines only (`branch_pack.json` + snapshot folders). Import into an **existing** copy of the same story setup to compare a friend’s path with yours. Export/import from the export dialog or **Run Tree → Export… / Import…**.
 
-### 19. Scalable Library Index
+Branch packs include a **setup fingerprint** (title, mode, plot outline) so the importer can warn when setups differ.
+
+### 20. Scalable Library Index
 The Dashboard maintains an autonomous `index.json` cache so you can search, sort, and paginate through **thousands** of nested folders and universe threads without the UI freezing. Custom folder icons (PNG/JPG) are supported for visual organization at a glance.
 
-### 20. Prologue, Epilogue & Story Seeds
+### 21. Prologue, Epilogue & Story Seeds
 *   **`prologue.txt` / `epilogue.txt`:** Hand-written bookends loaded as-is on first launch or campaign conclusion—no AI roll required.
 *   **`start_turn.json`:** A saved "Story Seed" guarantees every restart begins at your curated Turn 1 hook (set via **💾 Set as Story Seed** in the scene editor).
 
-### 21. Headless Engine & Automated Tests (Developers)
+### 22. Headless Engine & Automated Tests (Developers)
 The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
 
 ---
@@ -306,6 +318,8 @@ As you play, TomeWeaver automatically generates and manages these files to maint
 *   `history.json`: The master ledger. A perfect chronological record of every turn, AI response, player choice, and narrative bridge.
 *   `memory.json`: The RAG database. Contains the compressed Plot Ledger and Local Entity lore.
 *   `chapters.json`: The pacing metadata. Tracks where chapters begin and end.
+*   `runs/manifest.json`: The **Run Tree** index—archived timelines, fork metadata, and which branch is active at the cartridge root.
+*   `runs/snapshots/<run_id>/`: Per-timeline copies of `history.json`, `chapters.json`, and `memory.json` for fork/switch/share workflows.
 *   `session_log.txt`: The "Flight Recorder." A diagnostic log of every API call, retry, and raw JSON output for debugging your prompts.
 
 ---
@@ -371,9 +385,11 @@ TomeWeaver is a powerful narrative operating system, but it is not magic. Unders
 *   **Single-player, local saves.** Progress lives in your `/adventures` folder. There is no cloud sync, account system, or cross-device save merge.
 
 ### Import, Export & Interoperability
-*   **Export is prose compilation, not a playable save.** TXT/MD/HTML exports are storybooks for reading—not cartridges that restore game state.
+*   **Export Story (TXT/MD/HTML)** is prose compilation for reading—not a playable save.
 *   **Bulk Import Turns** expects a simple `>` / `=` action-marker syntax; free-form prose without markers becomes a single trailing turn block.
-*   **ZIP cartridges** require `setup.json` and `system_prompt.txt` at minimum. Custom prompts referencing external files not included in the zip will break on import.
+*   **Full ZIP cartridges** require `setup.json` and `system_prompt.txt` at minimum. Custom prompts referencing external files not included in the zip will break on import.
+*   **Branch packs** import timelines into an existing story; they do not replace `setup.json` or the active root unless you **Switch** to an imported branch. Setup fingerprint mismatches are warned but can be forced.
+*   **Run Tree switch** persists the active timeline to its snapshot before loading another; unlinked root play (no `active_run_id`) is not auto-associated with manual restart archives until you switch from an active branch.
 
 ### Developer Notes
 *   **Tests cover the headless engine core**, not the full GUI or live LLM API calls. Integration tests that hit real models should be run manually.

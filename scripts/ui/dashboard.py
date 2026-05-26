@@ -75,7 +75,7 @@ class DashboardFrame(ctk.CTkFrame):
         
         btn_import = ctk.CTkButton(header, text="Import .zip", fg_color="#4A4A4A", hover_color="#333333", command=self.import_zip)
         btn_import.pack(side="right", padx=10)
-        Tooltip(btn_import, "Load an adventure from a shared .zip cartridge.")
+        Tooltip(btn_import, "Import a full .zip cartridge or a branch pack (shared timelines).")
         
         btn_settings = ctk.CTkButton(header, text="⚙ Settings", width=100, fg_color="#1F6AA5", hover_color="#144870", command=self.show_global_settings)
         btn_settings.pack(side="right", padx=(0, 10))
@@ -790,24 +790,29 @@ class DashboardFrame(ctk.CTkFrame):
         """Routes actions from the 'Options...' dropdown on individual story cards."""
         if choice == "Restart":
             warn_msg = (
-                f"Are you sure you want to RESTART '{current_title}'?\n\n"
-                "This will permanently DELETE all played turns and choices. "
-                "The story will revert to the beginning. This cannot be undone!"
+                f"Restart '{current_title}'?\n\n"
+                "Yes = Save current run, then reset to Turn 0\n"
+                "No = Discard current run and reset\n"
+                "Cancel = Keep playing"
             )
-            if messagebox.askyesno("Confirm Restart", warn_msg, icon='warning'):
-                success, msg = TomeWeaverAPI.restart_story(folder_name)
-                if success:
-                    messagebox.showinfo("Restarted", "Story has been reset to Turn 0.")
-                    self.load_data() 
-                else: 
-                    messagebox.showerror("Restart Failed", msg)
+            choice_val = messagebox.askyesnocancel("Confirm Restart", warn_msg, icon="warning")
+            if choice_val is None:
+                return
+            save_before = choice_val is True
+            success, msg = TomeWeaverAPI.restart_story(folder_name, save_before=save_before)
+            if success:
+                detail = "Story has been reset to Turn 0."
+                if save_before:
+                    detail = "Current run saved.\n\n" + detail
+                messagebox.showinfo("Restarted", detail)
+                self.load_data()
+            else:
+                messagebox.showerror("Restart Failed", msg)
 
         elif choice == "Export to .zip":
-            path = filedialog.asksaveasfilename(defaultextension=".zip", initialfile=f"{folder_name}.zip", filetypes=[("ZIP files", "*.zip")])
-            if path:
-                success, msg = TomeWeaverAPI.export_to_zip(folder_name, path)
-                if success: messagebox.showinfo("Export Successful", f"Cartridge saved to:\n{path}")
-                else: messagebox.showerror("Export Failed", msg)
+            from ui.branch_pack_dialog import show_cartridge_export_dialog
+
+            show_cartridge_export_dialog(self, folder_name)
 
         elif choice == "Rename":
             self._show_rename_dialog(folder_name, current_title, is_folder=False)
@@ -1083,15 +1088,24 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Create", width=100, fg_color="#2E7D32", hover_color="#1B5E20", command=on_create).pack(side="right", padx=10)
 
     def import_zip(self):
-        """Opens a file dialog to import a shared adventure cartridge."""
+        """Opens a file dialog to import a shared adventure or branch pack."""
         path = filedialog.askopenfilename(filetypes=[("ZIP Cartridges", "*.zip")])
-        if path:
-            success, msg = TomeWeaverAPI.import_from_zip(path)
-            if success:
-                messagebox.showinfo("Import Successful", f"Story imported: {msg}")
-                self.load_data()
-            else:
-                messagebox.showerror("Import Failed", msg)
+        if not path:
+            return
+
+        kind, _payload = TomeWeaverAPI.inspect_zip(path)
+        if kind == "branch_pack":
+            from ui.branch_pack_dialog import show_branch_import_dialog
+
+            show_branch_import_dialog(self, path, on_success=lambda _folder: self.load_data())
+            return
+
+        success, msg = TomeWeaverAPI.import_from_zip(path)
+        if success:
+            messagebox.showinfo("Import Successful", f"Story imported: {msg}")
+            self.load_data()
+        else:
+            messagebox.showerror("Import Failed", msg)
 
     def _handle_create_menu(self, choice):
         """Intercepts the dropdown selection and resets the button text."""

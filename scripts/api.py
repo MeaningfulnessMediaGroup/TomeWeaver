@@ -695,6 +695,33 @@ class TomeWeaverAPI:
             return False, str(e)
 
     @staticmethod
+    def inspect_zip(zip_path):
+        """Detect ``full`` cartridge vs ``branch_pack`` vs ``invalid``."""
+        from branch_pack import inspect_zip_cartridge
+
+        return inspect_zip_cartridge(zip_path)
+
+    @staticmethod
+    def export_branch_pack(folder_name, run_ids, target_zip_path, shared_by=""):
+        """Export selected run-tree timelines as a portable branch pack."""
+        from branch_pack import export_branch_pack as _export_branch_pack
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        return _export_branch_pack(target_dir, list(run_ids), target_zip_path, shared_by=shared_by)
+
+    @staticmethod
+    def import_branch_pack(folder_name, zip_path, export_ids=None, label_prefix=""):
+        """Merge branch-pack timelines into an existing story."""
+        from branch_pack import import_branch_pack as _import_branch_pack
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        return _import_branch_pack(target_dir, zip_path, export_ids, label_prefix=label_prefix)
+
+    @staticmethod
     def import_from_zip(zip_path):
         """Import a ZIP cartridge into ``adventures/`` with collision-safe naming.
 
@@ -743,56 +770,103 @@ class TomeWeaverAPI:
         except Exception as e: return False, str(e)
 
     @staticmethod
-    def restart_story(folder_name):
-        """Headless Reset: Wipes history and resets chapters without loading the full engine."""
+    def list_runs(folder_name):
+        """Return archived runs and active_run_id for a story cartridge."""
+        from run_tree import list_runs as _list_runs
+
         target_dir = get_adv_dir() / folder_name
-        history_file = target_dir / "history.json"
-        chapters_file = target_dir / "chapters.json"
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        runs, active_id = _list_runs(target_dir)
+        return True, {"runs": runs, "active_run_id": active_id}
+
+    @staticmethod
+    def archive_current_run(folder_name, label=None):
+        """Snapshot the live cartridge root into the run tree."""
+        from run_tree import archive_current_run
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        run_id, msg = archive_current_run(target_dir, label=label)
+        if run_id is None:
+            return False, msg
+        return True, msg
+
+    @staticmethod
+    def rename_run(folder_name, run_id, new_label):
+        from run_tree import rename_run as _rename_run
+
+        target_dir = get_adv_dir() / folder_name
+        return _rename_run(target_dir, run_id, new_label)
+
+    @staticmethod
+    def delete_run(folder_name, run_id):
+        from run_tree import delete_run as _delete_run
+
+        target_dir = get_adv_dir() / folder_name
+        return _delete_run(target_dir, run_id)
+
+    @staticmethod
+    def switch_run(folder_name, run_id):
+        """Persist the active timeline, then load an archived run to the cartridge root."""
+        from run_tree import switch_run as _switch_run
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        return _switch_run(target_dir, run_id)
+
+    @staticmethod
+    def fork_at_turn(folder_name, fork_turn_number, archive_label=None):
+        """Archive the timeline and truncate after turn N (fork @ N)."""
+        try:
+            engine = TomeWeaverAPI.load_engine(folder_name)
+            ok, msg, _run_id = engine.fork_at_turn(int(fork_turn_number), archive_label=archive_label)
+            return ok, msg
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def list_run_fork_points(folder_name, run_id):
+        """Valid fork-at-turn numbers inside an archived run snapshot."""
+        from run_tree import list_fork_points_for_run
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        return list_fork_points_for_run(target_dir, run_id)
+
+    @staticmethod
+    def restore_and_fork(folder_name, run_id, fork_turn_number):
+        """Load an archived run and fork @ turn N in one step."""
+        from run_tree import restore_and_fork as _restore_and_fork
+
+        target_dir = get_adv_dir() / folder_name
+        if not target_dir.exists():
+            return False, "Story folder not found."
+        return _restore_and_fork(target_dir, run_id, int(fork_turn_number))
+
+    @staticmethod
+    def restart_story(folder_name, save_before=True):
+        """Headless reset: optionally archive, then wipe history/chapters at cartridge root."""
+        from run_tree import headless_restart_wipe, prepare_restart
+
+        target_dir = get_adv_dir() / folder_name
         setup_file = target_dir / "setup.json"
-        log_file = target_dir / "session_log.txt"
 
         try:
-            # 1. Wipe History
-            if history_file.exists():
-                with open(history_file, "w", encoding="utf-8") as f:
-                    json.dump([], f, indent=4)
+            if not setup_file.exists():
+                return False, "setup.json not found."
 
-            # 2. Reset Chapters
-            if setup_file.exists():
-                with open(setup_file, "r", encoding="utf-8") as f:
-                    setup_data = json.load(f)
-                
-                mode = setup_data.get("mode", "sandbox").lower()
-                if mode == "campaign":
-                    outline = setup_data.get("plot_outline", [])
-                    if outline:
-                        first = outline[0]
-                        
-                        # Build initial objectives array with ACTIVE/LOCKED statuses
-                        objs = []
-                        for i, o in enumerate(first.get("objectives", [])):
-                            o_copy = o.copy()
-                            o_copy["status"] = "ACTIVE" if i == 0 else "LOCKED"
-                            objs.append(o_copy)
-                            
-                        initial = [{
-                            "chapter_number": 1, "title": first.get("title", "Chapter 1"),
-                            "start_turn": 1, "end_turn": None, 
-                            "objectives": objs
-                        }]
-                else:
-                    initial = [{
-                        "chapter_number": 1, "title": setup_data.get("title", "Chapter 1"),
-                        "start_turn": 1, "end_turn": None
-                    }]
-                
-                with open(chapters_file, "w", encoding="utf-8") as f:
-                    json.dump(initial, f, indent=4)
+            ok, msg = prepare_restart(target_dir, save_run=bool(save_before))
+            if not ok:
+                return False, msg
 
-            # 3. Flush Log
-            # 3. Flush Log
-            if log_file.exists(): log_file.unlink()
+            with open(setup_file, "r", encoding="utf-8") as f:
+                setup_data = json.load(f)
 
+            headless_restart_wipe(target_dir, setup_data)
             return True, "Story reset to Turn 0."
         except Exception as e:
             return False, str(e)
