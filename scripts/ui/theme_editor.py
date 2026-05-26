@@ -28,11 +28,17 @@ from ui.tooltip import center_window_on_parent
 class ThemeEditorDialog(ctk.CTkToplevel):
     """Reusable theme editor with live mini-UI preview and preset gallery."""
 
-    def __init__(self, parent, on_theme_applied=None):
+    def __init__(self, parent, on_theme_applied=None, *, mode="global", initial_preset=None):
         super().__init__(parent)
         self.on_theme_applied = on_theme_applied
+        self.mode = mode
         self.themes = load_themes()
-        initial_preset = get_global_theme_preset_name()
+        if mode == "story" and initial_preset:
+            initial_preset = initial_preset.strip()
+        else:
+            initial_preset = initial_preset or get_global_theme_preset_name()
+        if initial_preset not in self.themes:
+            initial_preset = get_global_theme_preset_name()
         preset_data = self.themes.get(initial_preset)
         self._draft = normalize_theme(preset_data if isinstance(preset_data, dict) else {})
         self._suppress_preset_sync = False
@@ -170,9 +176,9 @@ class ThemeEditorDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(
             apply_row,
-            text="Apply Theme",
+            text="Apply to Story" if mode == "story" else "Apply Theme",
             fg_color="#1F6AA5",
-            command=self._apply_global_default,
+            command=self._apply_theme,
         ).pack(side="left", padx=4)
 
         ctk.CTkButton(apply_row, text="Close", fg_color="#4A4A4A", command=self.destroy).pack(side="right", padx=4)
@@ -312,16 +318,17 @@ class ThemeEditorDialog(ctk.CTkToplevel):
         self.preset_var.set(pick)
         self._suppress_preset_sync = False
 
-    def _apply_global_default(self):
+    def _apply_theme(self):
         self._sync_draft_from_controls()
         preset_name = self.preset_var.get().strip() or DEFAULT_THEME_PRESET
         self.themes[preset_name] = dict(self._draft)
         save_themes(self.themes)
 
-        ENGINE_CONFIG["global_theme_name"] = preset_name
-        save_json_atomically(ENGINE_CONFIG, ROOT_DIR / "configs" / "engine_config.json")
+        if self.mode == "global":
+            ENGINE_CONFIG["global_theme_name"] = preset_name
+            save_json_atomically(ENGINE_CONFIG, ROOT_DIR / "configs" / "engine_config.json")
         self._notify_applied()
 
     def _notify_applied(self):
         if callable(self.on_theme_applied):
-            self.on_theme_applied()
+            self.on_theme_applied(self.preset_var.get(), dict(self._draft))

@@ -177,7 +177,9 @@ Local LLMs often struggle with strict JSON formatting. TomeWeaver’s multi-stag
 TomeWeaver feels like a professional OS application. It features global OS-standard keyboard shortcuts (`Ctrl+Z` to undo, `Ctrl+Backspace` to delete words), fully dynamic flat-UI text wrapping without clunky scrollbars, and object-pooled rendering for buttery-smooth performance.
 
 ### 13. Atmospheric Theme Engine
-Customize the app's look from **Dashboard → ⚙ Settings**. Pick a built-in preset (**Default Dark**, **Default Light**, **Parchment**, **Horror**, **Cyberpunk**, **Forest**, **Ocean Deep**, and others) or create your own, edit colors and card borders in the theme editor, and apply one global skin across the library and all workspaces. Presets live in `configs/themes.json`; the active choice is stored as `global_theme_name` in `engine_config.json`.
+Customize the app's look from **Dashboard → ⚙ Settings**. Pick a built-in preset (**Default Dark**, **Default Light**, **Parchment**, **Horror**, **Cyberpunk**, **Forest**, **Ocean Deep**, and others) or create your own in the theme editor. The global choice applies to the library dashboard and is the **default** while playing.
+
+Authors can optionally bundle a **story theme** in **Story World → UI Theme** (`setup.json`). Exported cartridges include embedded colors so receivers get the intended look even without custom presets. Players keep their global theme unless they choose **Workspace Options → Use Story Theme**.
 
 ### 14. Storybook Compiler (Export)
 Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine compiles your chronological game log into a cleanly formatted, readable document.
@@ -307,7 +309,7 @@ If you are using the Shared Universe feature, cartridges are nested to share mem
 
 ### Core Configuration Files (Author Created)
 To build a new adventure, these files dictate the logic:
-*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, and mechanics. *(Edited via the Story World UI tab).*
+*   `setup.json`: The "DNA" of your world. Defines the tone, characters, plot outline, mechanics, and optional **`theme_preset` / `theme_embedded`** UI skin. *(Edited via the Story World UI tab).*
 *   `system_prompt.txt`: The core rules and strict formatting instructions for your AI Game Master.
 *   `prologue.txt` *(Optional)*: A hand-written opening text to anchor the start of your story.
 *   `epilogue.txt` *(Optional)*: A hand-written closing text for when the campaign goal is achieved.

@@ -15,14 +15,16 @@ class CodexTab(ctk.CTkFrame):
     """
     World Builder & Lore Editor
     """
-    def __init__(self, parent, engine):
+    def __init__(self, parent, engine, workspace=None):
         """Build setup.json / world-builder editors for the loaded story.
 
         Args:
             parent: Workspace tab container.
             engine: Active headless engine instance.
+            workspace: Optional :class:`WorkspaceFrame` for live theme preview.
         """
         super().__init__(parent, fg_color="transparent")
+        self.workspace = workspace
         self.engine = engine
         
         # Hardcoded list of engine keys so we don't display them in the "Custom Lore" section
@@ -196,6 +198,72 @@ class CodexTab(ctk.CTkFrame):
         entry_tags.pack(side="left", fill="x", expand=True, padx=10)
         self.core_vars["chapter_tags"] = var_tags
 
+        # --- OPTIONAL STORY THEME (bundled with cartridge export) ---
+        from config import load_themes
+        from ui.theme_utils import STORY_THEME_NONE_LABEL, get_story_theme_preset_name
+
+        theme_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+        theme_hdr.pack(fill="x", pady=(15, 2))
+        theme_lbl = ctk.CTkLabel(theme_hdr, text="UI Theme (optional, travels with export):", font=("Arial", 14, "bold"))
+        theme_lbl.pack(side="left")
+        Tooltip(
+            theme_lbl,
+            "Recommend a visual skin for this story. Players keep their global theme by default "
+            "and can opt in via Workspace Options → Use Story Theme.",
+        )
+
+        theme_names = [STORY_THEME_NONE_LABEL] + sorted(load_themes().keys())
+        current_preset = get_story_theme_preset_name(self.engine.setup_data)
+        self.theme_preset_var = ctk.StringVar(
+            value=current_preset if current_preset in theme_names else STORY_THEME_NONE_LABEL
+        )
+
+        theme_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        theme_row.pack(fill="x", pady=(0, 4))
+        self.theme_preset_menu = ctk.CTkOptionMenu(
+            theme_row,
+            variable=self.theme_preset_var,
+            values=theme_names,
+            width=320,
+            command=self._on_story_theme_preset_selected,
+        )
+        self.theme_preset_menu.pack(side="left")
+
+        def open_story_theme_editor():
+            from ui.theme_editor import ThemeEditorDialog
+
+            initial = self.theme_preset_var.get()
+            if initial == STORY_THEME_NONE_LABEL:
+                from ui.theme_utils import get_global_theme_preset_name
+
+                initial = get_global_theme_preset_name()
+
+            ThemeEditorDialog(
+                self,
+                mode="story",
+                initial_preset=initial,
+                on_theme_applied=self._on_story_theme_editor_applied,
+            )
+
+        btn_theme_edit = ctk.CTkButton(
+            theme_row,
+            text="...",
+            width=36,
+            fg_color="#1F6AA5",
+            command=open_story_theme_editor,
+        )
+        btn_theme_edit.pack(side="left", padx=(8, 0))
+        Tooltip(btn_theme_edit, "Edit theme colors and structure (full theme editor)")
+
+        ctk.CTkLabel(
+            scroll,
+            text="Embeds colors in setup.json so shared cartridges look right even if the player lacks a custom preset.",
+            text_color="gray",
+            font=("Arial", 11),
+            wraplength=640,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
         # --- SETTINGS TOGGLES (Placed directly below Lore & Tags) ---
         settings_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         settings_frame.pack(fill="x", pady=(15, 20))
@@ -271,6 +339,72 @@ class CodexTab(ctk.CTkFrame):
             self.core_scroll_frame._parent_canvas.yview_moveto(0.0)
         self.after(50, snap_to_top)
 
+    def _get_workspace_frame(self):
+        if self.workspace is not None:
+            return self.workspace
+        parent = self.master
+        while parent is not None:
+            if parent.__class__.__name__ == "WorkspaceFrame":
+                return parent
+            parent = getattr(parent, "master", None)
+        return None
+
+    def _refresh_theme_menu_values(self, select=None):
+        from config import load_themes
+        from ui.theme_utils import STORY_THEME_NONE_LABEL
+
+        names = [STORY_THEME_NONE_LABEL] + sorted(load_themes().keys())
+        self.theme_preset_menu.configure(values=names)
+        if select and select in names:
+            self.theme_preset_var.set(select)
+
+    def _sync_story_theme_from_ui(self):
+        from ui.theme_utils import STORY_THEME_NONE_LABEL, assign_story_theme
+
+        choice = self.theme_preset_var.get().strip()
+        preset = None if choice == STORY_THEME_NONE_LABEL else choice
+        assign_story_theme(self.engine.setup_data, preset, embed=True)
+
+    def _on_story_theme_preset_selected(self, _choice):
+        self._sync_story_theme_from_ui()
+        self._apply_workspace_story_theme(preview=True)
+
+    def _on_story_theme_editor_applied(self, preset_name, draft):
+        from ui.theme_utils import normalize_theme, set_story_theme_preference
+
+        preset_name = (preset_name or "").strip()
+        if preset_name:
+            self.engine.setup_data["theme_preset"] = preset_name
+            self.engine.setup_data["theme_embedded"] = normalize_theme(draft)
+            self._refresh_theme_menu_values(select=preset_name)
+            self._write_to_disk()
+            ws = self._get_workspace_frame()
+            if ws:
+                set_story_theme_preference(ws.folder_name, "story")
+            self._apply_workspace_story_theme(preview=True, persist_preference=True)
+
+    def _apply_workspace_story_theme(self, *, preview=False, persist_preference=False):
+        ws = self._get_workspace_frame()
+        if ws is None:
+            return
+
+        from ui.theme_utils import (
+            resolve_story_theme,
+            resolve_theme,
+            set_story_theme_preference,
+            story_has_bundled_theme,
+        )
+
+        if persist_preference and story_has_bundled_theme(self.engine.setup_data):
+            set_story_theme_preference(ws.folder_name, "story")
+
+        if preview or story_has_bundled_theme(self.engine.setup_data):
+            theme = resolve_story_theme(self.engine.setup_data)
+            if theme:
+                ws.apply_visual_theme(theme)
+                return
+
+        ws.apply_visual_theme(resolve_theme())
 
     # ---------------------------------------------------------
     # UI EVENT HANDLERS
@@ -459,6 +593,13 @@ class CodexTab(ctk.CTkFrame):
         self.engine.setup_data["can_die"] = self.var_die.get()
         self.engine.setup_data["allow_cheats"] = self.var_cheats.get()
         self.engine.setup_data["track_factions"] = self.var_fac.get()
+
+        if hasattr(self, "theme_preset_var"):
+            from ui.theme_utils import STORY_THEME_NONE_LABEL, assign_story_theme
+
+            choice = self.theme_preset_var.get().strip()
+            preset = None if choice == STORY_THEME_NONE_LABEL else choice
+            assign_story_theme(self.engine.setup_data, preset, embed=True)
         
         # Extract Inventory Schema
         new_schema = {}
@@ -510,6 +651,7 @@ class CodexTab(ctk.CTkFrame):
         """Handles the physical disk write and directory rename hooks after all AI processing is complete."""
         # Actual explicit save clicked by user
         self._write_to_disk()
+        self._apply_workspace_story_theme(preview=True, persist_preference=True)
         
         # --- TITLE RENAME HOOK ---
         if new_title and new_title != old_title:

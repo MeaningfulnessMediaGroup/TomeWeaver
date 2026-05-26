@@ -3,14 +3,23 @@ TomeWeaver: Theme Engine Utilities
 ----------------------------------
 State-driven visual theming: luminance-aware text, preset resolution,
 and CustomTkinter frame styling helpers.
+
+Global preset: ``engine_config.json`` → ``global_theme_name``.
+Optional per-story bundle: ``setup.json`` → ``theme_preset`` + ``theme_embedded``.
+Player override: ``instance_config.json`` → ``story_theme_preference``.
 """
 
 from config import (
     DEFAULT_THEME_PRESET,
     ENGINE_CONFIG,
+    INSTANCE_CONFIG,
+    ROOT_DIR,
     get_default_theme,
     load_themes,
+    save_json_atomically,
 )
+
+STORY_THEME_NONE_LABEL = "(None — player uses global theme)"
 
 
 def normalize_theme(raw):
@@ -60,7 +69,7 @@ def get_muted_text_color(hex_color):
 
 
 def resolve_theme(setup_data=None):
-    """Load the active global theme preset from ``engine_config.json``."""
+    """Load the active **global** theme preset from ``engine_config.json``."""
     themes = load_themes()
     name = ENGINE_CONFIG.get("global_theme_name", DEFAULT_THEME_PRESET)
     preset = themes.get(name)
@@ -70,7 +79,7 @@ def resolve_theme(setup_data=None):
 
 
 def resolve_dashboard_theme():
-    """Alias for :func:`resolve_theme` — dashboard and workspace share one global skin."""
+    """Dashboard shell always uses the global skin."""
     return resolve_theme()
 
 
@@ -83,9 +92,95 @@ def get_global_theme_preset_name():
     return DEFAULT_THEME_PRESET
 
 
-def resolve_theme_for_story_folder(folder_name):
-    """Library cards use the same global theme as the rest of the app."""
+def story_has_bundled_theme(setup_data) -> bool:
+    """True when ``setup.json`` ships a recommended / bundled UI skin."""
+    if not isinstance(setup_data, dict):
+        return False
+    if isinstance(setup_data.get("theme_embedded"), dict):
+        return True
+    preset = (setup_data.get("theme_preset") or "").strip()
+    return bool(preset)
+
+
+def get_story_theme_preset_name(setup_data) -> str | None:
+    if not isinstance(setup_data, dict):
+        return None
+    preset = (setup_data.get("theme_preset") or "").strip()
+    return preset or None
+
+
+def resolve_story_theme(setup_data):
+    """Resolve bundled story theme dict, or ``None`` if unset / invalid."""
+    if not isinstance(setup_data, dict):
+        return None
+
+    embedded = setup_data.get("theme_embedded")
+    if isinstance(embedded, dict):
+        return normalize_theme(embedded)
+
+    preset = (setup_data.get("theme_preset") or "").strip()
+    if not preset:
+        return None
+
+    themes = load_themes()
+    if preset in themes:
+        return normalize_theme(themes[preset])
+    return None
+
+
+def get_story_theme_preference(folder_name: str) -> str:
+    """``global`` (default) or ``story`` for this cartridge folder path."""
+    prefs = INSTANCE_CONFIG.get("story_theme_preference") or {}
+    mode = prefs.get(folder_name, "global")
+    return mode if mode in ("global", "story") else "global"
+
+
+def set_story_theme_preference(folder_name: str, mode: str) -> None:
+    """Persist per-story appearance choice in ``instance_config.json``."""
+    if mode not in ("global", "story"):
+        mode = "global"
+    INSTANCE_CONFIG.setdefault("story_theme_preference", {})[folder_name] = mode
+    save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+
+
+def resolve_theme_for_workspace(folder_name: str, setup_data) -> dict:
+    """Workspace skin: story bundle when opted-in, otherwise global."""
+    if get_story_theme_preference(folder_name) == "story":
+        story_theme = resolve_story_theme(setup_data)
+        if story_theme:
+            return story_theme
     return resolve_theme()
+
+
+def resolve_theme_for_story_folder(folder_name):
+    """Library cards use the global theme (dashboard stays consistent)."""
+    return resolve_theme()
+
+
+def assign_story_theme(setup_data: dict, preset_name: str | None, *, embed: bool = True) -> None:
+    """Write or clear story theme fields on ``setup_data`` (caller saves setup.json)."""
+    if not preset_name or preset_name == STORY_THEME_NONE_LABEL:
+        setup_data.pop("theme_preset", None)
+        setup_data.pop("theme_embedded", None)
+        return
+
+    setup_data["theme_preset"] = preset_name.strip()
+    if embed:
+        themes = load_themes()
+        raw = themes.get(setup_data["theme_preset"])
+        setup_data["theme_embedded"] = normalize_theme(raw if isinstance(raw, dict) else get_default_theme())
+    else:
+        setup_data.pop("theme_embedded", None)
+
+
+def story_theme_menu_label(setup_data, folder_name: str) -> str:
+    """Short label for workspace options menu."""
+    if not story_has_bundled_theme(setup_data):
+        return ""
+    preset = get_story_theme_preset_name(setup_data) or "Custom"
+    if get_story_theme_preference(folder_name) == "story":
+        return f"Appearance: Story ({preset}) ✓"
+    return f"Appearance: Use Story Theme ({preset})"
 
 
 LIBRARY_CARD_ROUNDING = 8
@@ -149,8 +244,6 @@ def apply_dashboard_chrome(dashboard, theme):
     if hasattr(dashboard, "app") and hasattr(dashboard.app, "container"):
         dashboard.app.container.configure(fg_color=outer)
 
-    # Title, search, breadcrumb, and pagination share the outer zone —
-    # mid color on these bars created visible horizontal bands.
     for attr in ("header_frame", "search_frame", "breadcrumb_frame", "footer_frame"):
         frame = getattr(dashboard, attr, None)
         if frame is not None:

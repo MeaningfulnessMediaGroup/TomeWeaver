@@ -49,10 +49,30 @@ class TestResolveTheme:
         theme = resolve_theme()
         assert theme["outer"] == "#121212"
 
-    def test_setup_data_is_ignored(self, monkeypatch):
-        monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Parchment")
-        theme = resolve_theme({"visual_theme": "Horror"})
+    def test_setup_embedded_theme_used_when_opted_in(self, monkeypatch, tmp_path):
+        from config import INSTANCE_CONFIG, save_json_atomically, ROOT_DIR
+        from ui.theme_utils import (
+            assign_story_theme,
+            resolve_theme_for_workspace,
+            set_story_theme_preference,
+        )
+
+        monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Default Dark")
+        setup = {}
+        assign_story_theme(setup, "Parchment", embed=True)
+        folder = "TestStory"
+        set_story_theme_preference(folder, "story")
+        theme = resolve_theme_for_workspace(folder, setup)
         assert theme["inner"] == "#f5f5dc"
+
+    def test_story_theme_ignored_when_preference_global(self, monkeypatch):
+        from ui.theme_utils import assign_story_theme, resolve_theme_for_workspace
+
+        monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Horror")
+        setup = {}
+        assign_story_theme(setup, "Parchment", embed=True)
+        theme = resolve_theme_for_workspace("AnyStory", setup)
+        assert theme["inner"] == "#2d0a0a"
 
 
 class TestGetGlobalThemePresetName:

@@ -30,7 +30,9 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`log_raw_json_on_failure`** | When `true`, always logs raw model output on JSON parse failures—even if verbose logging is off. |
 | **`max_inventory_keys`** | Maximum tracked inventory slots in the World Builder pill editor (default 8). |
 | **`adventures_dir`** | Absolute path to the story library root. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` is stored inside this folder. |
-| **`global_theme_name`** | Name of the active UI skin preset from `configs/themes.json` (e.g., `"Default Dark"`, `"Parchment"`). |
+| **`global_theme_name`** | Name of the active **global** UI skin preset from `configs/themes.json` (e.g., `"Default Dark"`, `"Parchment"`). Used for the dashboard and as the default workspace appearance. |
+
+Per-story appearance overrides are **not** stored here—see `setup.json` (author bundle) and `instance_config.json` (`story_theme_preference`).
 
 **Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse button).
 
@@ -42,7 +44,22 @@ Stores named UI skins (outer/mid/inner colors, border width, corner rounding). B
 
 **Access in UI:** Dashboard → `⚙ Settings` → **Active Theme** dropdown and **…** (theme editor).
 
-Each preset is a JSON object with keys such as `outer`, `mid`, `inner`, `border_w`, and `rounding`. The active preset name is saved in `engine_config.json` as `global_theme_name`.
+Each preset is a JSON object with keys such as `outer`, `mid`, `inner`, `border_w`, and `rounding`. The active global preset name is saved in `engine_config.json` as `global_theme_name`.
+
+### Optional story theme (`setup.json`)
+
+Authors can recommend a skin that travels with a shared cartridge:
+
+| Field | Description |
+| :--- | :--- |
+| **`theme_preset`** | Preset name from `themes.json` (e.g., `"Horror"`), or omit for no bundled theme. |
+| **`theme_embedded`** | Full color object copied at save time so importers get exact colors even if they lack a custom preset. |
+
+**Player choice:** `instance_config.json` → `story_theme_preference` maps each story folder to `"global"` (default) or `"story"`. Toggle in **Workspace → Options → Use Story Theme** / **Use My Global Theme** when a bundle exists.
+
+**UI:** Story World → Core Settings → **UI Theme (optional, travels with export)**.
+
+The dashboard always uses the global theme; only the active workspace respects the per-story override.
 
 ---
 
@@ -158,6 +175,7 @@ Separate from engine behavior, `instance_config.json` stores **volatile UI sessi
 | **`last_active_story`** | Relative path hint for session restore. |
 | **`last_author`** | Default author field pre-fill for new stories. |
 | **`story_bookmarks`** | Maps story paths to last-viewed turn indices for Time Travel restore. |
+| **`story_theme_preference`** | Maps story folder path → `"global"` or `"story"` (workspace appearance override). |
 
 **Access in UI:** Mostly automatic; bookmarks update when you scrub the timeline.
 

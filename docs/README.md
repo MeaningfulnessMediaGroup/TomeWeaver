@@ -41,7 +41,7 @@ The filter bar lets you instantly narrow the library:
 *   **Breadcrumb Navigation:** Drill into nested Universe folders; the **+ Create New Story** menu adapts to offer **Create Thread** when inside a universe.
 
 ### Global Settings & Themes
-Open **⚙ Settings** to configure API keys, engine rules, and the **Active Theme** preset. Use the **…** button beside the theme dropdown to open the visual theme editor (colors, borders, corner rounding). The chosen preset applies globally to the dashboard and all workspaces. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for `themes.json` details.
+Open **⚙ Settings** to configure API keys, engine rules, and the **global Active Theme** preset. Use the **…** button beside the theme dropdown to open the visual theme editor (colors, borders, corner rounding). Per-story themes are optional in **Story World → UI Theme**; players opt in via **Workspace Options**. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for `themes.json` and `setup.json` theme fields.
 
 ---
 
@@ -62,6 +62,9 @@ Allows you to add infinite custom fields to your world. When you click "+ Add Ne
 
 ### Inventory Schema Editor
 If you enable "Track Inventory & Health", a visual pill-editor appears. You can define up to 8 tracking slots. When you hit Save, the AI will automatically scan your slots and assign perfectly matching Emojis and Hex Colors to them!
+
+### Optional UI Theme
+Under **UI Theme (optional, travels with export)**, authors can attach a recommended visual preset to `setup.json`. Full cartridges and branch packs include these colors. Players default to their **global Settings** theme and can opt into the story skin from **Workspace Options**.
 
 ### ✨ The "Master Overhaul" Button
 At the very top of the Core Settings tab is the **Generate World** button. If you are ever unhappy with your current story, you can use this to completely overwrite the active cartridge with a brand new AI-generated world without having to return to the Dashboard.
@@ -90,6 +93,7 @@ The top bar shows the active mode (Sandbox or Campaign) and story title. Use the
 *   **Generate Missing Bridges** — Batch-novelize transition prose across history.
 *   **Slice Chapters...** — Extract selected chapters into a new standalone story folder.
 *   **Run Tree...** — Browse timeline branches, switch between them, restore & fork, export/import branch packs.
+*   **Use Story Theme / Use My Global Theme** — (When the author bundled a skin) switch workspace appearance.
 *   **Import Turns...** — Paste bulk prose with action markers to splice into the timeline.
 *   **Export Story** — Compile the active timeline to TXT, Markdown, or HTML.
 *   **Restart Story** — Wipe root history (optional save to run tree first; respects Story Seed / prologue bypasses).

@@ -630,6 +630,7 @@ def load_instance_config():
         "last_active_story": "",
         "last_author": "Anonymous",
         "story_bookmarks": {},  # Maps 'Rel/Path/To/Story': turn_index
+        "story_theme_preference": {},  # Maps folder path -> "global" | "story"
         "force_chapter_transition_mode": "wrap_up",  # wrap_up | immediate
     }
     

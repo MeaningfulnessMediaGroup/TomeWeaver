@@ -10,7 +10,7 @@ from ui.tab_story import StoryTab
 from ui.tab_codex import CodexTab  
 from ui.tab_chapters import ChapterTab
 from ui.tooltip import Tooltip
-from ui.theme_utils import apply_workspace_chrome, resolve_theme
+from ui.theme_utils import apply_workspace_chrome, resolve_theme_for_workspace, story_has_bundled_theme
 
 
 class WorkspaceFrame(ctk.CTkFrame):
@@ -53,15 +53,24 @@ class WorkspaceFrame(ctk.CTkFrame):
         Tooltip(btn_close, "Safely save and return to the Dashboard.")
         
         # Combined Options Menu
+        self._base_option_values = [
+            "Generate Recap",
+            "Generate Missing Bridges",
+            "Slice Chapters...",
+            "Import Turns...",
+            "Export Story",
+            "Run Tree...",
+            "Restart Story",
+        ]
         self.opt_var = ctk.StringVar(value="Options...")
-        opt_menu = ctk.CTkOptionMenu(
-            header, 
-            variable=self.opt_var, 
-            values=["Generate Recap", "Generate Missing Bridges", "Slice Chapters...", "Import Turns...", "Export Story", "Run Tree...", "Restart Story"], 
+        self.opt_menu = ctk.CTkOptionMenu(
+            header,
+            variable=self.opt_var,
+            values=self._workspace_option_values(),
             width=200,
-            command=self._handle_options_menu
+            command=self._handle_options_menu,
         )
-        opt_menu.pack(side="right", padx=10)
+        self.opt_menu.pack(side="right", padx=10)
 
         # ONLY show Test Mode for Campaigns. Sandbox has no defined 'end' to test against.
         if self.engine.is_campaign:
@@ -111,17 +120,33 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.memory_tab = None
         self.chapters_tab = None
 
-        self._active_theme = resolve_theme()
+        self._active_theme = resolve_theme_for_workspace(self.folder_name, self.engine.setup_data)
         self.apply_visual_theme(self._active_theme)
 
+    def _workspace_option_values(self):
+        values = list(self._base_option_values)
+        if story_has_bundled_theme(self.engine.setup_data):
+            from ui.theme_utils import get_story_theme_preference
+
+            if get_story_theme_preference(self.folder_name) == "story":
+                values.append("Use My Global Theme")
+            else:
+                preset = self.engine.setup_data.get("theme_preset") or "bundled"
+                values.append(f"Use Story Theme ({preset})")
+        return values
+
+    def _refresh_options_menu(self):
+        self.opt_menu.configure(values=self._workspace_option_values())
+
     def apply_visual_theme(self, theme=None):
-        """Paint workspace chrome + story card from the global theme preset."""
+        """Paint workspace chrome + story card from global or story-bundled preset."""
         if theme is None:
-            theme = resolve_theme()
+            theme = resolve_theme_for_workspace(self.folder_name, self.engine.setup_data)
         self._active_theme = theme
         apply_workspace_chrome(self, theme)
         if hasattr(self, "story_tab") and self.story_tab is not None:
             self.story_tab.apply_theme(theme)
+        self._refresh_options_menu()
 
     def _show_integrity_warnings(self):
         """Displays a modal listing data corruptions caught and healed by the engine on boot."""
@@ -183,7 +208,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         elif target == "Story World":
             if self.codex_tab is None:
                 from ui.tab_codex import CodexTab
-                self.codex_tab = CodexTab(self.t_codex, self.engine)
+                self.codex_tab = CodexTab(self.t_codex, self.engine, workspace=self)
                 self.codex_tab.pack(fill="both", expand=True)
             # Reset both scrollable frames in the Story World Tab
             if hasattr(self.codex_tab, 'core_scroll_frame'): self.after(10, lambda: self.codex_tab.core_scroll_frame._parent_canvas.yview_moveto(0.0))
@@ -232,6 +257,16 @@ class WorkspaceFrame(ctk.CTkFrame):
             self._show_slice_dialog()
         elif choice == "Restart Story":
             self._restart_story()
+        elif choice == "Use My Global Theme":
+            from ui.theme_utils import set_story_theme_preference
+
+            set_story_theme_preference(self.folder_name, "global")
+            self.apply_visual_theme()
+        elif choice.startswith("Use Story Theme"):
+            from ui.theme_utils import set_story_theme_preference
+
+            set_story_theme_preference(self.folder_name, "story")
+            self.apply_visual_theme()
 
     def _generate_missing_bridges(self):
         """Manually triggers the background worker to patch all missing narrative bridges."""

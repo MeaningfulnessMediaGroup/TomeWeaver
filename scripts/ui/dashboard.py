@@ -1748,7 +1748,7 @@ class DashboardFrame(ctk.CTkFrame):
         theme_row.pack(fill="x", pady=5)
         lbl_theme = ctk.CTkLabel(theme_row, text="Active Theme:", font=("Arial", 14, "bold"), width=200, anchor="e")
         lbl_theme.pack(side="left", padx=(0, 15))
-        Tooltip(lbl_theme, "Global UI skin from configs/themes.json. Applies to the dashboard and all workspaces.")
+        Tooltip(lbl_theme, "Global UI skin from configs/themes.json. Dashboard and stories default to this; optional per-story themes can override in Workspace Options.")
 
         from config import load_themes
         theme_names = sorted(load_themes().keys())
@@ -1759,7 +1759,7 @@ class DashboardFrame(ctk.CTkFrame):
         def open_theme_editor():
             from ui.theme_editor import ThemeEditorDialog
 
-            def refresh_dashboard_theme():
+            def refresh_dashboard_theme(_preset=None, _draft=None):
                 theme_menu.set(ENGINE_CONFIG.get("global_theme_name", "Default Dark"))
                 self.apply_dashboard_theme()
 
