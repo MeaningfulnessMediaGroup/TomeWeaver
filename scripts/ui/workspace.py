@@ -490,7 +490,7 @@ class WorkspaceFrame(ctk.CTkFrame):
         """Spawns a modal allowing the user to paste raw text to be parsed into turns."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Import External Story")
-        dialog.geometry("800x650")
+        dialog.geometry("820x780")
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
@@ -517,6 +517,102 @@ class WorkspaceFrame(ctk.CTkFrame):
 
         box = ctk.CTkTextbox(dialog, wrap="word", font=("Arial", 14))
         box.pack(fill="both", expand=True, padx=20, pady=10)
+
+        results_frame = ctk.CTkFrame(dialog, fg_color="#2A2A2A", corner_radius=8)
+        score_var = ctk.StringVar(value="")
+        score_lbl = ctk.CTkLabel(results_frame, textvariable=score_var, font=("Arial", 14, "bold"), anchor="w")
+        score_lbl.pack(fill="x", padx=12, pady=(10, 4))
+        results_box = ctk.CTkTextbox(results_frame, wrap="word", font=("Arial", 12), height=170)
+        results_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        results_box.configure(state="disabled")
+
+        def _format_eval_report(data):
+            score = data.get("integration_score", "?")
+            verdict = str(data.get("verdict", "unknown")).replace("_", " ").title()
+            lines = [
+                f"Summary: {data.get('summary', '').strip()}",
+                "",
+                f"Character check: {data.get('character_analysis', '').strip()}",
+                "",
+                f"Recommendation: {data.get('recommendation', '').strip()}",
+                "",
+            ]
+            fits = data.get("fitting_reasons") or []
+            if fits:
+                lines.append("Why it may fit:")
+                lines.extend(f"  • {r}" for r in fits)
+                lines.append("")
+            misfits = data.get("misfit_reasons") or []
+            if misfits:
+                lines.append("Why it may NOT fit:")
+                lines.extend(f"  • {r}" for r in misfits)
+            return score, verdict, "\n".join(lines).strip()
+
+        def _score_color(score):
+            try:
+                score = int(score)
+            except (TypeError, ValueError):
+                return "#B0B0B0"
+            if score >= 75:
+                return "#66BB6A"
+            if score >= 50:
+                return "#FFB74D"
+            return "#EF5350"
+
+        def _show_eval_results(data):
+            score, verdict, body = _format_eval_report(data)
+            score_var.set(f"Integration Score: {score}/100 — {verdict}")
+            score_lbl.configure(text_color=_score_color(score))
+            results_box.configure(state="normal")
+            results_box.delete("1.0", "end")
+            results_box.insert("1.0", body)
+            results_box.configure(state="disabled")
+            if not results_frame.winfo_ismapped():
+                results_frame.pack(fill="x", padx=20, pady=(0, 8), before=btn_frame)
+
+        def on_evaluate():
+            raw_text = box.get("1.0", "end").strip()
+            if not raw_text:
+                from tkinter import messagebox
+                messagebox.showwarning("Nothing to Evaluate", "Paste story text in the box first.")
+                return
+
+            btn_eval.configure(state="disabled", text="Evaluating...")
+            dialog.configure(cursor="watch")
+            score_var.set("Evaluating integration fit against local and universe lore...")
+            score_lbl.configure(text_color="#00ACC1")
+            results_box.configure(state="normal")
+            results_box.delete("1.0", "end")
+            results_box.insert("1.0", "Analyzing pasted text against story memory, characters, and splice context...")
+            results_box.configure(state="disabled")
+            if not results_frame.winfo_ismapped():
+                results_frame.pack(fill="x", padx=20, pady=(0, 8), before=btn_frame)
+
+            def worker():
+                from api import TomeWeaverAPI
+                success, result = TomeWeaverAPI.evaluate_import_integration(
+                    self.engine, raw_text, insert_idx
+                )
+
+                def update_ui():
+                    dialog.configure(cursor="")
+                    btn_eval.configure(state="normal", text="Integration Evaluation")
+                    if success:
+                        _show_eval_results(result)
+                    else:
+                        from tkinter import messagebox
+                        score_var.set("Evaluation failed")
+                        score_lbl.configure(text_color="#EF5350")
+                        results_box.configure(state="normal")
+                        results_box.delete("1.0", "end")
+                        results_box.insert("1.0", str(result))
+                        results_box.configure(state="disabled")
+                        messagebox.showerror("Evaluation Failed", str(result))
+
+                self.after(0, update_ui)
+
+            import threading
+            threading.Thread(target=worker, daemon=True).start()
 
         def on_import():
             raw_text = box.get("1.0", "end").strip()
@@ -568,6 +664,20 @@ class WorkspaceFrame(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=15)
         ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=dialog.destroy).pack(side="left")
+        btn_eval = ctk.CTkButton(
+            btn_frame,
+            text="Integration Evaluation",
+            width=170,
+            fg_color="#1565C0",
+            hover_color="#0D47A1",
+            command=on_evaluate,
+        )
+        btn_eval.pack(side="left", padx=(12, 0))
+        Tooltip(
+            btn_eval,
+            "Analyze pasted text against this story's local memory and shared universe lore. "
+            "Checks character names, tone, and continuity before you import.",
+        )
         ctk.CTkButton(btn_frame, text="Import & Splice Timeline", font=("Arial", 14, "bold"), fg_color="#2E7D32", hover_color="#1B5E20", command=on_import).pack(side="right")
 
         

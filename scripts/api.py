@@ -1173,6 +1173,91 @@ class TomeWeaverAPI:
                 
         return False, f"Generation failed.\nReason: {err}"
         
+    @staticmethod
+    def evaluate_import_integration(engine, raw_text, insert_after_idx):
+        """Score how well pasted import text fits the active story's local and universe RAG."""
+        from config import ENGINE_CONFIG, PROMPTS
+        from llm import enforce_rate_limit, sanitize_json, translate_api_error
+        import json
+        import requests
+        import time
+
+        raw_text = (raw_text or "").strip()
+        if not raw_text:
+            return False, "Paste some story text to evaluate."
+
+        story_context = engine.build_import_evaluation_context(insert_after_idx)
+        preview = raw_text[:12000]
+        if len(raw_text) > 12000:
+            preview += "\n\n[... pasted text truncated for evaluation ...]"
+
+        splice_turn = 0
+        if insert_after_idx >= 0 and engine.history:
+            splice_turn = engine.history[insert_after_idx].get("turn", insert_after_idx + 1)
+
+        sys_prompt = PROMPTS.get("SYS_IMPORT_EVAL", "")
+        user_prompt = PROMPTS.get("USER_IMPORT_EVAL", "")
+        user_prompt = user_prompt.replace("{story_context}", story_context)
+        user_prompt = user_prompt.replace("{import_text}", preview)
+        user_prompt = user_prompt.replace("{splice_turn}", str(splice_turn))
+
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        headers = {"Content-Type": "application/json"}
+        if ENGINE_CONFIG.get("api_key", "").strip():
+            headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
+
+        err = "Unknown error"
+        for attempt in range(3):
+            payload = {
+                "model": ENGINE_CONFIG.get("model", "loaded-model"),
+                "messages": messages,
+                "temperature": 0.2,
+                "max_tokens": 1200,
+            }
+            try:
+                enforce_rate_limit()
+                resp = requests.post(
+                    ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90
+                )
+                if resp.status_code != 200:
+                    err = translate_api_error(response=resp)
+                    time.sleep(2)
+                    continue
+
+                raw = resp.json()["choices"][0]["message"]["content"].strip()
+                data = json.loads(sanitize_json(raw), strict=False)
+                if not isinstance(data, dict):
+                    return False, "Evaluation returned invalid data."
+
+                score = data.get("integration_score", 0)
+                try:
+                    score = max(0, min(100, int(score)))
+                except (TypeError, ValueError):
+                    score = 0
+                data["integration_score"] = score
+
+                for key in ("fitting_reasons", "misfit_reasons"):
+                    val = data.get(key, [])
+                    if not isinstance(val, list):
+                        data[key] = [str(val)] if val else []
+                    else:
+                        data[key] = [str(v) for v in val if str(v).strip()]
+
+                for key in ("summary", "character_analysis", "recommendation", "verdict"):
+                    if key not in data:
+                        data[key] = ""
+
+                return True, data
+            except Exception as e:
+                err = translate_api_error(exception=e)
+                time.sleep(2)
+
+        return False, f"Integration evaluation failed.\nReason: {err}"
+        
      
     @staticmethod
     def generate_schema_data(setup_data, schema_type, field_name="", shorthand=None):

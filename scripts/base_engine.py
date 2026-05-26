@@ -858,6 +858,168 @@ class BaseEngine:
     # NARRATIVE SURGERY (THE TIMELINE EDITOR)
     # ---------------------------------------------------------
 
+    def build_import_evaluation_context(self, insert_after_idx):
+        """Assemble story identity, timeline anchor, and RAG snapshots for import-fit checks."""
+        setup = self.setup_data
+        parts = []
+
+        parts.append("=== STORY IDENTITY ===")
+        parts.append(f"Title: {setup.get('title', 'Unknown')}")
+        parts.append(f"Mode: {setup.get('mode', 'sandbox')}")
+        parts.append(f"Tone: {setup.get('tone', '')}")
+        parts.append(f"Main Character (canonical): {setup.get('main_character', 'Unknown')}")
+        if setup.get("goal"):
+            parts.append(f"Story Goal: {setup.get('goal')}")
+        if setup.get("setting"):
+            parts.append(f"Setting: {setup.get('setting')}")
+        if setup.get("lore_and_rules"):
+            parts.append(f"Local Lore & Rules:\n{setup.get('lore_and_rules')}")
+
+        if getattr(self, "is_universe_thread", False) and getattr(self, "master_setup_data", None):
+            master = self.master_setup_data
+            parts.append("\n=== SHARED UNIVERSE (GLOBAL) ===")
+            parts.append(f"Universe Title: {master.get('title', 'Unknown')}")
+            if master.get("tone"):
+                parts.append(f"Universe Tone: {master.get('tone')}")
+            if master.get("lore_and_rules"):
+                parts.append(f"Universe Lore & Rules:\n{master.get('lore_and_rules')}")
+
+        def _format_ledger(scope, ledger_key, title, max_entities=25):
+            block = ""
+            ledger = self.memory.get(ledger_key, {})
+            bucket = ledger.get(scope, {}) if isinstance(ledger, dict) else {}
+            if not isinstance(bucket, dict) or not bucket:
+                return block
+
+            block += f"\n--- {title} ({scope.upper()}) ---\n"
+            count = 0
+            for name, data in bucket.items():
+                if count >= max_entities:
+                    block += f"... ({len(bucket) - max_entities} more entities omitted)\n"
+                    break
+                if not isinstance(data, dict):
+                    continue
+
+                is_global_entity = scope == "global"
+                if is_global_entity and getattr(self, "is_universe_thread", False):
+                    state = self.memory.get("global_states", {}).get(name, {}).get("state", "archived")
+                else:
+                    state = data.get("state", "active")
+                if state == "archived":
+                    continue
+
+                traits = data.get("characteristics", {})
+                trait_str = ", ".join(f"{k}: {v}" for k, v in traits.items()) if isinstance(traits, dict) else ""
+                notes = data.get("author_notes", "")
+                ledger_events = data.get("ledger", [])
+                recent = " ".join(str(e) for e in ledger_events[-2:]) if isinstance(ledger_events, list) else ""
+                block += f"- {name}"
+                if trait_str:
+                    block += f" | Traits: [{trait_str}]"
+                if recent:
+                    block += f" | Recent: {recent}"
+                if notes:
+                    block += f" | Notes: {notes}"
+                block += "\n"
+                count += 1
+            return block
+
+        chapter_ledger = self.memory.get("chapter_ledger", [])
+        if chapter_ledger:
+            parts.append("\n=== COMPLETED CHAPTERS (summaries) ===")
+            for c in chapter_ledger[-8:]:
+                parts.append(
+                    f"- Ch {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}"
+                )
+
+        plot_ledger = self.memory.get("plot_ledger", [])
+        condensed_nums = {c.get("chapter_number") for c in chapter_ledger}
+        active_parts = [p for p in plot_ledger if p.get("chapter_number") not in condensed_nums]
+        if active_parts:
+            parts.append("\n=== RECENT PLOT PARTS (granular) ===")
+            for p in active_parts[-10:]:
+                parts.append(f"- {p.get('summary', '')}")
+
+        parts.append("\n=== LOCAL RAG (this story thread) ===")
+        for key, label in (
+            ("character_ledger", "Characters"),
+            ("location_ledger", "Locations"),
+            ("artifact_ledger", "Artifacts"),
+            ("faction_ledger", "Factions"),
+        ):
+            parts.append(_format_ledger("local", key, label))
+
+        if getattr(self, "is_universe_thread", False):
+            parts.append("\n=== GLOBAL UNIVERSE RAG (shared across threads) ===")
+            for key, label in (
+                ("character_ledger", "Characters"),
+                ("location_ledger", "Locations"),
+                ("artifact_ledger", "Artifacts"),
+                ("faction_ledger", "Factions"),
+            ):
+                parts.append(_format_ledger("global", key, label))
+
+        aliases = self.memory.get("aliases", {})
+        alias_lines = []
+        for scope in ("local", "global"):
+            scope_aliases = aliases.get(scope, {}) if isinstance(aliases, dict) else {}
+            if not isinstance(scope_aliases, dict):
+                continue
+            for ledger_type, alias_map in scope_aliases.items():
+                if not isinstance(alias_map, dict):
+                    continue
+                for alias, target in list(alias_map.items())[:20]:
+                    alias_lines.append(f"- '{alias}' -> '{target}' ({scope}/{ledger_type})")
+        if alias_lines:
+            parts.append("\n=== KNOWN NAME ALIASES ===")
+            parts.extend(alias_lines[:30])
+
+        if insert_after_idx >= 0 and self.history:
+            anchor = self.history[insert_after_idx]
+            parts.append("\n=== SPLICE ANCHOR (import inserts AFTER this turn) ===")
+            parts.append(f"Turn {anchor.get('turn', '?')} | Location: {anchor.get('location', 'Unknown')}")
+            parts.append(f"POV: {anchor.get('pov_character', 'Unknown')}")
+            if anchor.get("player_choice"):
+                parts.append(f"Last Action: {anchor.get('player_choice')}")
+            prose = (anchor.get("story_text") or "")[:1200]
+            if prose:
+                parts.append(f"Scene ending:\n{prose}")
+
+            ctx_start = max(0, insert_after_idx - 4)
+            recent = self.history[ctx_start : insert_after_idx + 1]
+            if len(recent) > 1:
+                parts.append("\n=== RECENT TIMELINE (leading into splice) ===")
+                for t in recent:
+                    parts.append(
+                        f"Turn {t.get('turn', '?')} [{t.get('pov_character', '?')} @ {t.get('location', '?')}]"
+                    )
+                    if t.get("player_choice"):
+                        parts.append(f"  Action: {t.get('player_choice')}")
+                    snippet = (t.get("story_text") or "")[:400]
+                    if snippet:
+                        parts.append(f"  Prose: {snippet}")
+
+        active_chap = None
+        if self.history and insert_after_idx >= 0:
+            anchor_turn = self.history[insert_after_idx].get("turn", 1)
+            active_chap = next(
+                (
+                    c
+                    for c in reversed(self.chapters)
+                    if c.get("start_turn") is not None and c["start_turn"] <= anchor_turn
+                ),
+                self.chapters[0] if self.chapters else None,
+            )
+        if active_chap:
+            parts.append(
+                f"\n=== ACTIVE CHAPTER AT SPLICE ===\n"
+                f"Chapter {active_chap.get('chapter_number', '?')}: {active_chap.get('title', '')}"
+            )
+            if active_chap.get("setting"):
+                parts.append(f"Chapter Setting: {active_chap.get('setting')}")
+
+        return "\n".join(parts)
+
     def import_turns(self, raw_text, insert_after_idx):
         """
         Parses a massive block of plaintext into structured TomeWeaver turns.
