@@ -176,3 +176,128 @@ def library_cartridge(tmp_path, monkeypatch):
         return story_dir, name
 
     return _make
+
+
+def valid_turn_payload(turn_num=1, **overrides):
+    """Minimal turn dict that satisfies ``validate_turn_schema``."""
+    base = {
+        "turn": turn_num,
+        "story_text": f"Story prose for turn {turn_num}.",
+        "pov_character": "Hero",
+        "location": "Test Loc",
+        "input_type": "choice",
+        "choices": ["Option A", "Option B"],
+        "text_prompt": None,
+        "is_game_over": False,
+        "player_choice": None,
+        "narrative_bridge": "",
+    }
+    base.update(overrides)
+    return base
+
+
+def assert_cartridge_consistent(engine, *, check_disk=True):
+    """Assert Master Clock, chapter bounds, and optional on-disk parity."""
+    history = engine.history or []
+    if history:
+        turns = [int(t.get("turn", 0)) for t in history]
+        expected = list(range(turns[0], turns[0] + len(turns)))
+        assert turns == expected, f"Non-contiguous Master Clock: {turns}"
+        assert engine.get_next_turn_number() == turns[-1] + 1
+
+    max_turn = max((int(t.get("turn", 0)) for t in history), default=0)
+    for chap in engine.chapters:
+        start = chap.get("start_turn")
+        end = chap.get("end_turn")
+        if start is not None:
+            assert start >= 1
+        if end is not None and start is not None:
+            assert end >= start
+            if history:
+                assert end <= max_turn
+
+    if check_disk and (engine.adv_dir / "history.json").exists():
+        disk = load_json_safely(engine.adv_dir / "history.json", "history.json")
+        assert disk == history
+
+
+@pytest.fixture
+def mock_llm_response(monkeypatch):
+    """Patch ``get_llm_response`` on engine modules (imported at module level)."""
+
+    def _apply(payload_factory=None):
+        import base_engine
+        import campaign
+        import llm
+        import sandbox
+
+        def factory(*_args, **_kwargs):
+            if callable(payload_factory):
+                turn = payload_factory(*_args, **_kwargs)
+            else:
+                turn = payload_factory or valid_turn_payload(turn_num=99)
+            return turn, None, json.dumps(turn)
+
+        for mod in (llm, base_engine, campaign):
+            if hasattr(mod, "get_llm_response"):
+                monkeypatch.setattr(mod, "get_llm_response", factory)
+        return factory
+
+    return _apply
+
+
+@pytest.fixture
+def universe_library(tmp_path, monkeypatch):
+    """Shared universe + thread story under a patched adventures library."""
+
+    def _make(*, thread_name="DetectiveThread"):
+        from config import ENGINE_CONFIG, create_boilerplate_files
+
+        library = tmp_path / "library"
+        universe = library / "NeonBasin"
+        thread = universe / thread_name
+        universe.mkdir(parents=True)
+        thread.mkdir(parents=True)
+
+        write_json(
+            universe / "master_setup.json",
+            {
+                "universe_title": "Neon Basin",
+                "tone": "Cyberpunk noir",
+                "lore_and_rules": "Global canon: the city never sleeps.",
+            },
+        )
+        write_json(
+            universe / "shared_memory.json",
+            {
+                "character_ledger": {},
+                "location_ledger": {
+                    "The Gilded Tankard": {
+                        "characteristics": {"Status": "intact"},
+                        "ledger": [],
+                        "state": "active",
+                        "last_seen_turn": 1,
+                    }
+                },
+                "artifact_ledger": {},
+                "faction_ledger": {},
+                "aliases": {
+                    "character_ledger": {},
+                    "location_ledger": {},
+                    "artifact_ledger": {},
+                    "faction_ledger": {},
+                },
+            },
+        )
+
+        create_boilerplate_files(thread, "sandbox")
+        setup = load_json_safely(thread / "setup.json", "setup.json")
+        setup["is_universe_thread"] = True
+        setup["title"] = "The Detective"
+        write_json(thread / "setup.json", setup)
+
+        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library.resolve()))
+        rel = f"NeonBasin/{thread_name}"
+        return library, universe, thread, rel
+
+    return _make

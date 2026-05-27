@@ -117,3 +117,56 @@ class TestLibraryCardStyle:
         assert frame.config["corner_radius"] == LIBRARY_CARD_ROUNDING
         assert frame.config["border_width"] == 0
         assert frame.config["fg_color"] == "#2a2a2a"
+
+
+class TestStoryThemeBundling:
+    """Per-story theme fields in setup.json and workspace preference."""
+
+    def test_assign_story_theme_embeds_colors(self, monkeypatch):
+        from ui.theme_utils import assign_story_theme, story_has_bundled_theme
+
+        monkeypatch.setitem(ENGINE_CONFIG, "global_theme_name", "Default Dark")
+        setup = {}
+        assign_story_theme(setup, "Parchment", embed=True)
+        assert story_has_bundled_theme(setup)
+        assert setup["theme_preset"] == "Parchment"
+        assert setup["theme_embedded"]["inner"] == "#f5f5dc"
+
+    def test_assign_none_clears_bundled_theme(self):
+        from ui.theme_utils import assign_story_theme, story_has_bundled_theme
+
+        setup = {"theme_preset": "Horror", "theme_embedded": {"inner": "#000"}}
+        assign_story_theme(setup, None, embed=True)
+        assert not story_has_bundled_theme(setup)
+        assert "theme_preset" not in setup
+
+    def test_resolve_story_theme_prefers_embedded_over_preset_name(self):
+        from ui.theme_utils import assign_story_theme, resolve_story_theme
+
+        setup = {}
+        assign_story_theme(setup, "Default Dark", embed=True)
+        setup["theme_embedded"]["inner"] = "#ABCDEF"
+        theme = resolve_story_theme(setup)
+        assert theme["inner"] == "#ABCDEF"
+
+    def test_story_theme_menu_label_reflects_preference(self, monkeypatch):
+        from config import INSTANCE_CONFIG
+        from ui.theme_utils import assign_story_theme, set_story_theme_preference, story_theme_menu_label
+
+        monkeypatch.setitem(INSTANCE_CONFIG, "story_theme_preference", {})
+        setup = {}
+        assign_story_theme(setup, "Parchment", embed=True)
+        folder = "MyStory_MenuLabel"
+        label = story_theme_menu_label(setup, folder)
+        assert "Use Story Theme" in label
+
+        set_story_theme_preference(folder, "story")
+        active = story_theme_menu_label(setup, folder)
+        assert "✓" in active
+        assert "Parchment" in active
+
+    def test_get_story_theme_preset_name(self):
+        from ui.theme_utils import get_story_theme_preset_name
+
+        assert get_story_theme_preset_name({}) is None
+        assert get_story_theme_preset_name({"theme_preset": " Horror "}) == "Horror"
