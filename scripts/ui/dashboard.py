@@ -1618,9 +1618,16 @@ class DashboardFrame(ctk.CTkFrame):
         
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""
-        from config import load_engine_config, ROOT_DIR, ENGINE_CONFIG, get_adventures_dir, get_default_adventures_dir
+        from config import (
+            load_engine_config,
+            ROOT_DIR,
+            ENGINE_CONFIG,
+            INSTANCE_CONFIG,
+            get_adventures_dir,
+            get_default_adventures_dir,
+            save_json_atomically,
+        )
         from ui.tooltip import Tooltip
-        from tkinter import filedialog
         import json
         
         dialog = ctk.CTkToplevel(self)
@@ -1666,7 +1673,11 @@ class DashboardFrame(ctk.CTkFrame):
         adv_row.pack(fill="x", pady=5)
         lbl_adv = ctk.CTkLabel(adv_row, text="Adventures Library:", font=("Arial", 14, "bold"), width=200, anchor="e")
         lbl_adv.pack(side="left", padx=(0, 15))
-        Tooltip(lbl_adv, "Root folder for all story cartridges, universes, and index.json. Leave empty for the default ./adventures next to the app.")
+        Tooltip(
+            lbl_adv,
+            "Your machine's story library root (saved in instance_config.json). "
+            "Leave empty for the default ./adventures next to the app.",
+        )
 
         adventures_var = ctk.StringVar(value=str(get_adventures_dir()))
         adv_entry = ctk.CTkEntry(adv_row, textvariable=adventures_var, font=("Arial", 13), width=220)
@@ -1676,7 +1687,27 @@ class DashboardFrame(ctk.CTkFrame):
             initial = adventures_var.get().strip() or str(get_default_adventures_dir())
             if not Path(initial).exists():
                 initial = str(get_default_adventures_dir())
-            picked = filedialog.askdirectory(title="Select Adventures Library Folder", initialdir=initial)
+
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.attributes("-topmost", False)
+            try:
+                picked = filedialog.askdirectory(
+                    title="Select Adventures Library Folder",
+                    initialdir=initial,
+                    parent=dialog,
+                )
+            finally:
+                dialog.attributes("-topmost", True)
+                try:
+                    dialog.grab_set()
+                except Exception:
+                    pass
+                dialog.lift()
+                dialog.focus_force()
+
             if picked:
                 adventures_var.set(str(Path(picked).resolve()))
 
@@ -1740,6 +1771,12 @@ class DashboardFrame(ctk.CTkFrame):
 
         add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True, tooltip_text="Scales the entire application interface for 4K/high-res monitors. Requires restart.")
         add_field("Story Font Size:", "prose_font_size", is_number=True, tooltip_text="The point size of the prose text in the main workspace.")
+        add_field(
+            "Enable Inline Prose Editing:",
+            "inline_prose_edit",
+            is_bool=True,
+            tooltip_text="Allow direct editing of turn story text in the timeline card. Changes auto-save after a short pause and before any action.",
+        )
         add_field("Text Wrap Margin (Pixels):", "ui_wrap_margin", is_number=True, tooltip_text="Adjusts the right-side padding for text in the timeline. Increase this if your text is being cut off on the right.")
 
         ctk.CTkLabel(scroll, text="--- Visual Theming ---", text_color="gray").pack(pady=(20, 5))
@@ -1811,13 +1848,6 @@ class DashboardFrame(ctk.CTkFrame):
             new_config["max_query_per_minute"] = prof_data.get("max_query_per_minute", 0)
             new_config["max_tokens"] = prof_data.get("max_tokens", 2000)
 
-            adv_raw = adventures_var.get().strip()
-            if adv_raw:
-                adv_path = Path(adv_raw).expanduser().resolve()
-                new_config["adventures_dir"] = "" if adv_path == get_default_adventures_dir() else str(adv_path)
-            else:
-                new_config["adventures_dir"] = ""
-            
             # Hard-delete the legacy chunk size if it exists in the active UI payload
             if "memory_chunk_size" in new_config: del new_config["memory_chunk_size"]
             
@@ -1830,6 +1860,16 @@ class DashboardFrame(ctk.CTkFrame):
                 # 2. Mutate active memory globally (CRITICAL FIX)
                 ENGINE_CONFIG.clear()
                 ENGINE_CONFIG.update(new_config)
+
+                adv_raw = adventures_var.get().strip()
+                if adv_raw:
+                    adv_path = Path(adv_raw).expanduser().resolve()
+                    INSTANCE_CONFIG["adventures_dir"] = (
+                        "" if adv_path == get_default_adventures_dir() else str(adv_path)
+                    )
+                else:
+                    INSTANCE_CONFIG["adventures_dir"] = ""
+                save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
 
                 if str(get_adventures_dir()) != old_adv_root:
                     self.current_dir = ""

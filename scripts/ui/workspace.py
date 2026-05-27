@@ -4,13 +4,25 @@
     The main container for an actively loaded story. Holds the tab view 
     that lets the user switch between Story Mode, Console, and World Builder.
 """
+import json
+import threading
+
 import customtkinter as ctk
+from tkinter import filedialog, messagebox, simpledialog
+
+from config import INSTANCE_CONFIG, ROOT_DIR
+from ui.tab_chapters import ChapterTab
+from ui.tab_codex import CodexTab
 from ui.tab_console import ConsoleTab
 from ui.tab_story import StoryTab
-from ui.tab_codex import CodexTab  
-from ui.tab_chapters import ChapterTab
-from ui.tooltip import Tooltip
-from ui.theme_utils import apply_workspace_chrome, resolve_theme_for_workspace, story_has_bundled_theme
+from ui.tooltip import Tooltip, center_window_on_parent
+from ui.theme_utils import (
+    apply_workspace_chrome,
+    get_story_theme_preference,
+    resolve_theme_for_workspace,
+    set_story_theme_preference,
+    story_has_bundled_theme,
+)
 
 
 class WorkspaceFrame(ctk.CTkFrame):
@@ -120,14 +132,14 @@ class WorkspaceFrame(ctk.CTkFrame):
         self.memory_tab = None
         self.chapters_tab = None
 
+        self._active_tab_name = "Story Mode"
+
         self._active_theme = resolve_theme_for_workspace(self.folder_name, self.engine.setup_data)
         self.apply_visual_theme(self._active_theme)
 
     def _workspace_option_values(self):
         values = list(self._base_option_values)
         if story_has_bundled_theme(self.engine.setup_data):
-            from ui.theme_utils import get_story_theme_preference
-
             if get_story_theme_preference(self.folder_name) == "story":
                 values.append("Use My Global Theme")
             else:
@@ -156,7 +168,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="⚠️ Data Corruption Healed", font=("Arial", 18, "bold"), text_color="#FF9800").pack(pady=(20, 10))
@@ -176,10 +187,12 @@ class WorkspaceFrame(ctk.CTkFrame):
         
     def close_workspace(self):
         """Safely shuts down the workspace and returns to the dashboard context."""
+        if hasattr(self, "story_tab") and self.story_tab is not None:
+            if not self.story_tab.ensure_prose_saved():
+                return
+
         self.console_tab.restore_stdout()
         
-        from config import INSTANCE_CONFIG, ROOT_DIR
-        import json
         INSTANCE_CONFIG["last_active_story"] = ""
         try:
             with open(ROOT_DIR / "configs" / "instance_config.json", "w", encoding="utf-8") as f:
@@ -191,7 +204,23 @@ class WorkspaceFrame(ctk.CTkFrame):
         
     def _on_tab_change(self):
         """Triggers instantly whenever the user clicks a different tab at the top. Lazy-loads UI heavy tabs and resets scrollbars."""
+        prev = getattr(self, "_active_tab_name", "Story Mode")
         target = self.tabs.get()
+
+        if (
+            prev == "Story Mode"
+            and target != "Story Mode"
+            and hasattr(self, "story_tab")
+            and self.story_tab is not None
+        ):
+            if not self.story_tab.ensure_prose_saved():
+                try:
+                    self.tabs.set(prev)
+                except Exception:
+                    pass
+                return
+
+        self._active_tab_name = target
         
         if target == "Story Mode" and self.story_tab is not None:
             self.story_tab.refresh_timeline()
@@ -207,7 +236,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                 
         elif target == "Story World":
             if self.codex_tab is None:
-                from ui.tab_codex import CodexTab
                 self.codex_tab = CodexTab(self.t_codex, self.engine, workspace=self)
                 self.codex_tab.pack(fill="both", expand=True)
             # Reset both scrollable frames in the Story World Tab
@@ -229,7 +257,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                     
         elif target == "Chapter Outline":
             if self.chapters_tab is None:
-                from ui.tab_chapters import ChapterTab
                 self.chapters_tab = ChapterTab(self.t_chapters, self.engine)
                 self.chapters_tab.pack(fill="both", expand=True)
             # Reset both scrollable frames in the Chapters Tab
@@ -242,6 +269,10 @@ class WorkspaceFrame(ctk.CTkFrame):
 
     def _handle_options_menu(self, choice):
         """Routes actions from the combined workspace options dropdown."""
+        if hasattr(self, "story_tab") and self.story_tab is not None:
+            if not self.story_tab.ensure_prose_saved():
+                return
+
         self.opt_var.set("Options...") # Reset label immediately
         if choice == "Generate Recap":
             self._generate_recap()
@@ -258,20 +289,14 @@ class WorkspaceFrame(ctk.CTkFrame):
         elif choice == "Restart Story":
             self._restart_story()
         elif choice == "Use My Global Theme":
-            from ui.theme_utils import set_story_theme_preference
-
             set_story_theme_preference(self.folder_name, "global")
             self.apply_visual_theme()
         elif choice.startswith("Use Story Theme"):
-            from ui.theme_utils import set_story_theme_preference
-
             set_story_theme_preference(self.folder_name, "story")
             self.apply_visual_theme()
 
     def _generate_missing_bridges(self):
         """Manually triggers the background worker to patch all missing narrative bridges."""
-        from tkinter import messagebox
-        
         if len(self.engine.history) < 2:
             messagebox.showinfo("Narrative Bridges", "Not enough history to generate bridges.")
             return
@@ -307,7 +332,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                 
             self.after(0, update_ui)
 
-        import threading
         threading.Thread(target=worker, daemon=True).start()
 
     def _generate_recap(self):
@@ -316,9 +340,6 @@ class WorkspaceFrame(ctk.CTkFrame):
             messagebox.showinfo("Recap", "The story hasn't started yet!")
             return
             
-        import threading
-        from tkinter import messagebox
-        
         # Change status in the StoryTab if it's active
         if hasattr(self, 'story_tab'):
             self.story_tab.status_var.set("Generating recap, please wait...")
@@ -339,7 +360,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.geometry("700x600")
         dialog.attributes("-topmost", True)
         
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
         
         box = ctk.CTkTextbox(dialog, wrap="word", font=("Georgia", 15))
@@ -358,7 +378,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
         
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="Select Format:", font=("Arial", 14, "bold")).pack(pady=(20, 5))
@@ -369,8 +388,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         ctk.CTkSwitch(dialog, text="Use Seamless Novelization", variable=nov_var).pack(pady=20)
 
         def on_export():
-            from tkinter import filedialog, messagebox
-            
             fmt_choice = int(fmt_var.get()[0]) # 1, 2, or 3
             
             # Determine extension based on choice
@@ -413,8 +430,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         
     def _restart_story(self):
         """Wipes history, resets chapters, and allows granular wiping of Long-Term Memory."""
-        from tkinter import messagebox
-
         if self._is_engine_busy():
             messagebox.showwarning("Busy", "Wait for the current operation to finish before restarting.")
             return
@@ -425,7 +440,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="⚠️ Restart Adventure", font=("Arial", 18, "bold"), text_color="#D32F2F").pack(pady=(20, 10))
@@ -471,7 +485,6 @@ class WorkspaceFrame(ctk.CTkFrame):
             
             # 1. Wipe History and Bookmarks
             self.engine.history.clear()
-            from config import INSTANCE_CONFIG
             INSTANCE_CONFIG.get("story_bookmarks", {}).pop(self.folder_name, None)
             
             # 2. Reset Chapters (Completely rebuild the state tracker)
@@ -546,6 +559,10 @@ class WorkspaceFrame(ctk.CTkFrame):
             
     def _toggle_test(self):
         """Switches autopilot on or off."""
+        if hasattr(self, "story_tab") and self.story_tab is not None:
+            if not self.story_tab.ensure_prose_saved():
+                return
+
         is_active = not self.engine.is_test_mode
         self.engine.toggle_test_mode(is_active)
         
@@ -567,7 +584,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="Mass Import Turns", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
@@ -646,7 +662,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         def on_evaluate():
             raw_text = box.get("1.0", "end").strip()
             if not raw_text:
-                from tkinter import messagebox
                 messagebox.showwarning("Nothing to Evaluate", "Paste story text in the box first.")
                 return
 
@@ -673,7 +688,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                     if success:
                         _show_eval_results(result)
                     else:
-                        from tkinter import messagebox
                         score_var.set("Evaluation failed")
                         score_lbl.configure(text_color="#EF5350")
                         results_box.configure(state="normal")
@@ -684,7 +698,6 @@ class WorkspaceFrame(ctk.CTkFrame):
 
                 self.after(0, update_ui)
 
-            import threading
             threading.Thread(target=worker, daemon=True).start()
 
         def on_import():
@@ -700,8 +713,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                 success, msg = self.engine.import_turns(raw_text, insert_idx)
                 
                 def update_ui():
-                    from tkinter import messagebox
-                    
                     if success:
                         messagebox.showinfo("Import Successful", msg)
                         if hasattr(self, 'story_tab') and self.story_tab:
@@ -731,7 +742,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                         
                 self.after(0, update_ui)
                 
-            import threading
             threading.Thread(target=worker, daemon=True).start()
 
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -766,7 +776,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         ctk.CTkLabel(dialog, text="Extract Chapters to New Thread", font=("Arial", 18, "bold"), text_color="#00ACC1").pack(pady=(15, 5))
@@ -845,7 +854,6 @@ class WorkspaceFrame(ctk.CTkFrame):
 
     def _show_run_tree_dialog(self):
         """Browse archived runs (tree), switch, restore & fork, rename, or delete."""
-        from tkinter import messagebox, simpledialog
         from run_tree import (
             can_switch_to_run,
             delete_run,
@@ -870,7 +878,6 @@ class WorkspaceFrame(ctk.CTkFrame):
         dialog.attributes("-topmost", True)
         dialog.grab_set()
 
-        from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
         header = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -1171,7 +1178,6 @@ class WorkspaceFrame(ctk.CTkFrame):
                 _modal_restore()
 
         def on_import_branches():
-            from tkinter import filedialog
             from ui.branch_pack_dialog import show_branch_import_dialog
 
             _modal_release()

@@ -16,6 +16,7 @@ from colorama import Fore, Style
 
 from config import load_json_safely, ENGINE_CONFIG, PROMPTS
 from llm import get_llm_response, generate_recap
+from prose_utils import DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER
 
 # ---------------------------------------------------------
 # BASE ENGINE CLASS
@@ -283,6 +284,9 @@ class BaseEngine:
             int: Next turn id, or ``0`` when history is empty.
         """
         if not self.history: return 0
+        
+        if hasattr(self, '_director_insert_target_turn'):
+            return self._director_insert_target_turn
         
         # If we are editing a historical turn, return that specific turn's number
         if hasattr(self, 'backup_turn_idx'):
@@ -604,11 +608,26 @@ class BaseEngine:
         delattr(self, 'backup_turn_idx')
         return None
         
-    def request_expansion(self, turn_idx=None):
+    def _selection_scope_block(self, selection_text):
+        """Prompt fragment limiting an edit to a user-highlighted story excerpt."""
+        selection_text = (selection_text or "").strip()
+        if not selection_text:
+            return ""
+        return (
+            "\n--- SELECTION SCOPE ---\n"
+            "The user highlighted this exact excerpt within 'story_text':\n"
+            f"\"{selection_text}\"\n"
+            "Apply the edit ONLY to this highlighted excerpt. "
+            "Leave every other character of 'story_text' outside this excerpt unchanged.\n"
+            "Return the complete 'story_text' field with only the highlighted portion edited.\n"
+        )
+
+    def request_expansion(self, turn_idx=None, selection_text=None):
         """Endpoint: Generates a context-aware descriptive expansion DRAFT of the current turn."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
-        print(f"\n{Fore.CYAN}▶ Action: Expand Prose (Turn {idx}){Style.RESET_ALL}")
+        scope_label = " (selection)" if (selection_text or "").strip() else ""
+        print(f"\n{Fore.CYAN}▶ Action: Expand Prose (Turn {idx}){scope_label}{Style.RESET_ALL}")
         print(f"{Style.DIM}Expanding turn prose...{Style.RESET_ALL}")
         
         self.backup_turn = self.history[idx].copy()
@@ -626,9 +645,11 @@ class BaseEngine:
             prev_turn = self.history[idx - 1]
             prev_story = f"PREVIOUS SCENE: {prev_turn.get('story_text', '')}\nACTION TAKEN: {prev_turn.get('player_choice', '')}"
 
+        selection_scope = self._selection_scope_block(selection_text)
         prompt = PROMPTS.get("USER_EXPAND", "")
         prompt = prompt.replace("{world_info}", json.dumps(world_info, indent=2))
         prompt = prompt.replace("{prev_story}", prev_story)
+        prompt = prompt.replace("{selection_scope}", selection_scope)
         prompt = prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         
         self.active_fix = prompt
@@ -640,17 +661,21 @@ class BaseEngine:
             print(f"{Fore.GREEN}✔ Turn {idx} expansion draft ready.{Style.RESET_ALL}")
         return draft
 
-    def request_condense(self, turn_idx=None):
+    def request_condense(self, turn_idx=None, selection_text=None):
         """Endpoint: Generates a shortened DRAFT. Supports historical turns."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         
         self.backup_turn = self.history[idx].copy()
         self.backup_turn_idx = idx
-        print(f"\n{Fore.CYAN}▶ Action: Condense Prose (Turn {idx}){Style.RESET_ALL}")
+        scope_label = " (selection)" if (selection_text or "").strip() else ""
+        print(f"\n{Fore.CYAN}▶ Action: Condense Prose (Turn {idx}){scope_label}{Style.RESET_ALL}")
         print(f"{Style.DIM}Condensing turn prose...{Style.RESET_ALL}")
         
-        prompt = PROMPTS.get("USER_CONDENSE", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
+        selection_scope = self._selection_scope_block(selection_text)
+        prompt = PROMPTS.get("USER_CONDENSE", "")
+        prompt = prompt.replace("{selection_scope}", selection_scope)
+        prompt = prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
         self.is_fix_mode = True
         
@@ -660,17 +685,21 @@ class BaseEngine:
             print(f"{Fore.GREEN}✔ Turn {idx} condense draft ready.{Style.RESET_ALL}")
         return draft
 
-    def request_polish(self, turn_idx=None):
+    def request_polish(self, turn_idx=None, selection_text=None):
         """Endpoint: Generates a polished DRAFT. Supports historical turns."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
         
         self.backup_turn = self.history[idx].copy()
         self.backup_turn_idx = idx
-        print(f"\n{Fore.CYAN}▶ Action: Polish Prose (Turn {idx}){Style.RESET_ALL}")
+        scope_label = " (selection)" if (selection_text or "").strip() else ""
+        print(f"\n{Fore.CYAN}▶ Action: Polish Prose (Turn {idx}){scope_label}{Style.RESET_ALL}")
         print(f"{Style.DIM}Polishing turn prose...{Style.RESET_ALL}")
         
-        prompt = PROMPTS.get("USER_POLISH", "").replace("{original_json}", json.dumps(self.backup_turn, indent=2))
+        selection_scope = self._selection_scope_block(selection_text)
+        prompt = PROMPTS.get("USER_POLISH", "")
+        prompt = prompt.replace("{selection_scope}", selection_scope)
+        prompt = prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
         self.active_fix = prompt
         self.is_fix_mode = True
         
@@ -1252,6 +1281,92 @@ class BaseEngine:
         
         return True, f"Successfully imported {len(new_turns)} turns into the timeline!"
         
+    def _plan_turn_insertion(self, target_index):
+        """Compute insertion metadata without mutating ``history``."""
+        if target_index < 0 or target_index > len(self.history):
+            return None
+
+        is_at_end = target_index == len(self.history)
+        if target_index < len(self.history):
+            target_turn_val = self.history[target_index].get("turn", target_index + 1)
+        else:
+            target_turn_val = len(self.history) + 1
+
+        new_turn_choice = None
+        if not is_at_end and target_index > 0:
+            new_turn_choice = self.history[target_index - 1].get("player_choice")
+
+        anchor_turn = self.history[target_index - 1] if target_index > 0 else {}
+        return {
+            "target_index": target_index,
+            "target_turn_val": target_turn_val,
+            "is_at_end": is_at_end,
+            "new_turn_choice": new_turn_choice,
+            "anchor_turn": anchor_turn,
+            "end_insert_action": None,
+        }
+
+    def _apply_turn_insertion_surgery(self, plan):
+        """Right-shift the Master Clock and migrate ``player_choice`` causality."""
+        target_index = plan["target_index"]
+        target_turn_val = plan["target_turn_val"]
+        is_at_end = plan["is_at_end"]
+
+        for i in range(target_index, len(self.history)):
+            self.history[i]["turn"] = self.history[i].get("turn", i) + 1
+
+        affected_chapters = set()
+        for c in self.chapters:
+            s_turn = c.get("start_turn")
+            e_turn = c.get("end_turn")
+            if s_turn is not None and e_turn is not None:
+                if s_turn <= target_turn_val <= e_turn:
+                    affected_chapters.add(c.get("chapter_number"))
+            if s_turn is not None and s_turn > target_index:
+                c["start_turn"] += 1
+            if e_turn is not None and e_turn >= target_index:
+                c["end_turn"] += 1
+
+        if affected_chapters:
+            self.memory["plot_ledger"] = [
+                p for p in self.memory.get("plot_ledger", [])
+                if p.get("chapter_number") not in affected_chapters
+            ]
+            self.memory["chapter_ledger"] = [
+                cl for cl in self.memory.get("chapter_ledger", [])
+                if cl.get("chapter_number") not in affected_chapters
+            ]
+
+        if not is_at_end and target_index > 0:
+            prev_turn = self.history[target_index - 1]
+            prev_turn["player_choice"] = "[ Blank Turn ]"
+            if target_index < len(self.history):
+                self.history[target_index].pop("narrative_bridge", None)
+        elif is_at_end and target_index > 0 and not self.is_campaign and not plan.get("end_insert_action"):
+            prev_turn = self.history[target_index - 1]
+            if prev_turn.get("player_choice") is None:
+                prev_turn["player_choice"] = "[ Blank Turn ]"
+
+        if plan.get("end_insert_action") and target_index > 0:
+            self.history[target_index - 1]["player_choice"] = plan["end_insert_action"]
+
+    def _clear_director_insert_state(self):
+        for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def insert_turn(self, target_index, mode="blank"):
+        """Insert a timeline card: blank placeholder, AI continue, or AI bridge."""
+        if mode in ("generate", "bridge") and not self.is_campaign:
+            insert_generate = getattr(self, "insert_turn_generate_continuity", None)
+            if insert_generate:
+                bridge_gap = mode == "bridge"
+                if bridge_gap and not (0 < target_index < len(self.history)):
+                    bridge_gap = False
+                return insert_generate(target_index, bridge_gap=bridge_gap)
+            return False
+        return self.insert_blank_turn(target_index)
+
     def insert_blank_turn(self, target_index):
         """Insert a director blank card and right-shift the Master Clock.
 
@@ -1265,63 +1380,41 @@ class BaseEngine:
         Returns:
             bool: ``True`` if the insert succeeded, else ``False``.
         """
-        if target_index < 0 or target_index > len(self.history): return False
-        
-        target_turn_val = self.history[target_index].get("turn", target_index + 1) if target_index < len(self.history) else len(self.history) + 1
-        
-        # 1. Right-shift all future turns (+1)
-        for i in range(target_index, len(self.history)):
-            self.history[i]["turn"] = self.history[i].get("turn", i) + 1
-            
-        # 2. Re-Index Chapter Boundaries and Invalidate affected Plot Ledgers
-        affected_chapters = set()
-        for c in self.chapters:
-            s_turn = c.get("start_turn")
-            e_turn = c.get("end_turn")
-            if s_turn is not None and e_turn is not None:
-                if s_turn <= target_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
-            if s_turn is not None and s_turn > target_index: c["start_turn"] += 1
-            if e_turn is not None and e_turn >= target_index: c["end_turn"] += 1
-                
-        if affected_chapters:
-            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
-            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
-                
-        # 3. Handle Narrative Causality (Choice Migration)
-        is_at_end = (target_index == len(self.history))
-        new_turn_choice = None
-        
-        if not is_at_end and target_index > 0:
-            # We are inserting a turn between two existing turns.
-            # To maintain the link between the new turn and the old next turn,
-            # we 'steal' the choice from the previous turn.
-            prev_turn = self.history[target_index - 1]
-            new_turn_choice = prev_turn.get("player_choice")
-            prev_turn["player_choice"] = "[ Blank Turn ]"
-            # Clear previous bridge of the following turn as the prose context has changed
-            if target_index < len(self.history):
-                self.history[target_index].pop("narrative_bridge", None)
+        plan = self._plan_turn_insertion(target_index)
+        if not plan:
+            return False
 
-        # 4. Create and inject the blank turn
-        anchor_turn = self.history[target_index - 1] if target_index > 0 else {}
+        self._apply_turn_insertion_surgery(plan)
+
+        anchor_turn = plan["anchor_turn"]
         blank_turn = {
-            "turn": target_turn_val,
+            "turn": plan["target_turn_val"],
             "location": anchor_turn.get("location", "Unknown"),
             "pov_character": anchor_turn.get("pov_character", "Unknown"),
-            "story_text": "[ Blank Turn inserted by Director. Click 'Edit Scene' to write content. ]",
+            "story_text": DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER,
             "choices": ["Proceed forward."],
             "input_type": "choice",
             "is_game_over": False,
-            "player_choice": new_turn_choice,
+            "player_choice": plan["new_turn_choice"],
             "narrative_bridge": ""
         }
-        
+
         if self.track_inventory:
             blank_turn["inventory_and_state"] = anchor_turn.get("inventory_and_state", "")
-            
-        self.history.insert(target_index, blank_turn)
+
+        self.history.insert(plan["target_index"], blank_turn)
+        if not self.is_campaign:
+            self._normalize_sandbox_player_choices()
         self.save_state()
         return True
+
+    def _normalize_sandbox_player_choices(self):
+        """Sandbox-only: only the timeline tail may keep ``player_choice`` unset."""
+        if self.is_campaign or not self.history:
+            return
+        for i in range(len(self.history) - 1):
+            if self.history[i].get("player_choice") is None:
+                self.history[i]["player_choice"] = "[ Blank Turn ]"
 
     def delete_turn(self, target_index, pop_bridge=True):
         """Delete a turn, left-shift the Master Clock, and preserve causality.
@@ -1849,6 +1942,8 @@ class BaseEngine:
         self.is_fix_mode = False
         turn_data["player_choice"] = None 
         self.history.append(turn_data)
+        if not self.is_campaign:
+            self._normalize_sandbox_player_choices()
         
         # --- AUTO-DECAY SCANNER ---
         # Catch entities mentioned in the AI's prose, bridge, and location strings immediately

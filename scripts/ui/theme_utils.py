@@ -301,6 +301,12 @@ def apply_card_text_colors(story_tab, theme):
     tb.tag_config("bridge", foreground=bridge_color)
     tb.tag_config("lore_dump", foreground=muted)
 
+    if hasattr(story_tab, "prose_prefix"):
+        ptb = story_tab.prose_prefix._textbox
+        ptb.configure(fg=muted, insertbackground=muted)
+        ptb.tag_config("bridge", foreground=bridge_color)
+        ptb.tag_config("lore_dump", foreground=muted)
+
 
 def repaint_library_card(refs, theme):
     """Re-style a pooled dashboard card to match a story's resolved theme."""

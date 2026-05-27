@@ -463,7 +463,7 @@ class TestPhase1Checklist:
         universe = library / "SharedWorld"
         thread = universe / "DetectiveThread"
         thread.mkdir(parents=True)
-        monkeypatch.setitem(__import__("config").ENGINE_CONFIG, "adventures_dir", str(library.resolve()))
+        monkeypatch.setitem(__import__("config").INSTANCE_CONFIG, "adventures_dir", str(library.resolve()))
 
         from config import create_boilerplate_files, load_json_safely
 

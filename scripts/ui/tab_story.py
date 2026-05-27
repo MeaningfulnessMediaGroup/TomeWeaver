@@ -11,6 +11,12 @@ import difflib
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.tooltip import Tooltip
+from prose_utils import (
+    DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER,
+    editor_story_display_text,
+    is_director_blank_turn_placeholder,
+    tidy_editor_prose_text,
+)
 
 # Timeline navigation glyphs (media-control style; tooltips carry the full labels)
 _NAV_ICON_FIRST = "⏮"
@@ -163,6 +169,39 @@ class StoryTab(ctk.CTkFrame):
         self.prose_box._textbox.tag_config("bridge", font=self.bridge_font, foreground="#90CAF9") 
         self.prose_box._textbox.tag_config("story", font=self.prose_font)
         self.prose_box._textbox.tag_config("lore_dump", font=("Arial", 12, "italic"), foreground="gray")
+        self.prose_box._textbox.tag_config(
+            "prose_placeholder",
+            font=("Arial", 12, "italic"),
+            foreground="gray",
+        )
+
+        self.prose_prefix = ctk.CTkTextbox(
+            self.card_frame, wrap="word", font=self.bridge_font, height=80, fg_color="transparent"
+        )
+        self.prose_prefix._textbox.configure(spacing2=6, font=self.bridge_font)
+        self.prose_prefix._textbox.tag_config("bridge", font=self.bridge_font, foreground="#90CAF9")
+        self.prose_prefix._textbox.tag_config("lore_dump", font=("Arial", 12, "italic"), foreground="gray")
+        self._set_prose_prefix_state("disabled")
+        self.prose_prefix.pack_forget()
+
+        self._prose_dirty = False
+        self._prose_dirty_turn_idx = None
+        self._prose_loaded_text = ""
+        self._prose_debounce_id = None
+        self._prose_syncing = False
+        self._prose_placeholder_active = False
+        self._PROSE_DEBOUNCE_MS = 4000
+        prose_tb = self.prose_box._textbox
+        prose_tb.bind("<<Modified>>", self._on_prose_modified, add="+")
+        prose_tb.bind("<KeyRelease>", self._on_prose_changed, add="+")
+        prose_tb.bind("<ButtonRelease-1>", self._on_prose_click, add="+")
+        prose_tb.bind("<FocusIn>", self._on_prose_focus_in, add="+")
+        prose_tb.bind("<FocusOut>", self._on_prose_focus_out, add="+")
+        for _seq in ("<<Paste>>", "<<Cut>>"):
+            try:
+                prose_tb.bind(_seq, self._on_prose_changed, add="+")
+            except Exception:
+                pass
         
         self.tools_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
         self.bridge_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
@@ -288,11 +327,201 @@ class StoryTab(ctk.CTkFrame):
 
 
     # ---------------------------------------------------------
+    # INLINE PROSE EDITING
+    # ---------------------------------------------------------
+
+    def _inline_prose_edit_enabled(self):
+        from config import ENGINE_CONFIG
+        return bool(ENGINE_CONFIG.get("inline_prose_edit", False)) and not self.engine.is_test_mode
+
+    def _get_inline_prose_text(self):
+        if self._prose_placeholder_active:
+            return ""
+        return self.prose_box.get("1.0", "end-1c")
+
+    def _show_prose_placeholder(self):
+        self._prose_syncing = True
+        self.prose_box.delete("1.0", "end")
+        self.prose_box.insert("1.0", DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER, "prose_placeholder")
+        self._prose_placeholder_active = True
+        try:
+            self.prose_box._textbox.edit_modified(False)
+        except Exception:
+            pass
+        self._prose_syncing = False
+
+    def _clear_prose_placeholder(self):
+        if not self._prose_placeholder_active:
+            return
+        self._prose_syncing = True
+        self.prose_box.delete("1.0", "end")
+        self._prose_placeholder_active = False
+        try:
+            self.prose_box._textbox.edit_modified(False)
+        except Exception:
+            pass
+        self._prose_syncing = False
+
+    def _on_prose_focus_in(self, event=None):
+        if self._prose_syncing or not self._inline_prose_edit_enabled():
+            return
+        self._clear_prose_placeholder()
+
+    def _on_prose_click(self, event=None):
+        if self._prose_syncing or not self._inline_prose_edit_enabled():
+            return
+        self._clear_prose_placeholder()
+        self._on_prose_changed(event)
+
+    def _on_prose_focus_out(self, event=None):
+        if self._prose_syncing or not self._inline_prose_edit_enabled():
+            return
+        if self._prose_placeholder_active:
+            return
+        if self._get_inline_prose_text().strip():
+            return
+        if self._prose_loaded_text == "":
+            self._show_prose_placeholder()
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            self._cancel_prose_debounce()
+
+    @staticmethod
+    def _get_textbox_selection(textbox):
+        """Return stripped highlighted text from a CTkTextbox, or None if nothing selected."""
+        try:
+            if textbox.tag_ranges("sel"):
+                selected = textbox.get("sel.first", "sel.last").strip()
+                if selected:
+                    return selected
+        except Exception:
+            pass
+        return None
+
+    def _set_prose_box_state(self, state):
+        self.prose_box._textbox.configure(state=state)
+
+    def _set_prose_prefix_state(self, state):
+        self.prose_prefix._textbox.configure(state=state)
+
+    def _is_prose_box_editable(self):
+        return str(self.prose_box._textbox.cget("state")) != "disabled"
+
+    def _prose_needs_save(self):
+        """True when the visible story box differs from what was loaded for this turn."""
+        if not self._inline_prose_edit_enabled():
+            return False
+        if not self._is_prose_box_editable():
+            return False
+        idx = self.current_turn_idx
+        if idx < 0 or idx >= len(self.engine.history):
+            return False
+        return self._get_inline_prose_text() != self._prose_loaded_text
+
+    def _sync_prose_dirty_from_content(self):
+        if self._prose_needs_save():
+            self._prose_dirty = True
+            self._prose_dirty_turn_idx = self.current_turn_idx
+        else:
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+
+    def _mark_prose_dirty(self):
+        if self._prose_syncing or not self._inline_prose_edit_enabled():
+            return
+        if not self._prose_needs_save():
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            self._cancel_prose_debounce()
+            return
+        self._prose_dirty = True
+        self._prose_dirty_turn_idx = self.current_turn_idx
+        self._schedule_prose_save()
+
+    def _cancel_prose_debounce(self):
+        if self._prose_debounce_id is not None:
+            try:
+                self.after_cancel(self._prose_debounce_id)
+            except Exception:
+                pass
+            self._prose_debounce_id = None
+
+    def _schedule_prose_save(self):
+        self._cancel_prose_debounce()
+        self._prose_debounce_id = self.after(self._PROSE_DEBOUNCE_MS, self._debounced_prose_save)
+
+    def _on_prose_modified(self, event=None):
+        self._mark_prose_dirty()
+        try:
+            self.prose_box._textbox.edit_modified(False)
+        except Exception:
+            pass
+
+    def _on_prose_changed(self, event=None):
+        self._mark_prose_dirty()
+
+    def _debounced_prose_save(self):
+        self._prose_debounce_id = None
+        self._sync_prose_dirty_from_content()
+        if self._prose_dirty:
+            self._flush_prose_edit()
+
+    def ensure_prose_saved(self):
+        """Flush pending inline prose edits before navigation or engine actions."""
+        self._cancel_prose_debounce()
+        self._sync_prose_dirty_from_content()
+        if not self._prose_dirty:
+            return True
+        return self._flush_prose_edit()
+
+    def _flush_prose_edit(self):
+        if not self._inline_prose_edit_enabled():
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            return True
+
+        self._sync_prose_dirty_from_content()
+        if not self._prose_dirty:
+            return True
+
+        idx = self._prose_dirty_turn_idx
+        if idx is None:
+            idx = self.current_turn_idx
+        if idx < 0 or idx >= len(self.engine.history):
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            return True
+
+        if idx != self.current_turn_idx:
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            return True
+
+        new_text = self._get_inline_prose_text()
+        if new_text == self._prose_loaded_text:
+            self._prose_dirty = False
+            self._prose_dirty_turn_idx = None
+            return True
+
+        if not self.engine.manual_edit_turn(idx, "story_text", new_text):
+            messagebox.showerror("Save Failed", "Could not save your inline prose edit.")
+            return False
+
+        self._prose_loaded_text = new_text
+        self._prose_dirty = False
+        self._prose_dirty_turn_idx = None
+        return True
+
+
+    # ---------------------------------------------------------
     # TIMELINE & NAVIGATION LOGIC
     # ---------------------------------------------------------
 
     def refresh_timeline(self, go_to_last=False, use_bookmark=False):
         """Syncs the slider boundaries to the history array and perfectly resets layout order."""
+        if not self.ensure_prose_saved():
+            return
+
         history_len = len(self.engine.history)
         
         # 1. Strip everything safely
@@ -368,13 +597,18 @@ class StoryTab(ctk.CTkFrame):
     def _on_slider_move(self, value):
         idx = int(value)
         if idx != self.current_turn_idx:
+            if not self.ensure_prose_saved():
+                self.slider.set(self.current_turn_idx)
+                return
             self.current_turn_idx = idx
             self._update_bookmark() # Record the move
             self._render_turn()
 
     def _navigate_timeline(self, direction):
+        if not self.ensure_prose_saved():
+            return
         
-        if direction == "first": 
+        if direction == "first":
             self.current_turn_idx = 0
         elif direction == "prev" and self.current_turn_idx > 0: 
             self.current_turn_idx -= 1
@@ -431,6 +665,7 @@ class StoryTab(ctk.CTkFrame):
         self.lbl_meta.pack_forget()
         self.action_frame.pack_forget()
         self.inv_frame.pack_forget()
+        self.prose_prefix.pack_forget()
         self.prose_box.pack_forget()
         self.tools_frame.pack_forget()
         self.choices_frame.pack_forget()  # CRITICAL: Fixes the vertical gap bug
@@ -517,21 +752,24 @@ class StoryTab(ctk.CTkFrame):
             raw_action = self.engine.history[idx-1].get("player_choice", "").strip()
             
             # --- SANDBOX IMMERSION FILTER ---
-            # Strictly hide transition headers on chapter boundaries (Start and End turns)
+            # Hide blank director placeholders and transition headers on chapter boundaries
             hide_header = False
             if not self.engine.is_campaign:
-                # Get boundaries as integers for absolute comparison
-                try:
-                    c_start = int(active_chap.get("start_turn", -1))
-                    c_end = active_chap.get("end_turn")
-                    c_end = int(c_end) if c_end is not None else -1
-                    
-                    current = int(actual_turn)
-                    
-                    if current == c_start or current == c_end:
-                        hide_header = True
-                except (ValueError, TypeError):
-                    pass
+                if raw_action == "[ Blank Turn ]":
+                    hide_header = True
+                else:
+                    # Get boundaries as integers for absolute comparison
+                    try:
+                        c_start = int(active_chap.get("start_turn", -1))
+                        c_end = active_chap.get("end_turn")
+                        c_end = int(c_end) if c_end is not None else -1
+                        
+                        current = int(actual_turn)
+                        
+                        if current == c_start or current == c_end:
+                            hide_header = True
+                    except (ValueError, TypeError):
+                        pass
 
             if not hide_header:
                 # Flatten to single line for the header display
@@ -549,25 +787,66 @@ class StoryTab(ctk.CTkFrame):
 
         self._render_inventory(turn)
 
+        inline_edit = self._inline_prose_edit_enabled()
+        prefix_has_content = False
+
+        self._prose_syncing = True
+        self._cancel_prose_debounce()
+
         # Build Textbox Content
-        self.prose_box.configure(state="normal")
+        self._set_prose_prefix_state("normal")
+        self.prose_prefix.delete("1.0", "end")
+        self._set_prose_box_state("normal")
         self.prose_box.delete("1.0", "end")
-        
+
+        lore_dump = ""
         if len(loc_raw) > 100 or len(pov_raw) > 100:
-            lore_dump = ""
-            if len(loc_raw) > 100: lore_dump += f"[Location]: {loc_raw}\n\n"
-            if len(pov_raw) > 100: lore_dump += f"[POV]: {pov_raw}\n\n"
-            self.prose_box.insert("end", f"{lore_dump.strip()}\n\n***\n\n", "lore_dump")
+            if len(loc_raw) > 100:
+                lore_dump += f"[Location]: {loc_raw}\n\n"
+            if len(pov_raw) > 100:
+                lore_dump += f"[POV]: {pov_raw}\n\n"
 
         bridge = turn.get("narrative_bridge")
         is_valid_bridge = bridge and bridge not in ["[OK]", "[FAILED]", ""]
-        if idx > 0 and is_valid_bridge:
-            clean_br = clean_prose(bridge)
-            self.prose_box.insert("end", f"{clean_br}\n\n", "bridge")
+        clean_br = clean_prose(bridge) if idx > 0 and is_valid_bridge else ""
 
-        story = clean_prose(turn.get("story_text", ""))
-        self.prose_box.insert("end", story, "story")
-        self.prose_box.configure(state="disabled")
+        if inline_edit:
+            if lore_dump.strip():
+                self.prose_prefix.insert("end", f"{lore_dump.strip()}\n\n***\n\n", "lore_dump")
+                prefix_has_content = True
+            if clean_br:
+                self.prose_prefix.insert("end", f"{clean_br}\n\n", "bridge")
+                prefix_has_content = True
+            self._set_prose_prefix_state("disabled")
+
+            raw_story = turn.get("story_text", "")
+            if is_director_blank_turn_placeholder(raw_story):
+                self._prose_loaded_text = ""
+                self._show_prose_placeholder()
+            else:
+                story = clean_prose(raw_story)
+                self.prose_box.insert("end", story, "story")
+                self._prose_loaded_text = story
+                self._prose_placeholder_active = False
+            self._set_prose_box_state("normal")
+        else:
+            if lore_dump.strip():
+                self.prose_box.insert("end", f"{lore_dump.strip()}\n\n***\n\n", "lore_dump")
+            if clean_br:
+                self.prose_box.insert("end", f"{clean_br}\n\n", "bridge")
+            story = clean_prose(turn.get("story_text", ""))
+            self.prose_box.insert("end", story, "story")
+            self._set_prose_box_state("disabled")
+            self._prose_loaded_text = story
+            self._prose_placeholder_active = False
+
+        self._prose_dirty = False
+        self._prose_dirty_turn_idx = None
+        try:
+            self.prose_box._textbox.edit_modified(False)
+        except Exception:
+            pass
+        self._prose_syncing = False
 
         # Build Director's Control Panel
         for w in self.bridge_tools.winfo_children(): w.destroy()
@@ -626,7 +905,7 @@ class StoryTab(ctk.CTkFrame):
                 
                 btn_ins = ctk.CTkButton(self.bridge_tools, text="+ Insert Turn", width=80, height=24, font=("Arial", 11), fg_color="#F57C00", hover_color="#E65100", command=lambda: self._trigger_surgery("insert", idx))
                 btn_ins.pack(side="right", padx=2)
-                Tooltip(btn_ins, "Right-shifts all future turns and inserts a blank card here for you to type in.")
+                Tooltip(btn_ins, "Insert a new timeline card before or after this turn. Choose a blank placeholder or AI-generated continuity.")
                 
                 if is_valid_bridge:
                     btn_b2t = ctk.CTkButton(self.bridge_tools, text="↔ Bridge to Turn", width=100, height=24, font=("Arial", 11), fg_color="#7B1FA2", hover_color="#4A148C", command=lambda: self._trigger_surgery("bridge_to_turn", idx))
@@ -658,7 +937,7 @@ class StoryTab(ctk.CTkFrame):
             btn_pol.pack(side="left", padx=2)
             
             if cheats_allowed:
-                btn_fix = ctk.CTkButton(self.story_tools, text="✨ Fix...", width=60, height=24, font=("Arial", 11), fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(idx))
+                btn_fix = ctk.CTkButton(self.story_tools, text="✨ Fix", width=60, height=24, font=("Arial", 11), fg_color="#009688", hover_color="#00796B", command=lambda: self._trigger_fix(idx))
                 btn_fix.pack(side="left", padx=2)
                 
             # --- STORY CONTENT TOOLS (Right-Aligned on Story Row) ---
@@ -708,6 +987,8 @@ class StoryTab(ctk.CTkFrame):
             btn_retry.pack(side="left", padx=5)
             
             def cancel_pending():
+                if not self.ensure_prose_saved():
+                    return
                 self.engine.history[-1]["player_choice"] = None
                 self.engine.save_state()
                 self.refresh_timeline(go_to_last=True)
@@ -761,6 +1042,9 @@ class StoryTab(ctk.CTkFrame):
             
         if self.has_inventory:
             self.inv_frame.pack(side="top", fill="x", padx=20, pady=(0, 10))
+
+        if inline_edit and prefix_has_content:
+            self.prose_prefix.pack(side="top", fill="x", padx=20, pady=(5, 0))
             
         self.prose_box.pack(side="top", fill="both", expand=True, padx=20, pady=5)
 
@@ -853,6 +1137,8 @@ class StoryTab(ctk.CTkFrame):
 
     def on_submit(self):
         """Submit the player's free-text or custom action to the engine."""
+        if not self.ensure_prose_saved():
+            return
         if self.text_input.cget("state") == "disabled": return
         
         raw_text = self.text_input.get().strip()
@@ -1049,6 +1335,8 @@ class StoryTab(ctk.CTkFrame):
             )
 
             def on_submit_modal():
+                if not self.ensure_prose_saved():
+                    return
                 chap_data = {
                     "title": c_vars["title"].get().strip(),
                     "pov": c_vars["pov"].get().strip(),
@@ -1105,6 +1393,8 @@ class StoryTab(ctk.CTkFrame):
         
         
     def _execute_action(self, action_string):
+        if not self.ensure_prose_saved():
+            return
         pc_exact = str(action_string).strip()
         
         if pc_exact in ["Export Story", "Export Tragic Ending"]:
@@ -1149,6 +1439,8 @@ class StoryTab(ctk.CTkFrame):
     # ---------------------------------------------------------
 
     def _delete_bridge(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         if messagebox.askyesno("Delete Bridge", "Are you sure you want to delete this transition?"):
             if "narrative_bridge" in self.engine.history[turn_idx]:
                 del self.engine.history[turn_idx]["narrative_bridge"]
@@ -1157,6 +1449,8 @@ class StoryTab(ctk.CTkFrame):
                 self._render_turn()
 
     def _generate_bridge(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         self._lock_ui("Regenerating transition...")
         def worker():
             b_text = self.engine.request_bridge_generation(turn_idx)
@@ -1170,6 +1464,8 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_bridge_edit(self, turn_idx, edit_type):
+        if not self.ensure_prose_saved():
+            return
         current_bridge = self.engine.history[turn_idx].get("narrative_bridge", "").strip()
         if not current_bridge: return
             
@@ -1198,6 +1494,9 @@ class StoryTab(ctk.CTkFrame):
 
     def _trigger_fork(self, turn_idx):
         from tkinter import messagebox
+
+        if not self.ensure_prose_saved():
+            return
 
         turn_num = self.engine.history[turn_idx].get("turn")
         ok, err = self.engine.can_fork_at_turn(turn_num)
@@ -1235,6 +1534,8 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_surgery(self, action, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         if action == "delete":
             warn = f"Are you sure you want to permanently delete Turn {self.engine.history[turn_idx].get('turn')}?\n\nThis will shift all future turns backwards."
             if messagebox.askyesno("Delete Turn", warn, icon="warning"):
@@ -1252,39 +1553,180 @@ class StoryTab(ctk.CTkFrame):
                 threading.Thread(target=worker, daemon=True).start()
                 
         elif action == "insert":
-            # Spawn a small decision dialog to determine the anchor point
+            if self.engine.is_campaign:
+                return
+            from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
+
             dialog = ctk.CTkToplevel(self)
-            dialog.title("Insert Blank Turn")
-            dialog.geometry("350x150")
+            dialog.title("Insert Turn")
+            dialog.geometry("400x210")
+            dialog.resizable(False, False)
             dialog.attributes("-topmost", True)
-            dialog.grab_set() # Force focus
-            
-            from ui.tooltip import center_window_on_parent
+            dialog.grab_set()
+
+            from ui.tooltip import center_window_on_parent, Tooltip
             center_window_on_parent(dialog, self.winfo_toplevel())
 
-            t_num = self.engine.history[turn_idx].get('turn', '?')
-            ctk.CTkLabel(dialog, text=f"Where should the blank card be inserted relative to Turn {t_num}?", wraplength=300).pack(pady=15)
+            history_len = len(self.engine.history)
+            t_num = self.engine.history[turn_idx].get("turn", "?")
+            ctk.CTkLabel(
+                dialog,
+                text=f"Where should the new card be inserted relative to Turn {t_num}?",
+                wraplength=360,
+            ).pack(pady=(12, 6))
 
-            btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-            btn_frame.pack(pady=10)
+            placement_var = ctk.StringVar(value="after")
+            saved_mode = INSTANCE_CONFIG.get("editor_insert_turn_mode", "blank")
+            if saved_mode not in ("blank", "generate", "bridge"):
+                saved_mode = "blank"
+            mode_var = ctk.StringVar(value=saved_mode)
 
-            def execute_insertion(final_idx):
+            def final_index_for_placement():
+                return turn_idx if placement_var.get() == "before" else turn_idx + 1
+
+            def insertion_is_between():
+                final_idx = final_index_for_placement()
+                return 0 < final_idx < history_len
+
+            def persist_insert_mode(*_args):
+                mode = mode_var.get()
+                if mode == "bridge" and not insertion_is_between():
+                    mode = "generate"
+                    mode_var.set(mode)
+                INSTANCE_CONFIG["editor_insert_turn_mode"] = mode
+                save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+
+            def sync_mode_radios(*_args):
+                between = insertion_is_between()
+                if between:
+                    rb_bridge.configure(state="normal")
+                    if placement_var.get() == "before":
+                        next_t = self.engine.history[turn_idx].get("turn", "?")
+                        bridge_tip.text = (
+                            f"Insert Before Turn {t_num}: the new card flows from prior history "
+                            f"into Turn {next_t}'s existing scene."
+                        )
+                    else:
+                        next_t = (
+                            self.engine.history[turn_idx + 1].get("turn", "?")
+                            if turn_idx + 1 < history_len else "?"
+                        )
+                        bridge_tip.text = (
+                            f"Insert After Turn {t_num}: the new card flows from Turn {t_num} "
+                            f"into Turn {next_t}'s existing scene."
+                        )
+                else:
+                    rb_bridge.configure(state="disabled")
+                    if mode_var.get() == "bridge":
+                        mode_var.set("generate")
+
+            def execute_insertion():
+                final_idx = final_index_for_placement()
+                mode = mode_var.get()
+                if mode == "bridge" and not insertion_is_between():
+                    mode = "generate"
                 dialog.destroy()
-                self._lock_ui("Inserting blank turn...")
+                status = "Inserting turn..." if mode == "blank" else "Generating turn..."
+                self._lock_ui(status)
+
                 def worker():
-                    self.engine.insert_blank_turn(final_idx)
-                    # Automatically advance the UI to the newly created blank card
-                    self.current_turn_idx = final_idx
-                    self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+                    ok = self.engine.insert_turn(final_idx, mode=mode)
+                    if ok:
+                        self.current_turn_idx = final_idx
+                        self.after(0, lambda: self.refresh_timeline(go_to_last=False))
+                    else:
+                        err = (
+                            "The AI failed to generate the inserted turn."
+                            if mode != "blank"
+                            else "Failed to insert the turn."
+                        )
+                        self.after(0, lambda: messagebox.showerror("Insert Turn", err))
+                        self.after(0, lambda: self._unlock_ui("Ready."))
+
                 import threading
                 threading.Thread(target=worker, daemon=True).start()
 
-            # "Before" uses the current index (everything right-shifts)
-            ctk.CTkButton(btn_frame, text="Insert Before", width=120, fg_color="#1F6AA5", command=lambda: execute_insertion(turn_idx)).pack(side="left", padx=10)
-            
-            # "After" uses index + 1 (everything after the current card right-shifts)
-            ctk.CTkButton(btn_frame, text="Insert After", width=120, fg_color="#2E7D32", hover_color="#1B5E20", command=lambda: execute_insertion(turn_idx + 1)).pack(side="left", padx=10)
-            
+            placement_row = ctk.CTkFrame(dialog, fg_color="transparent")
+            placement_row.pack(pady=(0, 6), anchor="center")
+            rb_before = ctk.CTkRadioButton(
+                placement_row,
+                text="Insert Before",
+                variable=placement_var,
+                value="before",
+                command=sync_mode_radios,
+            )
+            rb_before.pack(side="left", padx=(0, 14))
+            Tooltip(
+                rb_before,
+                f"Place the new card immediately before Turn {t_num}. Later turns shift forward.",
+            )
+            rb_after = ctk.CTkRadioButton(
+                placement_row,
+                text="Insert After",
+                variable=placement_var,
+                value="after",
+                command=sync_mode_radios,
+            )
+            rb_after.pack(side="left")
+            Tooltip(
+                rb_after,
+                f"Place the new card immediately after Turn {t_num}. Later turns shift forward.",
+            )
+
+            mode_row = ctk.CTkFrame(dialog, fg_color="transparent")
+            mode_row.pack(pady=(0, 8), anchor="center")
+            rb_blank = ctk.CTkRadioButton(
+                mode_row,
+                text="Blank Turn",
+                variable=mode_var,
+                value="blank",
+                command=persist_insert_mode,
+            )
+            rb_blank.pack(anchor="w")
+            Tooltip(
+                rb_blank,
+                "Insert an empty placeholder card you can edit manually in Edit Scene.",
+            )
+            rb_generate = ctk.CTkRadioButton(
+                mode_row,
+                text="Generate — continue story",
+                variable=mode_var,
+                value="generate",
+                command=persist_insert_mode,
+            )
+            rb_generate.pack(anchor="w")
+            Tooltip(
+                rb_generate,
+                f"AI writes the new turn using only prior history. "
+                f"Insert After Turn {t_num}: the new card reads as a natural continuation of Turn {t_num}.",
+            )
+            rb_bridge = ctk.CTkRadioButton(
+                mode_row,
+                text="Generate — bridge the gap",
+                variable=mode_var,
+                value="bridge",
+                command=persist_insert_mode,
+            )
+            rb_bridge.pack(anchor="w")
+            bridge_tip = Tooltip(
+                rb_bridge,
+                f"AI uses prior history and the upcoming turn when inserting between existing cards.",
+            )
+
+            btn_insert = ctk.CTkButton(
+                dialog,
+                text="Insert Turn",
+                width=130,
+                height=32,
+                fg_color="#2E7D32",
+                hover_color="#1B5E20",
+                command=execute_insertion,
+            )
+            btn_insert.pack(pady=(4, 10), anchor="center")
+            Tooltip(btn_insert, "Insert using the placement and content mode selected above.")
+
+            sync_mode_radios()
+
         elif action == "turn_to_bridge":
             self._lock_ui("Collapsing turn into bridge...")
             def worker():
@@ -1326,6 +1768,8 @@ class StoryTab(ctk.CTkFrame):
             
     def on_undo(self):
         """Revert the last committed player choice on a background worker thread."""
+        if not self.ensure_prose_saved():
+            return
         self._lock_ui("Undoing last choice...")
         def worker():
             self.engine.undo()
@@ -1334,6 +1778,8 @@ class StoryTab(ctk.CTkFrame):
         self._update_bookmark()
 
     def _trigger_redo(self):
+        if not self.ensure_prose_saved():
+            return
         self._lock_ui("Generating alternative version...")
         def worker():
             self.engine.redo_turn()
@@ -1341,6 +1787,8 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_redo_choices(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         self._lock_ui("Generating new choices...")
         def worker():
             self.engine.redo_choices(turn_idx)
@@ -1348,27 +1796,38 @@ class StoryTab(ctk.CTkFrame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_polish(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
+        selection = self._get_textbox_selection(self.prose_box)
         self._lock_ui("Generating polished prose...")
         def worker():
-            draft = self.engine.request_polish(turn_idx)
+            draft = self.engine.request_polish(turn_idx, selection_text=selection)
             self.after(0, lambda: self._show_draft_diff(draft, "polish"))
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_expansion(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
+        selection = self._get_textbox_selection(self.prose_box)
         self._lock_ui("Expanding turn prose...")
         def worker():
-            draft = self.engine.request_expansion(turn_idx)
+            draft = self.engine.request_expansion(turn_idx, selection_text=selection)
             self.after(0, lambda: self._show_draft_diff(draft, "expansion"))
         threading.Thread(target=worker, daemon=True).start()
 
     def _trigger_condense(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
+        selection = self._get_textbox_selection(self.prose_box)
         self._lock_ui("Condensing turn prose...")
         def worker():
-            draft = self.engine.request_condense(turn_idx)
+            draft = self.engine.request_condense(turn_idx, selection_text=selection)
             self.after(0, lambda: self._show_draft_diff(draft, "condense"))
         threading.Thread(target=worker, daemon=True).start()
         
     def _trigger_fix(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         dialog = ctk.CTkToplevel(self)
         dialog.title("Director Fix")
         dialog.geometry("750x620") 
@@ -1416,6 +1875,8 @@ class StoryTab(ctk.CTkFrame):
         inst_box.focus()
         
         def on_submit(*args):
+            if not self.ensure_prose_saved():
+                return
             src = source_box.get("1.0", "end").strip()
             tgt = target_box.get("1.0", "end").strip()
             inst = inst_box.get("1.0", "end").strip()
@@ -1540,6 +2001,8 @@ class StoryTab(ctk.CTkFrame):
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
 
         def on_accept():
+            if not self.ensure_prose_saved():
+                return
             if "(Bridge)" in action_type:
                 idx = self.engine.backup_turn_idx
                 self.engine.history[idx]["narrative_bridge"] = draft_turn["story_text"]
@@ -1553,11 +2016,15 @@ class StoryTab(ctk.CTkFrame):
             self._render_turn()
 
         def on_cancel():
+            if not self.ensure_prose_saved():
+                return
             self.engine.cancel_draft()
             dialog.destroy()
             self._render_turn()
 
         def on_retry():
+            if not self.ensure_prose_saved():
+                return
             dialog.destroy()
             if action_type == "expansion": self._trigger_expansion(self.current_turn_idx)
             elif action_type == "condense": self._trigger_condense(self.current_turn_idx)
@@ -1577,8 +2044,11 @@ class StoryTab(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Accept Revision", fg_color="#388E3C", hover_color="#1B5E20", width=120, command=on_accept).pack(side="right") 
         
     def _open_edit_dialog(self, turn_idx):
+        if not self.ensure_prose_saved():
+            return
         if turn_idx < 0 or turn_idx >= len(self.engine.history): return
         turn = self.engine.history[turn_idx]
+        cheats_allowed = getattr(self.engine, "allow_fix_command", True)
         
         dialog = ctk.CTkToplevel(self)
         dialog.title(f"Narrative Editor: Turn {turn.get('turn', '?')}")
@@ -1687,6 +2157,8 @@ class StoryTab(ctk.CTkFrame):
             btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
             
             def generate_bridge_async():
+                if not self.ensure_prose_saved():
+                    return
                 btn_gen_br.configure(state="disabled", text="Generating...")
                 self.winfo_toplevel().configure(cursor="watch")
                 
@@ -1720,6 +2192,8 @@ class StoryTab(ctk.CTkFrame):
                 threading.Thread(target=worker, daemon=True).start()
                 
             def edit_bridge_async(edit_type, btn_ref):
+                if not self.ensure_prose_saved():
+                    return
                 current_bridge = bridge_box.get("1.0", "end").strip()
                 if not current_bridge: return
                 
@@ -1767,8 +2241,11 @@ class StoryTab(ctk.CTkFrame):
 
         # --- IN-PLACE STORY TOOLS (Non-Destructive) ---
         def edit_story_async(edit_type, btn_ref):
+            if not self.ensure_prose_saved():
+                return
             current_text = story_box.get("1.0", "end").strip()
             if not current_text: return
+            selection = self._get_textbox_selection(story_box)
             
             orig_text = btn_ref.cget("text")
             btn_ref.configure(state="disabled", text="Working...")
@@ -1782,9 +2259,9 @@ class StoryTab(ctk.CTkFrame):
                 draft = None
                 try:
                     # 2. Call the standard engine generators
-                    if edit_type == "polish": draft = self.engine.request_polish(turn_idx)
-                    elif edit_type == "condense": draft = self.engine.request_condense(turn_idx)
-                    elif edit_type == "expand": draft = self.engine.request_expansion(turn_idx)
+                    if edit_type == "polish": draft = self.engine.request_polish(turn_idx, selection_text=selection)
+                    elif edit_type == "condense": draft = self.engine.request_condense(turn_idx, selection_text=selection)
+                    elif edit_type == "expand": draft = self.engine.request_expansion(turn_idx, selection_text=selection)
                 finally:
                     # 3. Restore the true history instantly, regardless of success or failure
                     self.engine.history[turn_idx]["story_text"] = actual_history_text
@@ -1807,6 +2284,127 @@ class StoryTab(ctk.CTkFrame):
             import threading
             threading.Thread(target=worker, daemon=True).start()
 
+        def open_story_fix_dialog():
+            if not self.ensure_prose_saved():
+                return
+
+            fix_dialog = ctk.CTkToplevel(dialog)
+            fix_dialog.title("Director Fix")
+            fix_dialog.geometry("750x620")
+            fix_dialog.transient(dialog)
+            fix_dialog.attributes("-topmost", True)
+            fix_dialog.grab_set()
+
+            from ui.tooltip import center_window_on_parent
+            center_window_on_parent(fix_dialog, dialog)
+
+            lbl_src = ctk.CTkLabel(fix_dialog, text="1. Target Text (Optional - Highlight text in the story to auto-fill):", font=("Arial", 12, "bold"), text_color="#00BCD4")
+            lbl_src.pack(anchor="w", padx=20, pady=(20, 2))
+            source_box = ctk.CTkTextbox(fix_dialog, height=80, font=("Arial", 14), wrap="word")
+            source_box.pack(fill="x", padx=20)
+
+            lbl_tgt = ctk.CTkLabel(fix_dialog, text="2. Literal Replacement (Optional):", font=("Arial", 12, "bold"), text_color="#4CAF50")
+            lbl_tgt.pack(anchor="w", padx=20, pady=(15, 2))
+            target_box = ctk.CTkTextbox(fix_dialog, height=80, font=("Arial", 14), wrap="word")
+            target_box.pack(fill="x", padx=20)
+
+            lbl_inst = ctk.CTkLabel(fix_dialog, text="3. AI Editor Instruction (Optional):", font=("Arial", 12, "bold"), text_color="#FF9800")
+            lbl_inst.pack(anchor="w", padx=20, pady=(15, 2))
+            inst_box = ctk.CTkTextbox(fix_dialog, height=80, font=("Arial", 14), wrap="word")
+            inst_box.pack(fill="x", padx=20)
+
+            bot_frame = ctk.CTkFrame(fix_dialog, fg_color="transparent")
+            bot_frame.pack(fill="x", padx=20, pady=(15, 0))
+
+            ctk.CTkLabel(bot_frame, text="AI Freedom:", font=("Arial", 12, "bold"), text_color="gray").pack(side="left")
+            saved_freedom = self.engine.setup_data.get("fix_freedom", "Balanced (0.4)")
+            freedom_var = ctk.StringVar(value=saved_freedom)
+
+            freedom_menu = ctk.CTkOptionMenu(
+                bot_frame,
+                variable=freedom_var,
+                values=["Very Conservative (0.1)", "Conservative (0.2)", "Balanced (0.4)", "Creative (0.7)", "Very Creative (0.9)"],
+                width=180,
+            )
+            freedom_menu.pack(side="left", padx=10)
+
+            try:
+                if story_box.tag_ranges("sel"):
+                    selected = story_box.get("sel.first", "sel.last").replace("\n", " ").strip()
+                    if selected:
+                        source_box.insert("1.0", selected)
+            except Exception:
+                pass
+
+            inst_box.focus()
+
+            def on_fix_submit(*args):
+                src = source_box.get("1.0", "end").strip()
+                tgt = target_box.get("1.0", "end").strip()
+                inst = inst_box.get("1.0", "end").strip()
+
+                if not tgt and not inst:
+                    return
+
+                if src and tgt and inst:
+                    instruction = f"Find the text '{src}' and replace it literally with '{tgt}'. Then, apply this editorial instruction to the surrounding scene: {inst}"
+                elif src and tgt:
+                    instruction = f"Find the exact text '{src}' and swap it literally with '{tgt}'. Do not add narrative commentary about the change."
+                elif src and inst:
+                    instruction = f"Locate the text '{src}' and rewrite it according to this instruction: {inst}"
+                elif tgt and not src and not inst:
+                    instruction = f"Insert or apply this exact text to the scene: '{tgt}'"
+                else:
+                    instruction = f"Apply this editorial instruction to the scene: {inst}"
+
+                freedom_str = freedom_var.get()
+                match = re.search(r"\(([\d\.]+)\)", freedom_str)
+                target_temp = float(match.group(1)) if match else 0.4
+
+                self.engine.setup_data["fix_freedom"] = freedom_str
+                from config import save_json_atomically
+                save_json_atomically(self.engine.setup_data, self.engine.adv_dir / "setup.json")
+
+                fix_dialog.destroy()
+                btn_fix.configure(state="disabled", text="Working...")
+                self.winfo_toplevel().configure(cursor="watch")
+
+                current_text = story_box.get("1.0", "end").strip()
+
+                def worker():
+                    actual_history_text = self.engine.history[turn_idx].get("story_text", "")
+                    self.engine.history[turn_idx]["story_text"] = current_text
+                    draft = None
+                    try:
+                        draft = self.engine.request_fix(instruction, turn_idx, temp_override=target_temp)
+                    finally:
+                        self.engine.history[turn_idx]["story_text"] = actual_history_text
+                        self.engine.cancel_draft()
+
+                    def update_ui():
+                        btn_fix.configure(state="normal", text="✨ Fix")
+                        self.winfo_toplevel().configure(cursor="")
+                        if draft and draft.get("story_text"):
+                            story_box.delete("1.0", "end")
+                            story_box.insert("1.0", clean_prose(draft.get("story_text", "")))
+                        else:
+                            messagebox.showerror("Error", "Failed to apply fix. Check console.")
+
+                    self.after(0, update_ui)
+
+                import threading
+                threading.Thread(target=worker, daemon=True).start()
+
+            btn_frame = ctk.CTkFrame(fix_dialog, fg_color="transparent")
+            btn_frame.pack(pady=20)
+            ctk.CTkButton(btn_frame, text="Cancel", width=100, fg_color="#4A4A4A", hover_color="#333333", command=fix_dialog.destroy).pack(side="left", padx=10)
+            ctk.CTkButton(btn_frame, text="Apply Fix", width=120, font=("Arial", 14, "bold"), fg_color="#009688", hover_color="#00796B", command=on_fix_submit).pack(side="right", padx=10)
+
+        if cheats_allowed:
+            btn_fix = ctk.CTkButton(header_frame, text="✨ Fix", width=70, height=24, fg_color="#009688", hover_color="#00796B", command=open_story_fix_dialog)
+            btn_fix.pack(side="right", padx=2)
+            Tooltip(btn_fix, "AI surgical edit: replace text or apply a custom editorial instruction.")
+
         btn_p = ctk.CTkButton(header_frame, text="✨ Polish", width=70, height=24, fg_color="#9C27B0", hover_color="#7B1FA2", command=lambda: edit_story_async("polish", btn_p))
         btn_p.pack(side="right", padx=2)
         Tooltip(btn_p, "AI Copy-Edit: Fix grammar/flow of the text in the box below.")
@@ -1821,10 +2419,36 @@ class StoryTab(ctk.CTkFrame):
 
         story_box = ctk.CTkTextbox(scroll, height=350, wrap="word", font=self.prose_font)
         story_box._textbox.configure(spacing2=6, font=self.prose_font)
-        story_box.insert("1.0", clean_prose(turn.get("story_text", "")))
+        story_box.insert("1.0", clean_prose(editor_story_display_text(turn.get("story_text", ""))))
         story_box.pack(fill="x", pady=(0, 20))
 
-        ctk.CTkLabel(scroll, text="Action Choices:", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+        choices_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+        choices_hdr.pack(fill="x", pady=(10, 5))
+        ctk.CTkLabel(choices_hdr, text="Action Choices:", font=("Arial", 16, "bold")).pack(side="left")
+
+        if not self.engine.is_campaign:
+            btn_reroll_ch = ctk.CTkButton(
+                choices_hdr,
+                text="⟳ Reroll Choices",
+                width=120,
+                height=24,
+                fg_color="#0288D1",
+                hover_color="#01579B",
+                command=lambda: [dialog.destroy(), self._trigger_redo_choices(turn_idx)],
+            )
+            btn_reroll_ch.pack(side="right", padx=(8, 0))
+            Tooltip(btn_reroll_ch, "Ask AI to generate a fresh set of choices for this exact card.")
+
+            btn_add = ctk.CTkButton(
+                choices_hdr,
+                text="+ Add Choice",
+                width=100,
+                height=24,
+                fg_color="#4A4A4A",
+                hover_color="#333333",
+                command=lambda: [turn["choices"].append("New action..."), render_choice_list()],
+            )
+            btn_add.pack(side="right", padx=(8, 0))
         
         choice_rows = []
         choices_container = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -1875,19 +2499,6 @@ class StoryTab(ctk.CTkFrame):
                 
                 choice_rows.append(var)
 
-            if not self.engine.is_campaign:
-                btn_row = ctk.CTkFrame(choices_container, fg_color="transparent")
-                btn_row.pack(fill="x", pady=(10, 0))
-                btn_add = ctk.CTkButton(btn_row, text="+ Add Choice", width=100, fg_color="#4A4A4A", hover_color="#333333",
-                                        command=lambda: [turn["choices"].append("New action..."), render_choice_list()])
-                btn_add.pack(side="left", padx=(0, 10))
-                
-                # --- RESTORED REROLL ALL CHOICES BUTTON ---
-                btn_reroll_ch = ctk.CTkButton(btn_row, text="⟳ Reroll Choices", width=120, fg_color="#0288D1", hover_color="#01579B",
-                                        command=lambda: [dialog.destroy(), self._trigger_redo_choices(turn_idx)])
-                btn_reroll_ch.pack(side="left")
-                Tooltip(btn_reroll_ch, "Ask AI to generate a fresh set of choices for this exact card.")
-
         render_choice_list()
 
         pc_var = None
@@ -1897,22 +2508,16 @@ class StoryTab(ctk.CTkFrame):
             ctk.CTkEntry(scroll, textvariable=pc_var, font=("Arial", 14), text_color="#4CAF50").pack(fill="x", pady=(0, 15))
 
         def on_save(close_dialog):
+            if not self.ensure_prose_saved():
+                return
             try:
                 # 1. Apply UI data directly to the RAM dictionary
                 self.engine.history[turn_idx]["location"] = loc_var.get().strip()
                 self.engine.history[turn_idx]["pov_character"] = pov_var.get().strip()
                 
-                import re
                 raw_story = story_box.get("1.0", "end").strip()
-                
-                # Un-escape double quotes (Artifact of pasting raw JSON or external text)
-                raw_story = raw_story.replace('\\"', '"')
-                
-                # Intelligent Spacing: Converts single newlines into proper double-newline paragraphs.
-                if '\n' in raw_story and '\n\n' not in raw_story:
-                    raw_story = raw_story.replace('\n', '\n\n')
-                # Clean up any chaotic spacing
-                raw_story = re.sub(r'\n{3,}', '\n\n', raw_story)
+                if clean_var.get():
+                    raw_story = tidy_editor_prose_text(raw_story)
                 
                 self.engine.history[turn_idx]["story_text"] = raw_story
                 
@@ -1924,12 +2529,8 @@ class StoryTab(ctk.CTkFrame):
                     
                 if bridge_box is not None:
                     raw_bridge = bridge_box.get("1.0", "end").strip()
-                    
-                    raw_bridge = raw_bridge.replace('\\"', '"')
-                    
-                    if '\n' in raw_bridge and '\n\n' not in raw_bridge:
-                        raw_bridge = raw_bridge.replace('\n', '\n\n')
-                    raw_bridge = re.sub(r'\n{3,}', '\n\n', raw_bridge)
+                    if clean_var.get():
+                        raw_bridge = tidy_editor_prose_text(raw_bridge)
                     
                     if raw_bridge: self.engine.history[turn_idx]["narrative_bridge"] = raw_bridge
                     elif "narrative_bridge" in self.engine.history[turn_idx]: del self.engine.history[turn_idx]["narrative_bridge"]
@@ -1968,11 +2569,34 @@ class StoryTab(ctk.CTkFrame):
         # --- THE BUTTON FOOTER ---
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack(side="bottom", fill="x", pady=20, padx=20)
-        
-        # Left Side
+
+        left_group = ctk.CTkFrame(btn_row, fg_color="transparent")
+        left_group.pack(side="left", fill="x", expand=True)
+
+        from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
+
+        clean_var = ctk.BooleanVar(value=bool(INSTANCE_CONFIG.get("editor_clean_prose_on_save", False)))
+
+        def persist_clean_pref(*_args):
+            INSTANCE_CONFIG["editor_clean_prose_on_save"] = bool(clean_var.get())
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+
+        clean_switch = ctk.CTkSwitch(
+            left_group,
+            text="Tidy prose on save",
+            variable=clean_var,
+            command=persist_clean_pref,
+        )
+        clean_switch.pack(side="left")
+        Tooltip(
+            clean_switch,
+            "When enabled, Save normalizes pasted prose: un-escapes quotes, "
+            "strips indented line breaks, collapses extra spaces, and fixes paragraph spacing.",
+        )
+
         if turn.get("turn", 0) <= 1:
-            ctk.CTkButton(btn_row, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=36,
-                                  fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save).pack(side="left", padx=10)
+            ctk.CTkButton(left_group, text="💾 Set as Story Seed", font=("Arial", 12, "bold"), height=36,
+                                  fg_color="#1F6AA5", hover_color="#144870", command=on_seed_save).pack(side="left", padx=(12, 0))
                                   
         # Right Side (The 3-Button Editor Controls)
         right_group = ctk.CTkFrame(btn_row, fg_color="transparent")
@@ -2082,6 +2706,8 @@ class StoryTab(ctk.CTkFrame):
                 self.after(2000, auto_step)
 
     def _trigger_startup(self):
+        if not self.ensure_prose_saved():
+            return
         self.startup_frame.pack_forget()
         self._lock_ui("Generating opening scene...")
         import threading
@@ -2122,6 +2748,8 @@ class StoryTab(ctk.CTkFrame):
      
     def _open_chapter_editor(self, turn_idx):
         """Spawns a transactional modal allowing the Director to edit chapters.json metadata."""
+        if not self.ensure_prose_saved():
+            return
         if not self.engine.chapters: return
         
         dialog = ctk.CTkToplevel(self)
@@ -2247,6 +2875,8 @@ class StoryTab(ctk.CTkFrame):
         btn_next.pack(side="left", padx=10)
         
         def on_save():
+            if not self.ensure_prose_saved():
+                return
             save_current_view() # Flush the active UI state to the array
             
             # --- THE BOUNDARY PATCHER ---

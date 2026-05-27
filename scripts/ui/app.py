@@ -87,6 +87,11 @@ class TomeWeaverApp(ctk.CTk):
             
     def _on_closing(self):
         """Fires exactly when the user clicks the X to close the app. Saves window state."""
+        if hasattr(self, "active_frame") and self.active_frame is not None:
+            story_tab = getattr(self.active_frame, "story_tab", None)
+            if story_tab is not None and not story_tab.ensure_prose_saved():
+                return
+
         current_state = self.state()
         
         if current_state == "iconic":

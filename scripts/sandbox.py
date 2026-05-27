@@ -27,6 +27,69 @@ class SandboxEngine(BaseEngine):
         self.allow_manual_chapters = True
 
     # ---------------------------------------------------------
+    # TIMELINE SURGERY: INSERT WITH AI CONTINUITY
+    # ---------------------------------------------------------
+
+    def insert_turn_generate_continuity(self, target_index, bridge_gap=False):
+        """Insert a new timeline card with LLM-generated prose (Sandbox Director tool)."""
+        plan = self._plan_turn_insertion(target_index)
+        if not plan:
+            return False
+
+        target_index = plan["target_index"]
+        is_at_end = plan["is_at_end"]
+        new_turn_choice = plan["new_turn_choice"]
+        is_between = target_index > 0 and target_index < len(self.history)
+
+        if not is_at_end and target_index > 0:
+            ctx_turns = [t.copy() for t in self.history[:target_index]]
+        elif target_index > 0:
+            ctx_turns = [t.copy() for t in self.history[:target_index]]
+            prev = ctx_turns[-1]
+            action = prev.get("player_choice")
+            if action is None:
+                action = (prev.get("choices") or ["Proceed forward."])[0]
+            ctx_turns[-1]["player_choice"] = action
+            plan["end_insert_action"] = action
+            new_turn_choice = None
+        else:
+            ctx_turns = []
+
+        next_preview = None
+        if bridge_gap and is_between:
+            next_preview = self.history[target_index].copy()
+
+        self._director_insert_context = ctx_turns
+        self._director_insert_target_turn = plan["target_turn_val"]
+        self._director_insert_next_preview = next_preview
+
+        try:
+            turn_data = self._generate_turn()
+        finally:
+            self._clear_director_insert_state()
+
+        if not turn_data:
+            return False
+
+        self._apply_turn_insertion_surgery(plan)
+
+        turn_data["turn"] = plan["target_turn_val"]
+        turn_data["player_choice"] = new_turn_choice
+        turn_data.setdefault("narrative_bridge", "")
+
+        anchor_turn = plan["anchor_turn"]
+        if anchor_turn:
+            turn_data.setdefault("location", anchor_turn.get("location", "Unknown"))
+            turn_data.setdefault("pov_character", anchor_turn.get("pov_character", "Unknown"))
+            if self.track_inventory and not turn_data.get("inventory_and_state"):
+                turn_data["inventory_and_state"] = anchor_turn.get("inventory_and_state", "")
+
+        self.history.insert(target_index, turn_data)
+        self._normalize_sandbox_player_choices()
+        self.save_state()
+        return True
+
+    # ---------------------------------------------------------
     # PROMPT CONSTRUCTION
     # ---------------------------------------------------------
     
@@ -59,11 +122,18 @@ class SandboxEngine(BaseEngine):
                 active_setup["tone"] = f"{g_tone}, {l_tone}".strip()
                 
         edit_idx = getattr(self, 'backup_turn_idx', -1)
-        
-        completed_history = [
-            t for i, t in enumerate(self.history) 
-            if t.get("player_choice") is not None and i != edit_idx
-        ]
+        insert_ctx = getattr(self, '_director_insert_context', None)
+
+        if insert_ctx is not None:
+            completed_history = [
+                t for i, t in enumerate(insert_ctx)
+                if t.get("player_choice") is not None and i != edit_idx
+            ]
+        else:
+            completed_history = [
+                t for i, t in enumerate(self.history) 
+                if t.get("player_choice") is not None and i != edit_idx
+            ]
           
         # ==========================================
         # 0. MEMORY & TOKEN OPTIMIZATION
@@ -264,6 +334,20 @@ class SandboxEngine(BaseEngine):
             
             base_instruction = base_instruction.replace("{test_rule}", test_rule)
             base_instruction = base_instruction.replace("{req_str}", req_str)
+
+            next_preview = getattr(self, '_director_insert_next_preview', None)
+            if next_preview:
+                preview_text = next_preview.get("story_text", "")[:800]
+                prev_turn_num = "?"
+                insert_ctx = getattr(self, '_director_insert_context', None)
+                if insert_ctx:
+                    prev_turn_num = insert_ctx[-1].get("turn", "?")
+                next_turn_num = next_preview.get("turn", "?")
+                insert_frag = PROMPTS.get("FRAG_SANDBOX_INSERT_CONTINUITY", "")
+                insert_frag = insert_frag.replace("{next_preview}", preview_text)
+                insert_frag = insert_frag.replace("{prev_turn_num}", str(prev_turn_num))
+                insert_frag = insert_frag.replace("{next_turn_num}", str(next_turn_num))
+                base_instruction = insert_frag + "\n\n" + base_instruction
 
             
             # --- MANUAL CHAPTER OVERRIDE ---

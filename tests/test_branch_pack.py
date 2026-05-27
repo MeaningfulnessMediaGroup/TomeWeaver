@@ -123,11 +123,11 @@ class TestBranchPack:
         assert a["digest"] == b["digest"]
 
     def test_list_importable_stories_marks_compatible(self, engine_with_history, tmp_path, monkeypatch):
-        from config import ENGINE_CONFIG
+        from config import INSTANCE_CONFIG
 
         library = tmp_path / "library"
         library.mkdir()
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(library))
 
         story_a = library / "StoryA"
         story_a.mkdir()

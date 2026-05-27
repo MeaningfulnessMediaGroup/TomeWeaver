@@ -29,12 +29,11 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`log_verbose`** | When `true`, logs full LLM prompts to `session_log.txt` (in addition to console output when verbose UI is active). |
 | **`log_raw_json_on_failure`** | When `true`, always logs raw model output on JSON parse failures—even if verbose logging is off. |
 | **`max_inventory_keys`** | Maximum tracked inventory slots in the World Builder pill editor (default 8). |
-| **`adventures_dir`** | Absolute path to the story library root. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` is stored inside this folder. |
 | **`global_theme_name`** | Name of the active **global** UI skin preset from `configs/themes.json` (e.g., `"Default Dark"`, `"Parchment"`). Used for the dashboard and as the default workspace appearance. |
 
-Per-story appearance overrides are **not** stored here—see `setup.json` (author bundle) and `instance_config.json` (`story_theme_preference`).
+Per-story appearance overrides are **not** stored here—see `setup.json` (author bundle) and `instance_config.json` (`story_theme_preference`, `adventures_dir`).
 
-**Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse button).
+**Access in UI:** Dashboard → `⚙ Settings` (engine keys above); **Adventures Library** is under `instance_config.json` (see below).
 
 ---
 
@@ -166,7 +165,7 @@ If you want your adventure to start with a specific, hand-crafted first turn (in
 
 ## 🖥️ Instance Configuration (`instance_config.json`)
 
-Separate from engine behavior, `instance_config.json` stores **volatile UI session state** (window geometry, last author name, per-story timeline bookmarks). It is auto-created on first launch and self-heals if corrupted.
+Separate from engine behavior, `instance_config.json` stores **per-machine session and library state** (window geometry, story library path, bookmarks). It is auto-created on first launch and self-heals if corrupted. This file is gitignored and is not meant to be shared across machines.
 
 | Key | Description |
 | :--- | :--- |
@@ -176,8 +175,9 @@ Separate from engine behavior, `instance_config.json` stores **volatile UI sessi
 | **`last_author`** | Default author field pre-fill for new stories. |
 | **`story_bookmarks`** | Maps story paths to last-viewed turn indices for Time Travel restore. |
 | **`story_theme_preference`** | Maps story folder path → `"global"` or `"story"` (workspace appearance override). |
+| **`adventures_dir`** | Absolute path to **your** story library root on this PC. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` lives inside this folder. |
 
-**Access in UI:** Mostly automatic; bookmarks update when you scrub the timeline.
+**Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse). Bookmarks update automatically when you scrub the timeline.
 
 ---
 

@@ -3,7 +3,7 @@
 import pytest
 
 from api import TomeWeaverAPI, get_index_file, sanitize_foldername
-from config import ENGINE_CONFIG, create_boilerplate_files
+from config import INSTANCE_CONFIG, create_boilerplate_files
 
 
 class TestSanitizeFoldername:
@@ -46,7 +46,7 @@ class TestLoadEngine:
         story_dir = library / "test_sandbox_story"
         story_dir.mkdir(parents=True)
         create_boilerplate_files(story_dir, "sandbox")
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(library))
 
         # Act
         engine = TomeWeaverAPI.load_engine("test_sandbox_story")

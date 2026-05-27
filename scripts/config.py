@@ -41,26 +41,33 @@ ROOT_DIR = USER_ROOT
 
 
 def _read_adventures_dir_from_disk():
-    """Read ``adventures_dir`` from engine_config before ENGINE_CONFIG is loaded."""
-    config_path = USER_ROOT / "configs" / "engine_config.json"
-    if not config_path.exists():
-        return ""
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("adventures_dir", "") if isinstance(data, dict) else ""
-    except Exception:
-        return ""
+    """Read ``adventures_dir`` from disk before config globals are fully loaded."""
+    for config_name in ("instance_config.json", "engine_config.json"):
+        config_path = USER_ROOT / "configs" / config_name
+        if not config_path.exists():
+            continue
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                val = data.get("adventures_dir", "")
+                if isinstance(val, str) and val.strip():
+                    return val
+        except Exception:
+            continue
+    return ""
 
 
 def get_adventures_dir():
-    """Return the resolved adventures library root (configurable via engine_config).
+    """Return the resolved adventures library root (``instance_config.json``).
 
     When ``adventures_dir`` is empty or unset, defaults to ``USER_ROOT / adventures``.
     Relative paths are resolved against ``USER_ROOT``. The directory is created if missing.
     """
     custom = ""
-    if "ENGINE_CONFIG" in globals():
+    if "INSTANCE_CONFIG" in globals():
+        custom = INSTANCE_CONFIG.get("adventures_dir", "")
+    elif "ENGINE_CONFIG" in globals():
         custom = ENGINE_CONFIG.get("adventures_dir", "")
     else:
         custom = _read_adventures_dir_from_disk()
@@ -422,8 +429,8 @@ def load_engine_config():
         "ui_wrap_margin": 150,
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
+        "inline_prose_edit": False,
         "max_inventory_keys": 8,
-        "adventures_dir": "",
         "global_theme_name": "Default Dark"
     }
     
@@ -446,7 +453,14 @@ def load_engine_config():
             needs_update = True
             
     # Clean up legacy volatile keys from engine_config
-    for legacy_key in ["window_geometry", "window_state", "last_active_story", "memory_chunk_size", "use_local_theme_override"]:
+    for legacy_key in [
+        "window_geometry",
+        "window_state",
+        "last_active_story",
+        "memory_chunk_size",
+        "use_local_theme_override",
+        "adventures_dir",
+    ]:
         if legacy_key in config:
             del config[legacy_key]
             needs_update = True
@@ -632,6 +646,9 @@ def load_instance_config():
         "story_bookmarks": {},  # Maps 'Rel/Path/To/Story': turn_index
         "story_theme_preference": {},  # Maps folder path -> "global" | "story"
         "force_chapter_transition_mode": "wrap_up",  # wrap_up | immediate
+        "editor_clean_prose_on_save": False,
+        "editor_insert_turn_mode": "blank",
+        "adventures_dir": "",
     }
     
     # If missing entirely, create it
@@ -726,5 +743,18 @@ def create_boilerplate_files(adv_dir, mode):
             raise FileNotFoundError(f"Critical Error: Missing template file '{default_prompt.name}' in the root directory. Cannot initialize new story.")
             
 
+def _migrate_adventures_dir_to_instance():
+    """One-time move of ``adventures_dir`` from engine_config to instance_config."""
+    if "adventures_dir" not in ENGINE_CONFIG:
+        return
+    legacy = ENGINE_CONFIG.get("adventures_dir", "")
+    if not str(INSTANCE_CONFIG.get("adventures_dir", "")).strip() and str(legacy).strip():
+        INSTANCE_CONFIG["adventures_dir"] = str(legacy).strip()
+        save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+    del ENGINE_CONFIG["adventures_dir"]
+    save_json_atomically(ENGINE_CONFIG, ROOT_DIR / "configs" / "engine_config.json")
+
+
 ENGINE_CONFIG = load_engine_config()
 INSTANCE_CONFIG = load_instance_config()
+_migrate_adventures_dir_to_instance()

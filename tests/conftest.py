@@ -146,15 +146,15 @@ def set_decay_threshold(monkeypatch):
 
 @pytest.fixture
 def set_adventures_dir(monkeypatch, tmp_path):
-    """Patch ENGINE_CONFIG adventures_dir to a disposable library root."""
+    """Patch INSTANCE_CONFIG adventures_dir to a disposable library root."""
 
     def _apply(custom_path=None):
-        from config import ENGINE_CONFIG
+        from config import INSTANCE_CONFIG
 
         if custom_path is None:
             custom_path = tmp_path / "library"
             custom_path.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(Path(custom_path).resolve()))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(Path(custom_path).resolve()))
 
     return _apply
 
@@ -164,7 +164,7 @@ def library_cartridge(tmp_path, monkeypatch):
     """Factory: disposable story folder registered in a patched adventures library."""
 
     def _make(mode="sandbox", folder_name=None):
-        from config import ENGINE_CONFIG, create_boilerplate_files
+        from config import INSTANCE_CONFIG, create_boilerplate_files
 
         library = tmp_path / "library"
         library.mkdir(parents=True, exist_ok=True)
@@ -172,7 +172,7 @@ def library_cartridge(tmp_path, monkeypatch):
         story_dir = library / name
         story_dir.mkdir(parents=True, exist_ok=True)
         create_boilerplate_files(story_dir, mode)
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library.resolve()))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(library.resolve()))
         return story_dir, name
 
     return _make
@@ -251,7 +251,7 @@ def universe_library(tmp_path, monkeypatch):
     """Shared universe + thread story under a patched adventures library."""
 
     def _make(*, thread_name="DetectiveThread"):
-        from config import ENGINE_CONFIG, create_boilerplate_files
+        from config import INSTANCE_CONFIG, create_boilerplate_files
 
         library = tmp_path / "library"
         universe = library / "NeonBasin"
@@ -296,7 +296,7 @@ def universe_library(tmp_path, monkeypatch):
         setup["title"] = "The Detective"
         write_json(thread / "setup.json", setup)
 
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library.resolve()))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(library.resolve()))
         rel = f"NeonBasin/{thread_name}"
         return library, universe, thread, rel
 

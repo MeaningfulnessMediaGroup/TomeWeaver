@@ -5,7 +5,7 @@ import json
 import pytest
 
 from config import (
-    ENGINE_CONFIG,
+    INSTANCE_CONFIG,
     find_universe_root,
     get_adventures_dir,
     get_default_adventures_dir,
@@ -14,11 +14,11 @@ from api import get_adv_dir, get_index_file
 
 
 class TestAdventuresDirResolution:
-    """``adventures_dir`` in engine_config resolves to a usable library root."""
+    """``adventures_dir`` in instance_config resolves to a usable library root."""
 
     def test_default_adventures_dir_when_unset(self, monkeypatch):
         # Arrange
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", "")
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", "")
 
         # Act
         resolved = get_adventures_dir()
@@ -31,7 +31,7 @@ class TestAdventuresDirResolution:
         # Arrange
         custom = tmp_path / "my_real_stories"
         custom.mkdir()
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(custom))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(custom))
 
         # Act
         resolved = get_adventures_dir()
@@ -46,7 +46,7 @@ class TestAdventuresDirResolution:
         from config import USER_ROOT
 
         rel_name = "custom_library"
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", rel_name)
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", rel_name)
 
         # Act
         resolved = get_adventures_dir()
@@ -69,7 +69,7 @@ class TestFindUniverseRoot:
             json.dumps({"universe_title": "Shared World"}), encoding="utf-8"
         )
         (thread / "setup.json").write_text("{}", encoding="utf-8")
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(library))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(library))
 
         # Act
         root = find_universe_root(thread)
@@ -79,7 +79,7 @@ class TestFindUniverseRoot:
 
     def test_returns_none_when_no_master_setup_in_tree(self, monkeypatch, tmp_path):
         # Arrange
-        monkeypatch.setitem(ENGINE_CONFIG, "adventures_dir", str(tmp_path / "library"))
+        monkeypatch.setitem(INSTANCE_CONFIG, "adventures_dir", str(tmp_path / "library"))
         orphan = tmp_path / "elsewhere" / "story"
         orphan.mkdir(parents=True)
         (orphan / "setup.json").write_text("{}", encoding="utf-8")

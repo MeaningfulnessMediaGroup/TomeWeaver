@@ -1,0 +1,4 @@
+{
+  "python.analysis.extraPaths": ["${workspaceFolder}/scripts"],
+  "pyright.configFile": "${workspaceFolder}/configs/pyrightconfig.json"
+}

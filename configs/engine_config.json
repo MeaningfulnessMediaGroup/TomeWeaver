@@ -7,6 +7,7 @@
     "auto_narrative_bridge": false,
     "ui_scaling": 1.2,
     "prose_font_size": 18,
+    "inline_prose_edit": true,
     "ui_wrap_margin": 150,
     "logging_enabled": true,
     "log_verbose": true,
@@ -19,6 +20,5 @@
     "model": "loaded-model",
     "max_query_per_minute": 0,
     "max_tokens": 5000,
-    "adventures_dir": "",
     "max_inventory_keys": 8
 }

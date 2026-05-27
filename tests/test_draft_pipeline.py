@@ -56,6 +56,20 @@ class TestDraftPipeline:
         assert engine.is_fix_mode is True
         assert engine.backup_turn_idx == 1
 
+    def test_request_polish_with_selection_scopes_prompt(self, engine_with_history, mock_llm_response):
+        engine = engine_with_history(2, choices_per_turn=[None, "Look around"])
+        mock_llm_response(
+            lambda *_a, **_k: valid_turn_payload(
+                turn_num=2,
+                story_text="The polished sentence gleamed.",
+            )
+        )
+
+        draft = engine.request_polish(turn_idx=1, selection_text="A short sentence.")
+        assert draft is not None
+        assert "SELECTION SCOPE" in engine.active_fix
+        assert "A short sentence." in engine.active_fix
+
     def test_apply_draft_inheritance_keeps_choices(self, sandbox_engine):
         sandbox_engine.history = [
             make_turn(1, player_choice=None),

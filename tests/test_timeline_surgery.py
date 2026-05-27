@@ -31,6 +31,119 @@ class TestInsertBlankTurn:
         assert engine.history[2]["player_choice"] == "Go left"
         assert engine.history[3]["player_choice"] == "Go right"
 
+    def test_insert_blank_turn_at_end_fills_null_previous_choice(self, engine_with_history):
+        engine = engine_with_history(2, choices_per_turn=[None, None])
+        assert engine.history[1]["player_choice"] is None
+
+        engine.insert_blank_turn(2)
+
+        assert len(engine.history) == 3
+        assert engine.history[1]["player_choice"] == "[ Blank Turn ]"
+        assert engine.history[2]["player_choice"] is None
+
+    def test_insert_blank_turn_at_end_preserves_real_previous_choice(self, engine_with_history):
+        engine = engine_with_history(2, choices_per_turn=[None, "Go left"])
+        engine.insert_blank_turn(2)
+
+        assert engine.history[1]["player_choice"] == "Go left"
+        assert engine.history[2]["player_choice"] is None
+
+    def test_normalize_sandbox_player_choices(self, engine_with_history):
+        engine = engine_with_history(3, choices_per_turn=[None, "Go", None])
+        engine.history[0]["player_choice"] = None
+
+        engine._normalize_sandbox_player_choices()
+
+        assert engine.history[0]["player_choice"] == "[ Blank Turn ]"
+        assert engine.history[1]["player_choice"] == "Go"
+        assert engine.history[2]["player_choice"] is None
+
+    def test_process_valid_turn_normalizes_prior_nulls(self, engine_with_history):
+        from conftest import valid_turn_payload
+
+        engine = engine_with_history(2, choices_per_turn=[None, None])
+        engine.history[0]["player_choice"] = None
+
+        engine._process_valid_turn(valid_turn_payload(turn_num=3))
+
+        assert engine.history[0]["player_choice"] == "[ Blank Turn ]"
+        assert engine.history[1]["player_choice"] == "[ Blank Turn ]"
+        assert engine.history[2]["player_choice"] is None
+
+    def test_normalize_skipped_for_campaign(self, campaign_engine):
+        from conftest import make_turn
+
+        campaign_engine.history = [make_turn(1), make_turn(2)]
+        campaign_engine.history[0]["player_choice"] = None
+
+        campaign_engine._normalize_sandbox_player_choices()
+
+        assert campaign_engine.history[0]["player_choice"] is None
+
+    def test_insert_turn_generate_continuity(self, engine_with_history, mock_llm_response):
+        from conftest import valid_turn_payload
+
+        engine = engine_with_history(2, choices_per_turn=[None, None])
+        generated = valid_turn_payload(
+            turn_num=3,
+            story_text="The hallway stretches ahead, lit by flickering neon.",
+            choices=["Open the door.", "Listen at the wall.", "Turn back."],
+        )
+        mock_llm_response(generated)
+
+        assert engine.insert_turn(2, mode="generate") is True
+        assert len(engine.history) == 3
+        assert "hallway" in engine.history[2]["story_text"].lower()
+        assert engine.history[2]["player_choice"] is None
+        assert engine.history[1]["player_choice"] == "Option A"
+
+    def test_insert_turn_bridge_gap_uses_upcoming_turn(self, engine_with_history, mock_llm_response):
+        from conftest import valid_turn_payload
+
+        engine = engine_with_history(
+            3,
+            choices_per_turn=[None, "Go left", "Go right"],
+        )
+        generated = valid_turn_payload(
+            turn_num=3,
+            story_text="Between the rooms, dust hangs in the air.",
+            choices=["Step inside.", "Listen.", "Retreat."],
+        )
+        mock_llm_response(generated)
+
+        previews = []
+
+        def capture_clear():
+            previews.append(getattr(engine, "_director_insert_next_preview", None))
+            for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+                if hasattr(engine, attr):
+                    delattr(engine, attr)
+
+        engine._clear_director_insert_state = capture_clear
+
+        assert engine.insert_turn(1, mode="bridge") is True
+        assert previews[0] is not None
+        assert previews[0].get("story_text", "").startswith("Story prose for turn 2")
+
+        previews.clear()
+        engine2 = engine_with_history(
+            3,
+            choices_per_turn=[None, "Go left", "Go right"],
+        )
+        mock_llm_response(generated)
+        previews2 = []
+
+        def capture_clear2():
+            previews2.append(getattr(engine2, "_director_insert_next_preview", None))
+            for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+                if hasattr(engine2, attr):
+                    delattr(engine2, attr)
+
+        engine2._clear_director_insert_state = capture_clear2
+
+        assert engine2.insert_turn(1, mode="generate") is True
+        assert previews2[0] is None
+
     def test_insert_blank_turn_shifts_chapter_boundaries(self, engine_with_history):
         engine = engine_with_history(
             4,

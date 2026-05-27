@@ -180,7 +180,7 @@ CRITICAL: Keep the 'story_text' EXACTLY the same.
 [PROMPT:USER_EXPAND]
 '''
 File: base_engine.py | Function: request_expansion
-Variables: {world_info}, {prev_story}, {original_json}
+Variables: {world_info}, {prev_story}, {selection_scope}, {original_json}
 '''
 EDIT MODE (EXPAND): You are a literary expansion agent. Your task is to take a short 'story_text' and expand it into 3-5 rich, cinematic paragraphs.
 
@@ -196,7 +196,7 @@ Expand the 'story_text' in the Original JSON below. Use the World and Narrative 
 2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within the current scene.
 3. CRITICAL: DO NOT introduce new items or characters not mentioned in the context.
 4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.
-
+{selection_scope}
 Original JSON to Expand:
 {original_json}
 
@@ -206,9 +206,10 @@ Original JSON to Expand:
 [PROMPT:USER_POLISH]
 '''
 File: base_engine.py | Function: request_polish
-Variables: {original_json}
+Variables: {selection_scope}, {original_json}
 '''
 EDIT MODE (POLISH): Proofread and elevate the 'story_text' to professional novel quality. Fix grammar and vocabulary. DO NOT change the plot or touch dialogue.
+{selection_scope}
 Original JSON:
 {original_json}
 
@@ -567,6 +568,18 @@ Based on the latest action, generate the next turn in JSON format.
 
 
 
+[PROMPT:FRAG_SANDBOX_INSERT_CONTINUITY]
+'''
+Variables: {prev_turn_num}, {next_turn_num}, {next_preview}
+Used when the Director inserts a generated turn between existing timeline cards.
+'''
+DIRECTOR TIMELINE INSERT (BRIDGE MODE): Write an intervening scene that connects Turn {prev_turn_num}'s storyline to Turn {next_turn_num}, which already exists later in the timeline.
+Use the recent history and latest player action as your starting point. Steer smoothly toward Turn {next_turn_num} without copying its prose:
+"{next_preview}"
+
+
+
+
 [PROMPT:FRAG_SANDBOX_COLD_OPEN]
 '''
 Variables: {chapter_number}, {chapter_title}, {test_rule}, {req_str}, {time_jump}
@@ -649,14 +662,14 @@ EXAMPLE OUTPUT:
 [PROMPT:USER_CONDENSE]
 '''
 File: base_engine.py | Function: request_condense
-Variables: {original_json}
+Variables: {selection_scope}, {original_json}
 '''
 EDIT MODE (CONDENSE): You are a professional editor. Your task is to concisely summarize and condense the 'story_text' in the Original JSON.
 1. If the text is 5-8 paragraphs, condense it to 2-3 paragraphs. If it is 1-3 paragraphs, condense it to 1 paragraph.
 2. CRITICAL: Preserve all vital plot points, location details, and physical actions.
 3. CRITICAL: DO NOT touch dialogue. Leave all text inside quotation marks EXACTLY as written.
 4. CRITICAL: Do NOT alter the plot, setting, POV, or choices.
-
+{selection_scope}
 Original JSON:
 {original_json}
 
