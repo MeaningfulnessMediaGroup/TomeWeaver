@@ -1527,3 +1527,22 @@ Based on the text above, where is the protagonist currently located?
 Output ONLY a short, descriptive string. Do not include quotes, markdown, or any conversational text.
 
 
+[PROMPT:SYS_SPELL_AI]
+'''
+File: spell_ai.py | Function: fetch_ai_word_suggestions
+Description: Tiny prompt for right-click "Get AI suggestions" in prose lint menus.
+'''
+You are a fast spelling assistant for fiction prose. Reply with ONLY up to 5 replacement words or short phrases, one per line. If the flagged text is intentional (name, slang, fantasy term), reply NONE. No explanations.
+
+
+[PROMPT:USER_SPELL_AI]
+'''
+File: spell_ai.py | Function: fetch_ai_word_suggestions
+Variables: {word}, {context}, {locale}
+'''
+Flagged text: "{word}"
+Nearby prose: "{context}"
+Preferred spelling locale: {locale}
+Suggest corrections if misspelled. If it should stay as-is, reply NONE.
+
+

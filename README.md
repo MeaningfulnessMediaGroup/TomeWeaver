@@ -229,7 +229,24 @@ The Dashboard maintains an autonomous `index.json` cache so you can search, sort
 *   **`start_turn.json`:** A saved "Story Seed" guarantees every restart begins at your curated Turn 1 hook (set via **💾 Set as Story Seed** in the scene editor).
 
 ### 22. Headless Engine & Automated Tests (Developers)
-The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` (200+ tests) validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
+The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` (230+ tests) validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
+
+### 23. Offline Prose Linting (Spell, Grammar, Synonyms)
+Catch typos and common grammar slips while you edit—no cloud API required for core linting.
+
+**Phase 1 — Spell check** (red underlines): bundled `pyspellchecker` dictionary, story/universe RAG allowlist, contractions, plurals, and layered custom lexicons (`spelling_lexicon.json` at story, universe, and global levels).
+
+**Phase 2 — Grammar check** (amber underlines): offline rule-based lint for double spaces, repeated words, `a`/`an`, subject–verb agreement, `your`/`you're` hints, punctuation spacing, and similar prose hygiene. Right-click for an explanation, **Fix**, or **Ignore this issue**.
+
+**Phase 3 — Author settings:** **Dashboard → ⚙ Settings → Prose Lint Settings…** — spell/grammar/synonym toggles, **American / British / Both Allowed** locale, **Save added words to** (story / universe / global), optional **Get AI suggestions…** on right-click menus, and **Ignore** lists (same save scope as Add to dictionary).
+
+**Synonyms (optional):** When **Offline Synonyms** is on, right-click any word for WordNet alternatives (no underlines; NLTK WordNet, one-time corpus download then offline).
+
+*   **Where it runs:** **✎ Edit Scene** (bridge, prose, choices) and inline timeline prose when **Enable Inline Prose Editing** is on.
+*   **Toggles:** All in **Prose Lint Settings…** (spell and grammar on by default; synonyms off by default).
+*   **Not a full copy editor:** Deep rewrites remain **✨ Polish** (LLM). Grammar lint is conservative—rule-based and fully offline.
+
+See [docs/COMMAND_GUIDE.md](docs/COMMAND_GUIDE.md) and [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md).
 
 ---
 
@@ -334,6 +351,9 @@ As you play, TomeWeaver automatically generates and manages these files to maint
 *   `runs/manifest.json`: The **Run Tree** index—archived timelines, fork metadata, and which branch is active at the cartridge root.
 *   `runs/snapshots/<run_id>/`: Per-timeline copies of `history.json`, `chapters.json`, and `memory.json` for fork/switch/share workflows.
 *   `session_log.txt`: The "Flight Recorder." A diagnostic log of every API call, retry, and raw JSON output for debugging your prompts.
+*   `spelling_lexicon.json` *(Optional, per story)*: Custom dictionary, ignored spellings, and ignored grammar hits for this cartridge.
+*   `{universe}/spelling_lexicon.json` *(Optional)*: Shared Universe lexicon layer (merged when checking).
+*   `{adventures_dir}/spelling_lexicon_global.json` *(Optional)*: Library-wide lexicon when using global save scope.
 
 ---
 
@@ -397,6 +417,9 @@ TomeWeaver is a powerful narrative operating system, but it is not magic. Unders
 *   **Windows-first launcher scripts.** `setup.bat`, `Start_TomeWeaver.bat`, and `Run_Tests.bat` are Windows batch files. macOS/Linux users should follow Option C and use manual `venv` + `python scripts/gui.py` commands.
 *   **Executable builds hide the terminal.** PyInstaller `--noconsole` builds suppress stdout; use the **Developer Console** tab or `session_log.txt` for diagnostics.
 *   **Single-player, local saves.** Progress lives in your `/adventures` folder. There is no cloud sync, account system, or cross-device save merge.
+*   **Offline spell check is dictionary-based.** It flags likely typos, not deep grammar or style. Fantasy coinages can be **Add to dictionary**, **Ignore**, or appear in Memory & Lore to be accepted.
+*   **Offline grammar check is rule-based.** It catches common mechanical errors but not nuanced voice, dialect, or intentional stylistic breaks. Use **Ignore this issue** or disable **Offline Grammar Check** if amber underlines distract during dialogue-heavy drafts.
+*   **Offline synonyms use WordNet.** Suggestions are literal thesaurus entries, not voice-aware rewrites; proper nouns and lore terms often return no results.
 
 ### Import, Export & Interoperability
 *   **Export Story (TXT/MD/HTML)** is prose compilation for reading—not a playable save.

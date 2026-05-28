@@ -393,6 +393,35 @@ def save_json_atomically(data, file_path):
 # ENGINE CONFIGURATION
 # ---------------------------------------------------------
 
+PROSE_LINT_CONFIG_KEYS = (
+    "inline_prose_edit",
+    "offline_spell_check",
+    "offline_grammar_check",
+    "offline_synonyms",
+    "spelling_locale",
+    "custom_dictionary_scope",
+    "spell_ai_suggestions",
+)
+
+LOCALE_LABELS = {
+    "american": "American",
+    "british": "British",
+    "both": "Both Allowed",
+}
+SCOPE_LABELS = {"story": "Story", "universe": "Universe", "global": "Global"}
+
+
+def save_engine_config(updates):
+    """Merge *updates* into live ENGINE_CONFIG and persist atomically."""
+    merged = dict(ENGINE_CONFIG)
+    merged.update(updates)
+    path = ROOT_DIR / "configs" / "engine_config.json"
+    save_json_atomically(merged, path)
+    ENGINE_CONFIG.clear()
+    ENGINE_CONFIG.update(merged)
+    return merged
+
+
 def load_engine_config():
     """
     Loads the global engine settings from 'configs/engine_config.json'.
@@ -430,6 +459,12 @@ def load_engine_config():
         "prose_font_family": "Georgia",
         "prose_font_size": 15,
         "inline_prose_edit": False,
+        "offline_spell_check": True,
+        "offline_grammar_check": True,
+        "offline_synonyms": False,
+        "spelling_locale": "american",
+        "custom_dictionary_scope": "story",
+        "spell_ai_suggestions": True,
         "max_inventory_keys": 8,
         "global_theme_name": "Default Dark"
     }

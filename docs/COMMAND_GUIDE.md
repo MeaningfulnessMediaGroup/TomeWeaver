@@ -204,9 +204,62 @@ Click **✎ Edit Scene** on any turn card (current or historical) to open the fu
 *   Edit inventory strings when tracking is enabled.
 *   Click **💾 Set as Story Seed** to save Turn 1 as `start_turn.json` for future restarts.
 
-**Inline prose editing (optional):** Enable **Inline Prose Edit** in Dashboard → `⚙ Settings` to edit story text directly on the timeline card. Changes auto-save (debounced) before you submit an action, navigate away, or close the workspace.
+**Inline prose editing (optional):** Enable **Enable Inline Prose Editing** in Dashboard → `⚙ Settings` to edit story text directly on the timeline card. Changes auto-save (debounced) before you submit an action, navigate away, or close the workspace.
 
 Manual edits do not automatically recompile RAG memory—run **Compile Missing History** if lore should reflect your changes.
+
+### Offline prose linting (Spell Phase 1 + Grammar Phase 2 + Settings Phase 3)
+
+Open **Dashboard → ⚙ Settings → Prose Lint Settings…** for all lint options (moved out of the main settings scroll):
+
+| Setting | Purpose |
+| :--- | :--- |
+| **Enable Inline Prose Editing** | Direct edit on timeline cards |
+| **Offline Spell Check** | Red typos (`pyspellchecker`) |
+| **Offline Grammar Check** | Amber rule-based lint |
+| **Offline Synonyms** | Right-click WordNet synonyms (no underlines) |
+| **AI Spelling Suggestions** | LLM replacements on spell/grammar menus |
+| **Spelling locale** | American, British, or **Both Allowed** (accept either variant) |
+| **Save added words to** | Story / Universe / Global — applies to **Add to dictionary** and **Ignore** |
+
+Two underline colors in the editor:
+
+| Toggle | Underline | What it catches |
+| :--- | :--- | :--- |
+| **Offline Spell Check** | Red | Unknown words vs bundled dictionary + story lexicon; contractions & plurals handled automatically |
+| **Offline Grammar Check** | Amber | Rule-based prose hygiene (see below) |
+
+#### Spell check (Phase 1)
+Uses **`pyspellchecker`** — fully offline. Right-click a red underline to pick a replacement, **Add to dictionary**, **Ignore** (same save scope as Add), **Synonyms** submenu (when enabled), or **Get AI suggestions…** (active LLM profile; local if using LM Studio).
+
+**Dictionary scope:**
+*   **Auto-allowlist:** Names and terms from this story's `setup.json`, universe `master_setup.json` (when tethered), Memory & Lore entity ledgers and aliases, and turn `location` / `pov_character` metadata (rebuilt in memory when you play).
+*   **Your additions:** **Add to dictionary** writes per **Prose Lint Settings → Save added words to** (story / universe / global). **Ignore** writes to the same scoped file (`ignored` key). All lexicon layers plus RAG names are merged when checking.
+*   **Token rules:** Surrounding `"` and `'` quotes are not part of the word. Common **contractions** and basic **plural stems** are accepted when their expanded or singular form is valid.
+
+#### Grammar check (Phase 2)
+Uses **offline regex rules** in `grammar_lint.py` — no network, no Java/LanguageTool server. Right-click an amber underline for an explanation; choose **Fix: …** when a safe replacement is offered, or **Ignore this issue** (saved to `ignored_grammar` at the same lexicon save scope as Add/Ignore for spelling).
+
+**Rules include:**
+*   Repeated words (`the the`)
+*   Double/multiple spaces and tab characters
+*   Space before punctuation; missing space after `. , ! ? ;`
+*   Lowercase letter after sentence-ending punctuation
+*   Stacked `!!` / `??` / long `....` runs
+*   Basic **a/an** (`a apple` → `an apple`; keeps `an hour`)
+*   Common **subject–verb** mismatches (`he don't`, `they was`, `I is` — subjunctive `if he were` is allowed)
+*   **`your` vs `you're`** before common `-ing`/helper verbs (`Your going` → hint)
+
+**Still not included:** Deep grammar, tense consistency across paragraphs, dialect, or voice-preserving copy edits — use **✨ Polish** for LLM proofreading.
+
+#### Synonyms (WordNet)
+When **Offline Synonyms** is on, right-click any word (no underline required). Correctly spelled words open a synonym list; misspelled words may also show a **Synonyms** submenu on the spell menu. Fully offline after NLTK WordNet data is cached (one-time download on first use if missing).
+
+**Applies to:**
+*   **✎ Edit Scene** → Narrative Bridge, Story Prose, and Action Choice entry fields.
+*   Inline timeline prose (only when **Enable Inline Prose Editing** is also on).
+
+**Disable:** Turn off individual toggles in **Prose Lint Settings…** if underlines or menus distract during read-only playback or on very slow hardware.
 
 ---
 

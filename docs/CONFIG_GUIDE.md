@@ -21,7 +21,13 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`max_retries`** | The number of times the "Fortress" logic will attempt to surgically heal broken LLM JSON output before halting. |
 | **`auto_polish`** | If `true`, the engine silently runs a second copy-editing LLM pass on every single turn to guarantee novel-quality prose. (Costs double tokens). |
 | **`auto_narrative_bridge`**| If `true`, the engine automatically patches missing transition prose in the background while you play. |
-| **`inline_prose_edit`** | If `true`, story prose on the active timeline card is directly editable (debounced auto-save). Disable for read-only playback or slower hardware. |
+| **`inline_prose_edit`** | If `true`, story prose on the active timeline card is directly editable (debounced auto-save). Configure in **Prose Lint Settings** (Dashboard → Global Settings). |
+| **`offline_spell_check`** | Red underlines for likely typos. Configure in **Prose Lint Settings**. |
+| **`offline_grammar_check`** | Amber underlines for rule-based grammar/style checks. Configure in **Prose Lint Settings**. |
+| **`offline_synonyms`** | If `true`, right-click any word for offline WordNet synonyms (no underlines; lookup when the menu opens). **Prose Lint Settings**. |
+| **`spelling_locale`** | `american` (default), `british`, or `both` (accept either spelling variant). **Prose Lint Settings**. |
+| **`custom_dictionary_scope`** | Where **Add to dictionary** and **Ignore** / **Ignore this issue** write: `story`, `universe`, or `global`. All lexicon layers merge when checking. **Prose Lint Settings**. |
+| **`spell_ai_suggestions`** | If `true` (default), spell/grammar right-click menus offer **Get AI suggestions…** via the active LLM (small prompt, ~80 token cap). **Prose Lint Settings**. |
 | **`ui_scaling`** | Scales the entire application interface for 4K/high-res monitors (e.g., 1.25). Requires restart. |
 | **`prose_font_size`** | Font size for story timeline prose (pixels). |
 | **`ui_wrap_margin`** | Extra horizontal margin subtracted from wrap width for comfortable reading on wide monitors. |
@@ -217,6 +223,58 @@ These files are edited as plain text in the adventure folder or via **✎ Edit S
 
 ---
 
+## 🔤 Story Spell Lexicon (`spelling_lexicon.json`)
+
+Custom words and ignore lists from right-click **Add to dictionary**, **Ignore**, and **Ignore this issue**. Configure scope and locale in **Dashboard → ⚙ Settings → Prose Lint Settings…**
+
+**Three lexicon layers (merged when checking):**
+
+| Layer | Path | Notes |
+| :--- | :--- | :--- |
+| **Global** | `{adventures_dir}/spelling_lexicon_global.json` | Shared across your whole library on this PC. |
+| **Universe** | `{universe folder}/spelling_lexicon.json` | Shared by all threads in a Shared Universe. |
+| **Story** | `{cartridge}/spelling_lexicon.json` | This adventure only. |
+
+**Save scope** (`custom_dictionary_scope` in Prose Lint Settings): **Add to dictionary**, **Ignore**, and **Ignore this issue** write to **story**, **universe** (if tethered), or **global** only — but checking always merges all applicable files.
+
+**Schema (each file):**
+```json
+{
+  "words": ["eldritch", "runeweaver", "whisperwind"],
+  "ignored": ["intentionaltypo"],
+  "ignored_grammar": ["repeat_word|the the"]
+}
+```
+
+| Key | Behavior |
+| :--- | :--- |
+| **`words`** | Accept as correct spelling (same as **Add to dictionary**). |
+| **`ignored`** | Suppress red underlines without treating the word as correctly spelled elsewhere—right-click **Ignore** at the configured save scope. Merged from all layers when checking. |
+| **`ignored_grammar`** | Suppress a specific grammar hit (`rule_id\|flagged span`, lowercased). Right-click **Ignore this issue** on amber underlines. |
+
+Legacy files may be a plain JSON array of words; those load as **`words`** only.
+
+| Source | Behavior |
+| :--- | :--- |
+| **Auto-allowlist (RAM, not written to disk)** | Tokens from story `setup.json`, universe `master_setup.json` (when tethered), Memory & Lore **local + global** entity ledgers and aliases, and turn `location` / `pov_character`. Universe shared_memory entities are included automatically for universe threads. |
+| **`spelling_lexicon.json` (persistent)** | Words you add via right-click (`words`), plus optional `ignored` and `ignored_grammar`. Lowercased on save. Story file is per-cartridge; universe and global layers merge when checking. |
+| **Bundled dictionary** | `pyspellchecker` English word list (offline). |
+| **WordNet (synonyms)** | NLTK WordNet when **`offline_synonyms`** is on; corpus cached locally after first use. |
+
+**Smart matching (Phase 1 spell):** Leading/trailing `"` and `'` are stripped before lookup. Common contractions and plural stems pass when their expansion or singular is valid.
+
+**Grammar lint (Phase 2):** Implemented in `scripts/grammar_lint.py` as conservative regex rules—fully offline, no LanguageTool/Java dependency. Covers repeated words, extra spaces, punctuation spacing, basic agreement, `a`/`an`, and common `your`/`you're` confusion. Not exhaustive grammar; disable via **`offline_grammar_check`** if too noisy for your voice.
+
+**Synonyms (WordNet):** When **`offline_synonyms`** is on, right-click a correctly spelled word for a synonym list (misspelled words also get a **Synonyms** submenu when WordNet has matches). Uses NLTK WordNet; on first use the app may download the WordNet corpus once if it is not already cached (~30MB, then fully offline).
+
+**Not in scope:** Full style editing or LLM-quality proofreading—that remains **✨ Polish** or future tooling.
+
+**Export:** Included in **full cartridge** ZIP exports. Branch packs do not carry lexicon files (target story keeps its own).
+
+**Access in UI:** Dashboard → `⚙ Settings` → **Prose Lint Settings…**; right-click words in **✎ Edit Scene** or inline prose fields (underlines when spell/grammar are on; synonyms when **Offline Synonyms** is on).
+
+---
+
 ## 🗂️ Engine State Schemas (Auto-Generated)
 
 ### `history.json`
@@ -239,6 +297,8 @@ Flat JSON written by `save_state()`. Contains `plot_ledger`, `chapter_ledger`, e
 *   **`engine_config.json` API fields** (`api_url`, `model`, etc.) mirror the active profile but are overwritten when you switch profiles in the UI—prefer editing `configs/API_configs/*.json`.
 *   **Universe global lore changes** propagate to all threads immediately; there is no per-thread "undo" for `shared_memory.json`.
 *   **Custom `setup.json` fields** are sent to the LLM every turn until stripped by mode logic—extremely large custom dictionaries will consume context tokens.
+*   **Lexicon layers merge when checking** (story + universe + global + RAG allowlist), but **writes** go only to the scope selected in Prose Lint Settings. Copy lexicon files manually if you want the same custom words across unrelated cartridges.
+*   **WordNet synonyms** require NLTK; the WordNet corpus may download once on first use (~30MB) if not already cached.
 *   **PyInstaller executables** hydrate `configs/` to the user directory on first run; bundled defaults are not auto-updated until you manually merge new template keys.
 
 See the full **Known Limitations** list in the [root README](../README.md).

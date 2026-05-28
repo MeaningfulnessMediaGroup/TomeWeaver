@@ -203,6 +203,26 @@ class StoryTab(ctk.CTkFrame):
                 prose_tb.bind(_seq, self._on_prose_changed, add="+")
             except Exception:
                 pass
+
+        from ui.spell_check_ui import SpellCheckService, SpellCheckTextController
+
+        self._spell_service = SpellCheckService()
+        self._inline_spell = SpellCheckTextController(
+            self,
+            prose_tb,
+            lambda: self.engine,
+            self._spell_service,
+            lambda: self._spell_check_enabled()
+            and self._is_prose_box_editable()
+            and not self._prose_placeholder_active,
+            lambda: self._grammar_check_enabled()
+            and self._is_prose_box_editable()
+            and not self._prose_placeholder_active,
+            lambda: self._synonyms_enabled()
+            and self._is_prose_box_editable()
+            and not self._prose_placeholder_active,
+        )
+        self._inline_spell.attach()
         
         self.tools_frame = ctk.CTkFrame(self.card_frame, fg_color="transparent")
         self.bridge_tools = ctk.CTkFrame(self.tools_frame, fg_color="transparent")
@@ -335,6 +355,25 @@ class StoryTab(ctk.CTkFrame):
         from config import ENGINE_CONFIG
         return bool(ENGINE_CONFIG.get("inline_prose_edit", False)) and not self.engine.is_test_mode
 
+    def _spell_check_enabled(self):
+        from config import ENGINE_CONFIG
+        return bool(ENGINE_CONFIG.get("offline_spell_check", True)) and not self.engine.is_test_mode
+
+    def _grammar_check_enabled(self):
+        from config import ENGINE_CONFIG
+        return bool(ENGINE_CONFIG.get("offline_grammar_check", True)) and not self.engine.is_test_mode
+
+    def _synonyms_enabled(self):
+        from config import ENGINE_CONFIG
+        return bool(ENGINE_CONFIG.get("offline_synonyms", False)) and not self.engine.is_test_mode
+
+    def _prose_lint_enabled(self):
+        return (
+            self._spell_check_enabled()
+            or self._grammar_check_enabled()
+            or self._synonyms_enabled()
+        )
+
     def _get_inline_prose_text(self):
         if self._prose_placeholder_active:
             return ""
@@ -460,6 +499,8 @@ class StoryTab(ctk.CTkFrame):
 
     def _on_prose_changed(self, event=None):
         self._mark_prose_dirty()
+        if hasattr(self, "_inline_spell"):
+            self._inline_spell.schedule_refresh()
 
     def _debounced_prose_save(self):
         self._prose_debounce_id = None
@@ -848,6 +889,8 @@ class StoryTab(ctk.CTkFrame):
         except Exception:
             pass
         self._prose_syncing = False
+        if hasattr(self, "_inline_spell"):
+            self._inline_spell.schedule_refresh()
 
         # Build Director's Control Panel
         for w in self.bridge_tools.winfo_children(): w.destroy()
@@ -2060,6 +2103,46 @@ class StoryTab(ctk.CTkFrame):
         from ui.tooltip import center_window_on_parent
         center_window_on_parent(dialog, self.winfo_toplevel())
 
+        from ui.spell_check_ui import SpellCheckEntryController, SpellCheckTextController
+
+        dialog_spell_controllers = []
+
+        def attach_text_spell(ctk_textbox):
+            if not self._prose_lint_enabled():
+                return
+            ctrl = SpellCheckTextController(
+                dialog,
+                ctk_textbox._textbox,
+                lambda: self.engine,
+                self._spell_service,
+                self._spell_check_enabled,
+                self._grammar_check_enabled,
+                self._synonyms_enabled,
+            )
+            ctrl.attach()
+            dialog_spell_controllers.append(ctrl)
+
+        def attach_entry_spell(entry):
+            if not self._prose_lint_enabled():
+                return
+            ctrl = SpellCheckEntryController(
+                dialog,
+                entry,
+                lambda: self.engine,
+                self._spell_service,
+                self._spell_check_enabled,
+                self._grammar_check_enabled,
+                self._synonyms_enabled,
+            )
+            ctrl.attach()
+            dialog_spell_controllers.append(ctrl)
+
+        def cleanup_dialog_spell(_event=None):
+            for ctrl in dialog_spell_controllers:
+                ctrl.detach()
+
+        dialog.bind("<Destroy>", cleanup_dialog_spell, add="+")
+
         scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=20)
         
@@ -2154,6 +2237,7 @@ class StoryTab(ctk.CTkFrame):
             from ui.tooltip import apply_global_text_bindings
             try: apply_global_text_bindings(bridge_box._textbox)
             except: pass
+            attach_text_spell(bridge_box)
             
             btn_clear_br.configure(command=lambda: bridge_box.delete("1.0", "end"))
             
@@ -2422,6 +2506,7 @@ class StoryTab(ctk.CTkFrame):
         story_box._textbox.configure(spacing2=6, font=self.prose_font)
         story_box.insert("1.0", clean_prose(editor_story_display_text(turn.get("story_text", ""))))
         story_box.pack(fill="x", pady=(0, 20))
+        attach_text_spell(story_box)
 
         choices_hdr = ctk.CTkFrame(scroll, fg_color="transparent")
         choices_hdr.pack(fill="x", pady=(10, 5))
@@ -2468,6 +2553,7 @@ class StoryTab(ctk.CTkFrame):
                 ctk.CTkLabel(row, text=f"{i+1}.").pack(side="left", padx=5)
                 entry = ctk.CTkEntry(row, textvariable=var, font=("Arial", 13))
                 entry.pack(side="left", fill="x", expand=True)
+                attach_entry_spell(entry)
                 
                 if not self.engine.is_campaign:
                     # --- RESTORED INDIVIDUAL REROLL BUTTON ---

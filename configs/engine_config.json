@@ -7,7 +7,6 @@
     "auto_narrative_bridge": false,
     "ui_scaling": 1.2,
     "prose_font_size": 18,
-    "inline_prose_edit": true,
     "ui_wrap_margin": 150,
     "logging_enabled": true,
     "log_verbose": true,
@@ -20,5 +19,12 @@
     "model": "loaded-model",
     "max_query_per_minute": 0,
     "max_tokens": 5000,
-    "max_inventory_keys": 8
+    "inline_prose_edit": true,
+    "offline_spell_check": true,
+    "offline_grammar_check": true,
+    "spelling_locale": "american",
+    "custom_dictionary_scope": "universe",
+    "spell_ai_suggestions": true,
+    "max_inventory_keys": 8,
+    "offline_synonyms": true
 }

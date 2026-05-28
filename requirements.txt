@@ -25,6 +25,12 @@ packaging>=23.1
 # For processing, cropping, and caching custom folder icons (JPG/PNG)
 Pillow>=10.2.0
 
+# Offline spell checking for inline prose and Edit Scene (no network)
+pyspellchecker>=0.8.1
+
+# Offline synonym lookup (WordNet; data downloaded on first use if missing)
+nltk>=3.8.1
+
 # ==========================================
 # Testing Framework
 # ==========================================

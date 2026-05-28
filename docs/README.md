@@ -42,7 +42,23 @@ The filter bar lets you instantly narrow the library:
 *   **Breadcrumb Navigation:** Drill into nested Universe folders; the **+ Create New Story** menu adapts to offer **Create Thread** when inside a universe.
 
 ### Global Settings & Themes
-Open **⚙ Settings** to configure API keys, engine rules, and the **global Active Theme** preset. Use the **…** button beside the theme dropdown to open the visual theme editor (colors, borders, corner rounding). Per-story themes are optional in **Story World → UI Theme**; players opt in via **Workspace Options**. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for `themes.json` and `setup.json` theme fields.
+Open **⚙ Settings** to configure API keys, engine rules, and the **global Active Theme** preset.
+
+**Prose lint** lives in **Prose Lint Settings…** (button in Global Settings):
+
+| Setting | Default | Effect |
+| :--- | :--- | :--- |
+| **Enable Inline Prose Editing** | Off | Edit turn prose directly on timeline cards (debounced auto-save). |
+| **Offline Spell Check** | On | Red underlines for likely typos (`pyspellchecker`). |
+| **Offline Grammar Check** | On | Amber underlines for common grammar/style rules. |
+| **Offline Synonyms** | Off | Right-click any word for WordNet synonyms (no underlines). |
+| **AI Spelling Suggestions** | On | Optional **Get AI suggestions…** on spell/grammar right-click menus. |
+| **Spelling locale** | American | American, British, or **Both Allowed** (accept either variant). |
+| **Save added words to** | Story | Where **Add to dictionary** and **Ignore** write: story, universe, or global. |
+
+Right-click **red** underlines for spelling fixes, **Add to dictionary**, **Ignore**, or **Synonyms** (when enabled). Right-click **amber** underlines for rule text, **Fix**, **Ignore this issue**, or AI suggestions. Right-click any correctly spelled word when synonyms are on. Entity names from setup and Memory & Lore are auto-accepted for spelling. See [COMMAND_GUIDE.md](COMMAND_GUIDE.md) and [CONFIG_GUIDE.md](CONFIG_GUIDE.md).
+
+Use the **…** button beside the theme dropdown to open the visual theme editor (colors, borders, corner rounding). Per-story themes are optional in **Story World → UI Theme**; players opt in via **Workspace Options**. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for `themes.json`, `spelling_lexicon.json`, and engine keys.
 
 ---
 
@@ -125,7 +141,10 @@ When you scrub to an older turn via the Time Travel slider, a toolbar appears on
 *   **↔ Turn to Bridge / ↔ Bridge to Turn** — Collapse or expand transition prose.
 *   **✂ Split Chapter / ← Merge Chapter** — Chapter boundary editing (Sandbox and Campaign).
 *   **⑂ Fork Here** — (When valid) Archive the full timeline and reopen choices at this turn, creating a parent + branch pair in the Run Tree.
-*   **✎ Edit Scene** — Open the full scene editor to manually rewrite prose, choices, location, inventory, or save a **Story Seed**.
+*   **✎ Edit Scene** — Open the full scene editor to manually rewrite prose, choices, location, inventory, or save a **Story Seed**. With prose lint enabled, typos and grammar issues are underlined in bridge, prose, and choice fields—right-click for fixes, **Add to dictionary**, **Ignore**, optional **Synonyms**, or **Get AI suggestions…**
+
+### Inline prose editing & prose lint
+Configure everything under **Dashboard → ⚙ Settings → Prose Lint Settings…** (see table in § Global Settings above). Inline timeline editing requires **Enable Inline Prose Editing**; spell and grammar underlines work in Edit Scene regardless.
 
 ---
 
@@ -227,5 +246,7 @@ When a story is tethered to a Shared Universe, a **Universe** tab appears alongs
 *   **Memory & Lore entity tabs** show a name filter only when that ledger has more than 15 entries.
 *   **Custom folder icons** are cosmetic; they do not affect engine logic or prompts.
 *   **The GUI does not surface every engine_config key.** Some advanced settings (e.g., `max_inventory_keys`) are edited via Global Settings or direct JSON edit.
+*   **Spell check is offline and dictionary-based.** It will flag invented words until you add them to the story dictionary or register them in Memory & Lore.
+*   **Grammar check is rule-based and conservative.** Amber underlines may appear on intentional dialect or poetic repetition—disable **Offline Grammar Check** if needed.
 
 For a complete list of engine-wide limitations, see the **Known Limitations** section in the [root README](../README.md).

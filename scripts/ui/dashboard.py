@@ -1616,6 +1616,11 @@ class DashboardFrame(ctk.CTkFrame):
         btn_gen = ctk.CTkButton(dialog, text="✨ Generate World", font=("Arial", 16, "bold"), fg_color="#00ACC1", hover_color="#00838F", width=220, height=45, command=on_generate)
         btn_gen.pack(pady=20)
         
+    def _open_prose_lint_settings(self, parent):
+        from ui.prose_lint_settings import open_prose_lint_settings
+
+        open_prose_lint_settings(parent)
+
     def show_global_settings(self):
         """Opens a modal to edit configs/engine_config.json."""
         from config import (
@@ -1771,13 +1776,30 @@ class DashboardFrame(ctk.CTkFrame):
 
         add_field("UI Scaling (e.g., 1.0, 1.25):", "ui_scaling", is_number=True, tooltip_text="Scales the entire application interface for 4K/high-res monitors. Requires restart.")
         add_field("Story Font Size:", "prose_font_size", is_number=True, tooltip_text="The point size of the prose text in the main workspace.")
-        add_field(
-            "Enable Inline Prose Editing:",
-            "inline_prose_edit",
-            is_bool=True,
-            tooltip_text="Allow direct editing of turn story text in the timeline card. Changes auto-save after a short pause and before any action.",
-        )
         add_field("Text Wrap Margin (Pixels):", "ui_wrap_margin", is_number=True, tooltip_text="Adjusts the right-side padding for text in the timeline. Increase this if your text is being cut off on the right.")
+
+        lint_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        lint_row.pack(fill="x", pady=8)
+        lbl_lint = ctk.CTkLabel(
+            lint_row,
+            text="Prose Lint:",
+            font=("Arial", 14, "bold"),
+            width=200,
+            anchor="e",
+        )
+        lbl_lint.pack(side="left", padx=(0, 15))
+        Tooltip(
+            lbl_lint,
+            "Spell check, grammar lint, inline prose editing, British/American spelling, and custom dictionary scope.",
+        )
+        btn_prose_lint = ctk.CTkButton(
+            lint_row,
+            text="Prose Lint Settings…",
+            width=200,
+            fg_color="#1F6AA5",
+            command=lambda: self._open_prose_lint_settings(dialog),
+        )
+        btn_prose_lint.pack(side="left")
 
         ctk.CTkLabel(scroll, text="--- Visual Theming ---", text_color="gray").pack(pady=(20, 5))
 
@@ -1821,45 +1843,38 @@ class DashboardFrame(ctk.CTkFrame):
 
         def save_config():
             """Gathers all variables and performs an atomic save to engine_config.json."""
-            new_config = {}
+            updates = {}
             for k, w in fields.items():
                 if isinstance(w, ctk.BooleanVar):
-                    new_config[k] = w.get()
+                    updates[k] = w.get()
                 else:
                     var, is_num = w
                     val = var.get().strip()
                     if is_num:
-                        try: new_config[k] = float(val) if "." in val else int(val)
-                        except ValueError: new_config[k] = 0
+                        try:
+                            updates[k] = float(val) if "." in val else int(val)
+                        except ValueError:
+                            updates[k] = 0
                     else:
-                        new_config[k] = val
-            
-            new_config["prose_font_family"] = font_menu.get().strip()
-            new_config["global_theme_name"] = theme_menu.get().strip()
-            
-            # Read the selected API profile and inject its connection details into the engine config
-            selected_prof = api_var.get()
-            new_config["active_api_profile"] = selected_prof
-            prof_data = load_api_profile(selected_prof)
-            
-            new_config["api_url"] = prof_data.get("api_url", "")
-            new_config["api_key"] = prof_data.get("api_key", "")
-            new_config["model"] = prof_data.get("model", "")
-            new_config["max_query_per_minute"] = prof_data.get("max_query_per_minute", 0)
-            new_config["max_tokens"] = prof_data.get("max_tokens", 2000)
+                        updates[k] = val
 
-            # Hard-delete the legacy chunk size if it exists in the active UI payload
-            if "memory_chunk_size" in new_config: del new_config["memory_chunk_size"]
-            
+            updates["prose_font_family"] = font_menu.get().strip()
+            updates["global_theme_name"] = theme_menu.get().strip()
+
+            selected_prof = api_var.get()
+            updates["active_api_profile"] = selected_prof
+            prof_data = load_api_profile(selected_prof)
+
+            updates["api_url"] = prof_data.get("api_url", "")
+            updates["api_key"] = prof_data.get("api_key", "")
+            updates["model"] = prof_data.get("model", "")
+            updates["max_query_per_minute"] = prof_data.get("max_query_per_minute", 0)
+            updates["max_tokens"] = prof_data.get("max_tokens", 2000)
+
             try:
-                # 1. Save to disk
-                config_path = ROOT_DIR / "configs" / "engine_config.json"
-                with open(config_path, "w", encoding="utf-8") as f:
-                    json.dump(new_config, f, indent=4)
-                    
-                # 2. Mutate active memory globally (CRITICAL FIX)
-                ENGINE_CONFIG.clear()
-                ENGINE_CONFIG.update(new_config)
+                from config import save_engine_config
+
+                save_engine_config(updates)
 
                 adv_raw = adventures_var.get().strip()
                 if adv_raw:
