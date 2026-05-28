@@ -21,6 +21,17 @@ TomeWeaver was built to sustain coherent campaigns, persistent worlds, evolving 
 
 ---
 
+## 📄 Systems Specification (Article)
+
+TomeWeaver’s design is described in **The Narrative State Machine (NSM) Architecture** — a reference framework for stateful AI narrative orchestration (Protocol `MMG-NSM-1.0`).
+
+*   **[Read the PDF](docs/article/MMG-NSM-1.0%20-%20The%20Narrative%20State%20Machine.pdf)** — formatted systems specification
+*   **[LaTeX source](docs/article/main.tex)** — for citations, forks, and academic reuse
+
+**Contributions welcome:** If you spot typos, unclear wording, or minor LaTeX formatting issues while reading, pull requests that fix the article are appreciated—no need to open an issue first for small edits.
+
+---
+
 # 📖 Overview
 
 Most AI storytelling tools eventually collapse under narrative entropy.
@@ -130,7 +141,7 @@ It provides the "bones" of a game engine (inventory, chapters, goals, UI virtual
 ## ✨ Key Features
 
 ### 1. The "Non-Linear Video Editor" Timeline & Surgery
-Say goodbye to scrolling endless walls of text. TomeWeaver renders your story as a virtualized timeline of **Cards**. You can scrub back through history using the Time Travel slider, or use the **Timeline Editor** to exercise god-like pacing control. Insert blank turns to bridge gaps, permanently delete bad turns to collapse history, or perfectly convert a player action into a narrative bridge with a single click.
+Say goodbye to scrolling endless walls of text. TomeWeaver renders your story as a virtualized timeline of **Cards**. You can scrub back through history using the Time Travel slider, or use the **Timeline Editor** to exercise god-like pacing control. **+ Insert Turn** offers three modes: a blank card to write yourself, **Generate — continue story** (AI extends the scene without picking a pending choice), or **Generate — bridge the gap** (AI stitches two existing cards). You can also permanently delete bad turns, or convert a player action into a narrative bridge with a single click.
 
 ### 2. Shared Universes (The Multiverse)
 Create a "Universe" container to run multiple parallel stories (Sandbox or Campaign) that all share the same Global Lore and World Bible. Play as a Thief in one thread and a Detective in another—when the Thief burns down a tavern, the Detective will find the ashes.
@@ -187,7 +198,7 @@ Export your adventure as a polished **TXT, Markdown, or HTML** file. The engine 
 ### 15. Autonomous Long-Term Memory (RAG Engine)
 Play infinitely without breaking your model's context limit. TomeWeaver features a background Retrieval-Augmented Generation (RAG) engine that silently compiles your history into dense, token-efficient ledgers.
 *   **Dual-Tiered Memory:** Entities are scoped to "Local" (This story only) or "Global" (The Shared Universe).
-*   **Tiered Summarization:** Automatically compresses 10-turn chunks into "Parts," and finished chapters into high-level summaries.
+*   **Tiered Summarization:** Automatically compresses turn chunks (default: every 10 turns via `context_window`) into Plot **Parts**, and finished chapters into high-level **Chapter** summaries. At generation time, the engine injects completed chapter summaries plus **only the active chapter’s** plot parts that **bridge the gap** between summaries and the full-turn history window—not stale ledgers from old chapters.
 *   **The Auto-Decay Engine:** Characters, Locations, Artifacts, and Factions are tracked dynamically. If an entity hasn't been mentioned in 40 turns, they are quietly "Archived" out of the AI's prompt to save memory, and instantly "Revived" the moment they reappear in the story.
 *   **Continuity Auditor:** Includes a built-in QA tool that cross-references the Plot Ledger against the Lore Bible to flag contradictions, complete with 1-click Auto-Patching. 
 
@@ -218,7 +229,7 @@ The Dashboard maintains an autonomous `index.json` cache so you can search, sort
 *   **`start_turn.json`:** A saved "Story Seed" guarantees every restart begins at your curated Turn 1 hook (set via **💾 Set as Story Seed** in the scene editor).
 
 ### 22. Headless Engine & Automated Tests (Developers)
-The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
+The core engine (`BaseEngine`, timeline surgery, JSON sanitizer, RAG decay, theme resolution) runs fully **headless**—no GUI required. A pytest suite under `/tests` (200+ tests) validates critical mechanics against disposable temp adventures. Run via `Run_Tests.bat` or `venv\Scripts\python.exe -m pytest tests/ -v` after `setup.bat`.
 
 ---
 
@@ -331,6 +342,7 @@ As you play, TomeWeaver automatically generates and manages these files to maint
 TomeWeaver is a massive, feature-rich application. Please refer to our dedicated guides for detailed instructions on using the UI and configuring your worlds:
 
 *   🖼️ **[The UI Walkthrough (docs/README.md)](docs/README.md)** - A visual guide to the Library Dashboard, Story Timeline, and Editors.
+*   📄 **[NSM Architecture Article (PDF)](docs/article/MMG-NSM-1.0%20-%20The%20Narrative%20State%20Machine.pdf)** - Systems specification; [LaTeX source](docs/article/main.tex).
 *   ⌨️ **[Gameplay & User Guide (docs/COMMAND_GUIDE.md)](docs/COMMAND_GUIDE.md)** - How to play, perform Timeline Surgery, and use Director tools.
 *   ⚙️ **[Configuration & Architecture (docs/CONFIG_GUIDE.md)](docs/CONFIG_GUIDE.md)** - Deep dive into how the engine processes Campaign logic, Universes, and JSON schemas.
 *   🧠 **[Long-Term Memory & RAG (docs/RAG.md)](docs/RAG.md)** - Plot ledgers, entity tracking, auto-decay, and continuity auditing.
@@ -354,7 +366,7 @@ For the full architect's vision—data models, engine integration, phased rollou
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether it's improving the "Fortress" sanitizer, adding new export formats, or sharing your own Adventure Cartridges:
+We welcome contributions! Whether it's improving the "Fortress" sanitizer, adding new export formats, sharing Adventure Cartridges, or **minor fixes to the NSM article LaTeX** (see [PDF](docs/article/MMG-NSM-1.0%20-%20The%20Narrative%20State%20Machine.pdf)):
 
 1.  Fork the repository.
 2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).

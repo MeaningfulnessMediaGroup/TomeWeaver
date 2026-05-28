@@ -17,6 +17,17 @@ from colorama import Fore, Style
 from config import load_json_safely, ENGINE_CONFIG, PROMPTS
 from llm import get_llm_response, generate_recap
 from prose_utils import DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER
+from master_clock import (
+    chapter_end_turn_or_max,
+    coerce_turn,
+    decrement_history_turns_after,
+    format_plot_ledger_section,
+    invalidate_plot_ledgers,
+    resync_timeline,
+    select_plot_ledger_for_prompt,
+    shift_timeline_left_after_delete,
+    shift_timeline_right,
+)
 
 # ---------------------------------------------------------
 # BASE ENGINE CLASS
@@ -195,26 +206,12 @@ class BaseEngine:
     # ---------------------------------------------------------
 
     def resync_master_clock(self):
-        """Re-number ``history`` turns sequentially from the first turn's anchor.
-
-        Preserves the user's chosen starting turn number while fixing gaps or
-        duplicates introduced by manual ``history.json`` edits. Persists when
-        changes are made.
-        """
-        if not self.history: return
-        try: start_num = int(self.history[0].get("turn", 0))
-        except (ValueError, TypeError): start_num = 0
-            
-        changed = False
-        for i, turn in enumerate(self.history):
-            expected_turn = start_num + i
-            if turn.get("turn") != expected_turn:
-                turn["turn"] = expected_turn
-                changed = True
-        
+        """Re-number history and remap chapter/ledger bounds in one atomic pass."""
+        changed = resync_timeline(self.history, self.chapters, self.memory)
         if changed:
             from logger import log_event
-            log_event(self.adv_dir, f"SYSTEM: Master Clock resynced (Anchor: {start_num}).")
+            anchor = coerce_turn(self.history[0].get("turn", 0)) if self.history else 0
+            log_event(self.adv_dir, f"SYSTEM: Master Clock resynced (Anchor: {anchor}).")
             self.save_state()
 
     def load_chapters(self):
@@ -318,6 +315,14 @@ class BaseEngine:
             turn_data: Newly committed turn dictionary.
         """
         pass
+
+    def format_plot_ledger_memory_section(self, active_chapter, completed_history, context_window=None):
+        """Plot-ledger lines for the prompt: active chapter only, gap-filling turns only."""
+        window = context_window if context_window is not None else ENGINE_CONFIG.get("context_window", 6)
+        full_turns = [t.get("turn") for t in completed_history[-window:]]
+        selected = select_plot_ledger_for_prompt(self.memory, active_chapter, full_turns)
+        section = format_plot_ledger_section(selected, active_chapter)
+        return f"\n{section}" if section else ""
 
     def process_custom_command(self, cmd_key, cmd_val):
         """Handle mode-specific UI commands (subclass hook).
@@ -823,9 +828,12 @@ class BaseEngine:
             self.history.pop()
             self.history[-1]["player_choice"] = None 
             
-            # Revert Chapter markers
-            t_turn = len(self.history) + 1
-            if self.chapters[-1].get("start_turn") == t_turn:
+            # Revert chapter markers tied to the turn slot that no longer exists
+            if self.history:
+                pending_marker = coerce_turn(self.history[-1].get("turn")) + 1
+            else:
+                pending_marker = 1
+            if self.chapters[-1].get("start_turn") == pending_marker:
                 self.chapters[-1]["start_turn"] = None
                 if len(self.chapters) > 1: self.chapters[-2]["end_turn"] = None
             elif self.chapters[-1].get("start_turn") is None and len(self.chapters) > 1:
@@ -1082,12 +1090,30 @@ class BaseEngine:
                 )
 
         plot_ledger = self.memory.get("plot_ledger", [])
-        condensed_nums = {c.get("chapter_number") for c in chapter_ledger}
-        active_parts = [p for p in plot_ledger if p.get("chapter_number") not in condensed_nums]
-        if active_parts:
+        insert_turn = 1
+        if 0 <= insert_after_idx < len(self.history):
+            insert_turn = coerce_turn(self.history[insert_after_idx].get("turn"), insert_after_idx + 1)
+        active_chapter = next(
+            (
+                c
+                for c in reversed(self.chapters)
+                if c.get("start_turn") is not None and c["start_turn"] <= insert_turn
+            ),
+            self.chapters[0] if self.chapters else {},
+        )
+        completed = [
+            t
+            for t in self.history[: insert_after_idx + 1]
+            if t.get("player_choice") is not None
+        ]
+        plot_section = self.format_plot_ledger_memory_section(
+            active_chapter, completed, ENGINE_CONFIG.get("context_window", 6)
+        )
+        if plot_section:
+            parts.append(plot_section)
+        elif plot_ledger:
             parts.append("\n=== RECENT PLOT PARTS (granular) ===")
-            for p in active_parts[-10:]:
-                parts.append(f"- {p.get('summary', '')}")
+            parts.append("(No plot parts selected for this timeline position.)")
 
         parts.append("\n=== LOCAL RAG (this story thread) ===")
         for key, label in (
@@ -1255,24 +1281,20 @@ class BaseEngine:
         # --- SPLICE AND RE-INDEX ---
         insert_pos = insert_after_idx + 1
         shift_amount = len(new_turns)
-        
-        for i in range(insert_pos, len(self.history)):
-            self.history[i]["turn"] = self.history[i].get("turn", i) + shift_amount
-            
-        affected_chapters = set()
-        for c in self.chapters:
-            s_turn = c.get("start_turn")
-            e_turn = c.get("end_turn")
-            if s_turn is not None and e_turn is not None:
-                if s_turn <= (insert_pos + 1) <= e_turn: affected_chapters.add(c.get("chapter_number"))
-            if s_turn is not None and s_turn > insert_pos: c["start_turn"] += shift_amount
-            if e_turn is not None and e_turn >= insert_pos: c["end_turn"] += shift_amount
-            
-        if affected_chapters:
-            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
-            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
-            
-        start_t_val = self.history[insert_after_idx].get("turn", insert_after_idx + 1) + 1 if insert_after_idx >= 0 else 1
+
+        if insert_pos < len(self.history):
+            pivot_turn = coerce_turn(self.history[insert_pos].get("turn"))
+        elif self.history:
+            pivot_turn = coerce_turn(self.history[-1].get("turn")) + 1
+        else:
+            pivot_turn = 1
+
+        affected_chapters = shift_timeline_right(
+            self.history, self.chapters, self.memory, pivot_turn, shift_amount
+        )
+        invalidate_plot_ledgers(self.memory, affected_chapters)
+
+        start_t_val = pivot_turn
         for idx, t in enumerate(new_turns):
             t["turn"] = start_t_val + idx
             
@@ -1312,32 +1334,12 @@ class BaseEngine:
         target_turn_val = plan["target_turn_val"]
         is_at_end = plan["is_at_end"]
 
-        for i in range(target_index, len(self.history)):
-            self.history[i]["turn"] = self.history[i].get("turn", i) + 1
+        affected_chapters = shift_timeline_right(
+            self.history, self.chapters, self.memory, target_turn_val, 1
+        )
+        invalidate_plot_ledgers(self.memory, affected_chapters)
 
-        affected_chapters = set()
-        for c in self.chapters:
-            s_turn = c.get("start_turn")
-            e_turn = c.get("end_turn")
-            if s_turn is not None and e_turn is not None:
-                if s_turn <= target_turn_val <= e_turn:
-                    affected_chapters.add(c.get("chapter_number"))
-            if s_turn is not None and s_turn > target_index:
-                c["start_turn"] += 1
-            if e_turn is not None and e_turn >= target_index:
-                c["end_turn"] += 1
-
-        if affected_chapters:
-            self.memory["plot_ledger"] = [
-                p for p in self.memory.get("plot_ledger", [])
-                if p.get("chapter_number") not in affected_chapters
-            ]
-            self.memory["chapter_ledger"] = [
-                cl for cl in self.memory.get("chapter_ledger", [])
-                if cl.get("chapter_number") not in affected_chapters
-            ]
-
-        if not is_at_end and target_index > 0:
+        if not is_at_end and target_index > 0 and not plan.get("director_insert_continue"):
             prev_turn = self.history[target_index - 1]
             prev_turn["player_choice"] = "[ Blank Turn ]"
             if target_index < len(self.history):
@@ -1351,7 +1353,12 @@ class BaseEngine:
             self.history[target_index - 1]["player_choice"] = plan["end_insert_action"]
 
     def _clear_director_insert_state(self):
-        for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+        for attr in (
+            "_director_insert_context",
+            "_director_insert_target_turn",
+            "_director_insert_next_preview",
+            "_director_insert_continue",
+        ):
             if hasattr(self, attr):
                 delattr(self, attr)
 
@@ -1449,34 +1456,16 @@ class BaseEngine:
         # 3. Remove the turn
         self.history.pop(target_index)
         
-        # 4. Left-shift all future turns (-1)
-        for i in range(target_index, len(self.history)):
-            self.history[i]["turn"] = self.history[i].get("turn", i + 2) - 1
-            
-        # 5. Heal Chapter Boundaries and Invalidate affected Plot Ledgers
-        affected_chapters = set()
-        for c in self.chapters:
-            s_turn = c.get("start_turn")
-            e_turn = c.get("end_turn")
-            
-            if s_turn is not None and e_turn is not None:
-                if s_turn <= deleted_turn_val <= e_turn: affected_chapters.add(c.get("chapter_number"))
-            
-            if s_turn == deleted_turn_val:
-                c["start_turn"] = s_turn if target_index < len(self.history) else None
-            elif s_turn is not None and s_turn > deleted_turn_val:
-                c["start_turn"] -= 1
-                
-            if e_turn is not None and e_turn >= deleted_turn_val:
-                if e_turn == deleted_turn_val and e_turn == s_turn:
-                    c["end_turn"] = None
-                    c["start_turn"] = None
-                else:
-                    c["end_turn"] -= 1
-                    
-        if affected_chapters:
-            self.memory["plot_ledger"] = [p for p in self.memory.get("plot_ledger", []) if p.get("chapter_number") not in affected_chapters]
-            self.memory["chapter_ledger"] = [cl for cl in self.memory.get("chapter_ledger", []) if cl.get("chapter_number") not in affected_chapters]
+        # 4. Left-shift Master Clock on history and all timeline references
+        decrement_history_turns_after(self.history, target_index)
+        affected_chapters = shift_timeline_left_after_delete(
+            self.history,
+            self.chapters,
+            self.memory,
+            deleted_turn_val,
+            has_successor=target_index < len(self.history),
+        )
+        invalidate_plot_ledgers(self.memory, affected_chapters)
                 
         self.save_state()
         return True
@@ -1702,8 +1691,8 @@ class BaseEngine:
         active_c = None
         for i, c in enumerate(self.chapters):
             s = c.get("start_turn")
-            e = c.get("end_turn") if c.get("end_turn") is not None else len(self.history)
-            if s is not None and s <= target_turn_val <= e:
+            e_val = chapter_end_turn_or_max(c, self.history)
+            if s is not None and s <= target_turn_val <= e_val:
                 active_c = c
                 break
                 
@@ -1854,7 +1843,11 @@ class BaseEngine:
             return None
             
         # --- AUTO-POLISH INTERCEPTOR ---
-        if ENGINE_CONFIG.get("auto_polish", False) and not self.is_fix_mode:
+        if (
+            ENGINE_CONFIG.get("auto_polish", False)
+            and not self.is_fix_mode
+            and not getattr(self, "_director_insert_continue", False)
+        ):
             print(f"{Style.DIM}Auto-polishing prose...{Style.RESET_ALL}")
             turn_data = self._auto_polish_pass(turn_data, prev_turn_obj, max_retries)
 

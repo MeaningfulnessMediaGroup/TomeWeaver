@@ -533,6 +533,7 @@ Campaign Director's Warning (Appended to the end of history).
 '''
 
 [DIRECTOR'S NOTE]: 
+- SINGLE TURN ONLY: Return one JSON object for the requested turn. Never output multiple JSON objects, multiple turns, or "Turn N:" headers inside story_text.
 - Write 3-5 cinematic paragraphs in 'story_text'.
 - Provide 3-6 choices in the 'choices' array (Max 15 words each).
 - JSON SAFETY: Use \n for paragraph breaks. Use \" for dialogue quotes. NEVER use raw carriage returns inside the JSON object.
@@ -559,23 +560,42 @@ CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 p
 '''
 Variables: {test_rule}, {req_str}
 '''
-Based on the latest action, generate the next turn in JSON format.
+Based on the latest action, generate exactly ONE next turn as a single JSON object.
 *** MANDATORY RULES ***:
-1. Write 3 to 5 detailed paragraphs.
+1. Write 3 to 5 detailed paragraphs in story_text for this turn ONLY. Do NOT write "Turn N:" labels in story_text. Do NOT output multiple turns or future scenes.
 2. Provide 3 to 6 choices.
 3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.{test_rule}{req_str}
 
 
 
 
-[PROMPT:FRAG_SANDBOX_INSERT_CONTINUITY]
+[PROMPT:FRAG_SANDBOX_INSERT_BRIDGE]
 '''
-Variables: {prev_turn_num}, {next_turn_num}, {next_preview}
-Used when the Director inserts a generated turn between existing timeline cards.
+Variables: {prev_turn_num}, {next_turn_num}, {next_preview}, {test_rule}, {req_str}
+Used when the Director inserts a generated turn between two existing cards (bridge-the-gap mode).
 '''
 DIRECTOR TIMELINE INSERT (BRIDGE MODE): Write an intervening scene that connects Turn {prev_turn_num}'s storyline to Turn {next_turn_num}, which already exists later in the timeline.
-Use the recent history and latest player action as your starting point. Steer smoothly toward Turn {next_turn_num} without copying its prose:
+Use the recent history as your starting point. Steer smoothly toward Turn {next_turn_num} without copying its prose:
 "{next_preview}"
+Write 3 to 5 detailed paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}
+
+
+
+
+[PROMPT:FRAG_SANDBOX_INSERT_CONTINUE]
+'''
+Variables: {target_turn}, {test_rule}, {req_str}
+Used when the Director inserts a generated turn to extend the story (continue mode).
+'''
+DIRECTOR TIMELINE INSERT (CONTINUE MODE): Generate exactly ONE new timeline turn as a single JSON object. Set the JSON "turn" key to {target_turn}.
+
+Continue the narrative naturally from the latest story prose. Advance flow, tone, and momentum. Do NOT treat this as the protagonist selecting one of the pending choice options on the previous turn. Do not write prose as if they picked an option from the choices list—the pending choices remain available to the player after this scene.
+
+*** MANDATORY RULES ***
+1. Write 2 to 4 paragraphs in story_text for turn {target_turn} ONLY. Do NOT write "Turn N:" labels inside story_text. Do NOT batch multiple turns, scenes, or time jumps into one response.
+2. Provide 3 to 6 new choice options for what happens next.
+3. Each choice MUST be BRIEF (Max 15 words) and describe only the ACTION, not the result.
+4. Output exactly ONE JSON object and NOTHING ELSE — no second turn, no markdown fences, no commentary.{test_rule}{req_str}
 
 
 
@@ -616,6 +636,7 @@ Sandbox Director's Warning (Appended to the end of history).
 '''
 
 [DIRECTOR'S NOTE]: 
+- SINGLE TURN ONLY: Return one JSON object for the requested turn. Never output multiple JSON objects, multiple turns, or "Turn N:" headers inside story_text.
 - Layer Sensory and Internal details in 'story_text' (3-5 paragraphs).
 - Provide 3-6 varied choices (Max 15 words each).
 - Focus choices on player INTENT (e.g., 'Search for...', 'Attempt to...').

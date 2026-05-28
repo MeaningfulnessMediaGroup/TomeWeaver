@@ -31,9 +31,21 @@ To add a new ledger category in code, append an entry to `MEMORY_TAB_REGISTRY` i
 Instead of feeding the AI thousands of lines of raw game history, TomeWeaver's background compiler actively reads your gameplay and extracts data into token-efficient "Ledgers".
 
 ### 1. The Plot Ledger (Chronological Memory)
-The engine mathematically slices your raw game history into chunks (dictated by your `Context Window` setting, usually 10-15 turns). 
+The engine mathematically slices your raw game history into chunks (dictated by your `Context Window` setting, usually 10–15 turns). 
 *   **Part Summaries:** It asks the AI to convert those raw turns into a dense, bulleted list of facts.
 *   **Chapter Summaries:** When a Chapter concludes, the engine gathers all the granular "Parts" for that chapter and condenses them into a single, high-level Chapter Summary, saving massive amounts of API tokens while retaining the overall narrative arc.
+
+#### What the LLM actually sees (prompt assembly)
+Each turn, the engine builds a **context sandwich**—not the entire plot ledger dump:
+
+| Layer | Contents |
+| :--- | :--- |
+| **Chapter summaries** | All completed chapters from `chapter_ledger` |
+| **Plot parts** | Only entries for the **active chapter** whose turn range **ends before** the earliest full turn in the recent history window (gap-filling between summaries and verbatim cards) |
+| **Full turns** | The last *N* turns (`context_window`) rendered as complete prose in the user message |
+| **Entity ledgers** | Active / pinned characters, locations, artifacts, factions |
+
+Stale plot parts from older chapters (or mis-tagged turn ranges) are **not** injected—even if they still exist in `memory.json` until you recompile. After timeline surgery, affected chapter plot entries are invalidated; run **Compile Missing History → Standard** to rebuild.
 
 ### 2. The Entity Ledgers (Stateful Memory)
 The engine tracks the evolving state of the world across four categories:

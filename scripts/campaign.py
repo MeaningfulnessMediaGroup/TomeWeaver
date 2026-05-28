@@ -191,15 +191,11 @@ class CampaignEngine(BaseEngine):
             for c in chapter_ledger: 
                 memory_str += f"- Chapter {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}\n"
                 
-        plot_ledger = self.memory.get("plot_ledger", [])
-        condensed_chap_nums = [c.get('chapter_number') for c in chapter_ledger]
-        active_plot_ledger = [p for p in plot_ledger if p.get('chapter_number') not in condensed_chap_nums]
-        
-        if active_plot_ledger:
-            if len(active_plot_ledger) > 15: active_plot_ledger = active_plot_ledger[-15:]
-            memory_str += "\nRECENT EVENTS (Granular):\n"
-            for p in active_plot_ledger: 
-                memory_str += f"- {p.get('summary', '')}\n"
+        plot_section = self.format_plot_ledger_memory_section(
+            active_chapter, completed_history, context_window
+        )
+        if plot_section:
+            memory_str += plot_section
                 
         
         # Helper to format lore safely

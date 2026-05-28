@@ -11,6 +11,7 @@ import json
 from colorama import Fore, Style
 from base_engine import BaseEngine
 from config import ENGINE_CONFIG, PROMPTS
+from prose_utils import DIRECTOR_INSERT_CONTINUE_ACTION, clamp_single_turn_prose
 
 class SandboxEngine(BaseEngine):
     """Open-world engine: manual chapters and player-driven pacing."""
@@ -38,22 +39,21 @@ class SandboxEngine(BaseEngine):
 
         target_index = plan["target_index"]
         is_at_end = plan["is_at_end"]
-        new_turn_choice = plan["new_turn_choice"]
         is_between = target_index > 0 and target_index < len(self.history)
+        plan["director_insert_continue"] = not bridge_gap
 
-        if not is_at_end and target_index > 0:
+        if target_index > 0:
             ctx_turns = [t.copy() for t in self.history[:target_index]]
-        elif target_index > 0:
-            ctx_turns = [t.copy() for t in self.history[:target_index]]
-            prev = ctx_turns[-1]
-            action = prev.get("player_choice")
-            if action is None:
-                action = (prev.get("choices") or ["Proceed forward."])[0]
-            ctx_turns[-1]["player_choice"] = action
-            plan["end_insert_action"] = action
-            new_turn_choice = None
+            if bridge_gap:
+                new_turn_choice = plan["new_turn_choice"]
+            else:
+                ctx_turns[-1]["player_choice"] = DIRECTOR_INSERT_CONTINUE_ACTION
+                if is_at_end:
+                    plan["end_insert_action"] = DIRECTOR_INSERT_CONTINUE_ACTION
+                new_turn_choice = None
         else:
             ctx_turns = []
+            new_turn_choice = None
 
         next_preview = None
         if bridge_gap and is_between:
@@ -62,6 +62,7 @@ class SandboxEngine(BaseEngine):
         self._director_insert_context = ctx_turns
         self._director_insert_target_turn = plan["target_turn_val"]
         self._director_insert_next_preview = next_preview
+        self._director_insert_continue = not bridge_gap
 
         try:
             turn_data = self._generate_turn()
@@ -70,6 +71,12 @@ class SandboxEngine(BaseEngine):
 
         if not turn_data:
             return False
+
+        if not bridge_gap:
+            turn_data["story_text"] = clamp_single_turn_prose(
+                turn_data.get("story_text", ""),
+                plan["target_turn_val"],
+            )
 
         self._apply_turn_insertion_surgery(plan)
 
@@ -124,11 +131,17 @@ class SandboxEngine(BaseEngine):
         edit_idx = getattr(self, 'backup_turn_idx', -1)
         insert_ctx = getattr(self, '_director_insert_context', None)
 
+        insert_continue = getattr(self, "_director_insert_continue", False)
         if insert_ctx is not None:
-            completed_history = [
-                t for i, t in enumerate(insert_ctx)
-                if t.get("player_choice") is not None and i != edit_idx
-            ]
+            if insert_continue:
+                completed_history = [
+                    t for i, t in enumerate(insert_ctx) if i != edit_idx
+                ]
+            else:
+                completed_history = [
+                    t for i, t in enumerate(insert_ctx)
+                    if t.get("player_choice") is not None and i != edit_idx
+                ]
         else:
             completed_history = [
                 t for i, t in enumerate(self.history) 
@@ -191,19 +204,12 @@ class SandboxEngine(BaseEngine):
             for c in chapter_ledger: 
                 memory_str += f"- Chapter {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}\n"
                 
-        # 2. Granular Part Summaries (Current/Active)
-        plot_ledger = self.memory.get("plot_ledger", [])
-        condensed_chap_nums = [c.get('chapter_number') for c in chapter_ledger]
-        
-        # Filter out parts that belong to older chapters which have already been condensed
-        active_plot_ledger = [p for p in plot_ledger if p.get('chapter_number') not in condensed_chap_nums]
-        
-        if active_plot_ledger:
-            # Failsafe: Hard cap to the last 15 parts to physically prevent context overflow if a single chapter goes on forever
-            if len(active_plot_ledger) > 15: active_plot_ledger = active_plot_ledger[-15:]
-            memory_str += "\nRECENT EVENTS (Granular):\n"
-            for p in active_plot_ledger: 
-                memory_str += f"- {p.get('summary', '')}\n"
+        # 2. Granular Part Summaries (active chapter only; fills gaps before full turns)
+        plot_section = self.format_plot_ledger_memory_section(
+            active_chapter, completed_history, context_window
+        )
+        if plot_section:
+            memory_str += plot_section
                 
         # Helper to format lore safely
         # Helper to format lore safely
@@ -335,24 +341,35 @@ class SandboxEngine(BaseEngine):
             base_instruction = base_instruction.replace("{test_rule}", test_rule)
             base_instruction = base_instruction.replace("{req_str}", req_str)
 
-            next_preview = getattr(self, '_director_insert_next_preview', None)
-            if next_preview:
+            next_preview = getattr(self, "_director_insert_next_preview", None)
+            if insert_continue:
+                base_instruction = PROMPTS.get("FRAG_SANDBOX_INSERT_CONTINUE", "")
+                base_instruction = base_instruction.replace("{target_turn}", str(target_turn))
+                base_instruction = base_instruction.replace("{test_rule}", test_rule)
+                base_instruction = base_instruction.replace("{req_str}", req_str)
+            elif next_preview:
                 preview_text = next_preview.get("story_text", "")[:800]
                 prev_turn_num = "?"
-                insert_ctx = getattr(self, '_director_insert_context', None)
+                insert_ctx = getattr(self, "_director_insert_context", None)
                 if insert_ctx:
                     prev_turn_num = insert_ctx[-1].get("turn", "?")
                 next_turn_num = next_preview.get("turn", "?")
-                insert_frag = PROMPTS.get("FRAG_SANDBOX_INSERT_CONTINUITY", "")
+                insert_frag = PROMPTS.get("FRAG_SANDBOX_INSERT_BRIDGE", "")
                 insert_frag = insert_frag.replace("{next_preview}", preview_text)
                 insert_frag = insert_frag.replace("{prev_turn_num}", str(prev_turn_num))
                 insert_frag = insert_frag.replace("{next_turn_num}", str(next_turn_num))
-                base_instruction = insert_frag + "\n\n" + base_instruction
+                insert_frag = insert_frag.replace("{test_rule}", test_rule)
+                insert_frag = insert_frag.replace("{req_str}", req_str)
+                base_instruction = insert_frag
 
             
             # --- MANUAL CHAPTER OVERRIDE ---
             # Trigger a cold open if this is explicitly the first turn of the new chapter
-            if active_chapter.get("start_turn") == target_turn and target_turn > 1:
+            if (
+                not insert_continue
+                and active_chapter.get("start_turn") == target_turn
+                and target_turn > 1
+            ):
                 time_jump = f" TIME JUMP: {active_chapter['time']}." if active_chapter.get('time') else ""
                 
                 # Heavily reinforce the new setting so the AI extracts POV and Location from it
@@ -371,9 +388,13 @@ class SandboxEngine(BaseEngine):
             messages = [{"role": "system", "content": system_content}]
             
             if completed_history:
-                history_text = "RECENT HISTORY:\n"
+                history_label = "PRIOR SCENES (reference only — do not mimic this format):\n" if insert_continue else "RECENT HISTORY:\n"
+                history_text = history_label
                 for turn in completed_history[-context_window:]:
-                    history_text += f"Turn {turn['turn']}:\n"
+                    if insert_continue:
+                        history_text += f"--- Scene (turn {turn['turn']}) ---\n"
+                    else:
+                        history_text += f"Turn {turn['turn']}:\n"
                     history_text += f"Location: {turn.get('location', 'Unknown')}\n"
                     
                     if self.track_inventory:
@@ -386,10 +407,18 @@ class SandboxEngine(BaseEngine):
                     
                     # Highlight manual UI overrides so the AI understands they are absolute commands,
                     # not just something the character 'said' or 'did'.
-                    action = turn['player_choice']
-                    if action.lower().startswith(("setting:", "pov:", "time:", "scene:", "director:", "jump:", "wrap up")):
+                    action = turn.get("player_choice")
+                    if action == DIRECTOR_INSERT_CONTINUE_ACTION:
+                        history_text += (
+                            "DIRECTOR INSTRUCTION: Continue the story. "
+                            "Advance narrative flow from the current scene; "
+                            "do not enact pending choice options.\n\n"
+                        )
+                    elif action and action.lower().startswith(
+                        ("setting:", "pov:", "time:", "scene:", "director:", "jump:", "wrap up")
+                    ):
                         history_text += f"DIRECTOR INSTRUCTION: {action}\n\n"
-                    else:
+                    elif action:
                         history_text += f"Player Action: {action}\n\n"
                 
                 messages.append({"role": "user", "content": history_text + (self.active_fix if self.active_fix else base_instruction)})

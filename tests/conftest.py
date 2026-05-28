@@ -199,26 +199,42 @@ def valid_turn_payload(turn_num=1, **overrides):
 def assert_cartridge_consistent(engine, *, check_disk=True):
     """Assert Master Clock, chapter bounds, and optional on-disk parity."""
     history = engine.history or []
+    turn_set = set()
     if history:
         turns = [int(t.get("turn", 0)) for t in history]
         expected = list(range(turns[0], turns[0] + len(turns)))
         assert turns == expected, f"Non-contiguous Master Clock: {turns}"
         assert engine.get_next_turn_number() == turns[-1] + 1
+        turn_set = set(turns)
 
-    max_turn = max((int(t.get("turn", 0)) for t in history), default=0)
+    max_turn = max(turn_set, default=0)
     for chap in engine.chapters:
         start = chap.get("start_turn")
         end = chap.get("end_turn")
         if start is not None:
-            assert start >= 1
+            start = int(start)
+            if turn_set:
+                assert start in turn_set, (
+                    f"Chapter {chap.get('chapter_number')} start_turn {start} "
+                    f"not in history turns {sorted(turn_set)}"
+                )
         if end is not None and start is not None:
+            end = int(end)
             assert end >= start
             if history:
                 assert end <= max_turn
+                assert end in turn_set, (
+                    f"Chapter {chap.get('chapter_number')} end_turn {end} "
+                    f"not in history turns {sorted(turn_set)}"
+                )
 
     if check_disk and (engine.adv_dir / "history.json").exists():
         disk = load_json_safely(engine.adv_dir / "history.json", "history.json")
         assert disk == history
+
+    if check_disk and (engine.adv_dir / "chapters.json").exists():
+        disk_chapters = load_json_safely(engine.adv_dir / "chapters.json", "chapters.json")
+        assert disk_chapters == engine.chapters
 
 
 @pytest.fixture

@@ -28,6 +28,81 @@ class TestResyncMasterClock:
         reloaded = json.loads((mock_adventure_dir / "history.json").read_text(encoding="utf-8"))
         assert [t["turn"] for t in reloaded] == [10, 11, 12]
 
+    def test_resync_remaps_chapter_bounds(self, mock_adventure_dir):
+        history = [
+            make_turn(1, player_choice=None),
+            make_turn(3, player_choice="Skip"),
+            make_turn(4, player_choice="End"),
+        ]
+        chapters = [
+            {"chapter_number": 1, "title": "Act I", "start_turn": 1, "end_turn": 4},
+        ]
+        engine = build_engine(mock_adventure_dir, history=history, chapters=chapters)
+        engine.history[1]["turn"] = 5
+        engine.history[2]["turn"] = 5
+
+        engine.resync_master_clock()
+
+        assert [t["turn"] for t in engine.history] == [1, 2, 3]
+        assert engine.chapters[0]["start_turn"] == 1
+        assert engine.chapters[0]["end_turn"] == 3
+
+    def test_load_resync_heals_stale_chapters(self, mock_adventure_dir):
+        history = [
+            make_turn(10, player_choice=None),
+            make_turn(11, player_choice="A"),
+            make_turn(12, player_choice="B"),
+        ]
+        chapters = [
+            {"chapter_number": 1, "title": "Act I", "start_turn": 10, "end_turn": 14},
+        ]
+        write_json(mock_adventure_dir / "history.json", history)
+        write_json(mock_adventure_dir / "chapters.json", chapters)
+
+        engine = build_engine(mock_adventure_dir, mode="sandbox")
+
+        assert [t["turn"] for t in engine.history] == [10, 11, 12]
+        assert engine.chapters[0]["start_turn"] == 10
+        assert engine.chapters[0]["end_turn"] == 12
+
+
+class TestMasterClockAnchor:
+    """Surgery with non-1 Master Clock anchors keeps chapters aligned."""
+
+    def test_insert_blank_turn_with_anchor_zero(self, mock_adventure_dir):
+        history = [
+            make_turn(0, player_choice=None),
+            make_turn(1, player_choice="Go"),
+            make_turn(2, player_choice="Stop"),
+        ]
+        chapters = [
+            {"chapter_number": 1, "title": "Prologue", "start_turn": 0, "end_turn": 2},
+        ]
+        engine = build_engine(mock_adventure_dir, history=history, chapters=chapters)
+
+        engine.insert_blank_turn(1)
+
+        assert [t["turn"] for t in engine.history] == [0, 1, 2, 3]
+        assert engine.chapters[0]["start_turn"] == 0
+        assert engine.chapters[0]["end_turn"] == 3
+
+    def test_delete_turn_with_anchor_zero(self, mock_adventure_dir):
+        history = [
+            make_turn(0, player_choice=None),
+            make_turn(1, player_choice="Go"),
+            make_turn(2, player_choice="Stop"),
+        ]
+        chapters = [
+            {"chapter_number": 1, "title": "Prologue", "start_turn": 0, "end_turn": 2},
+        ]
+        engine = build_engine(mock_adventure_dir, history=history, chapters=chapters)
+
+        engine.delete_turn(1)
+
+        assert [t["turn"] for t in engine.history] == [0, 1]
+        assert engine.chapters[0]["start_turn"] == 0
+        assert engine.chapters[0]["end_turn"] == 1
+
 
 class TestImportTurns:
     """Bulk prose import splices structured turns into the timeline."""

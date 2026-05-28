@@ -15,6 +15,7 @@ from prose_utils import (
     DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER,
     editor_story_display_text,
     is_director_blank_turn_placeholder,
+    is_hidden_card_player_choice,
     tidy_editor_prose_text,
 )
 
@@ -755,7 +756,7 @@ class StoryTab(ctk.CTkFrame):
             # Hide blank director placeholders and transition headers on chapter boundaries
             hide_header = False
             if not self.engine.is_campaign:
-                if raw_action == "[ Blank Turn ]":
+                if is_hidden_card_player_choice(raw_action):
                     hide_header = True
                 else:
                     # Get boundaries as integers for absolute comparison

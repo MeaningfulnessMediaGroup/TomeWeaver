@@ -82,20 +82,36 @@ class TestInsertBlankTurn:
 
     def test_insert_turn_generate_continuity(self, engine_with_history, mock_llm_response):
         from conftest import valid_turn_payload
+        from prose_utils import DIRECTOR_INSERT_CONTINUE_ACTION
 
         engine = engine_with_history(2, choices_per_turn=[None, None])
-        generated = valid_turn_payload(
-            turn_num=3,
-            story_text="The hallway stretches ahead, lit by flickering neon.",
-            choices=["Open the door.", "Listen at the wall.", "Turn back."],
-        )
-        mock_llm_response(generated)
+        engine.history[1]["choices"] = ["Open the door.", "Listen at the wall.", "Turn back."]
+        captured_messages = []
+
+        def factory(*_args, **_kwargs):
+            captured_messages.append(_args[0] if _args else None)
+            return valid_turn_payload(
+                turn_num=3,
+                story_text="The hallway stretches ahead, lit by flickering neon.",
+                choices=["Open the door.", "Listen at the wall.", "Turn back."],
+            )
+
+        mock_llm_response(factory)
 
         assert engine.insert_turn(2, mode="generate") is True
         assert len(engine.history) == 3
         assert "hallway" in engine.history[2]["story_text"].lower()
         assert engine.history[2]["player_choice"] is None
-        assert engine.history[1]["player_choice"] == "Option A"
+        assert engine.history[1]["player_choice"] == DIRECTOR_INSERT_CONTINUE_ACTION
+        assert captured_messages
+        prompt_blob = captured_messages[0][-1]["content"]
+        assert "CONTINUE MODE" in prompt_blob
+        assert "exactly ONE new timeline turn" in prompt_blob
+        assert "Output exactly ONE JSON object" in prompt_blob
+        assert "turn 3" in prompt_blob.lower()
+        assert "Do NOT treat this as the protagonist selecting" in prompt_blob
+        assert "Do NOT write \"Turn N:\" labels" in prompt_blob
+        assert "Player Action: Open the door" not in prompt_blob
 
     def test_insert_turn_bridge_gap_uses_upcoming_turn(self, engine_with_history, mock_llm_response):
         from conftest import valid_turn_payload
@@ -115,7 +131,12 @@ class TestInsertBlankTurn:
 
         def capture_clear():
             previews.append(getattr(engine, "_director_insert_next_preview", None))
-            for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+            for attr in (
+                "_director_insert_context",
+                "_director_insert_target_turn",
+                "_director_insert_next_preview",
+                "_director_insert_continue",
+            ):
                 if hasattr(engine, attr):
                     delattr(engine, attr)
 
@@ -135,7 +156,12 @@ class TestInsertBlankTurn:
 
         def capture_clear2():
             previews2.append(getattr(engine2, "_director_insert_next_preview", None))
-            for attr in ("_director_insert_context", "_director_insert_target_turn", "_director_insert_next_preview"):
+            for attr in (
+                "_director_insert_context",
+                "_director_insert_target_turn",
+                "_director_insert_next_preview",
+                "_director_insert_continue",
+            ):
                 if hasattr(engine2, attr):
                     delattr(engine2, attr)
 

@@ -62,7 +62,10 @@ TomeWeaver treats interactive fiction like a drafting process. Attached to the b
 Sometimes the story needs pacing adjustments that an AI cannot handle natively. The **Timeline Editor** (the top row of buttons on historical cards) gives you god-like control over the master clock.
 
 ### Time & Pacing
-*   **+ Insert Turn:** Right-shifts all future turns and inserts a blank card exactly at your cursor. Click `✎ Edit Scene` on the blank card to manually type a narrative bridge or gap-synthesis.
+*   **+ Insert Turn:** Right-shifts all future turns and inserts a new card at your cursor. Choose one of three modes in the dialog:
+    *   **Blank Turn** — Empty placeholder; use `✎ Edit Scene` to write prose manually.
+    *   **Generate — continue story** *(Sandbox)* — The AI writes the next scene from the current prose. It does **not** auto-select a pending choice; Director meta-actions like `[ Continue the story ]` are hidden on cards.
+    *   **Generate — bridge the gap** *(between two existing cards only)* — The AI writes an intervening scene that steers toward the upcoming turn without copying its prose.
 *   **X Delete Turn:** Permanently deletes the active card and left-shifts all future turns to collapse the gap.
 *   **↔ Turn to Bridge:** Rips the prose out of the current card, pushes it *forward* into the next turn's Narrative Bridge, and deletes the current card. (Great for collapsing slow scenes).
 *   **↔ Bridge to Turn:** Rips the transition text out of the current card and explodes it into its own dedicated, standalone Turn card.
@@ -200,6 +203,8 @@ Click **✎ Edit Scene** on any turn card (current or historical) to open the fu
 *   Rewrite `story_text`, `location`, `pov_character`, and `choices` directly.
 *   Edit inventory strings when tracking is enabled.
 *   Click **💾 Set as Story Seed** to save Turn 1 as `start_turn.json` for future restarts.
+
+**Inline prose editing (optional):** Enable **Inline Prose Edit** in Dashboard → `⚙ Settings` to edit story text directly on the timeline card. Changes auto-save (debounced) before you submit an action, navigate away, or close the workspace.
 
 Manual edits do not automatically recompile RAG memory—run **Compile Missing History** if lore should reflect your changes.
 

@@ -21,6 +21,7 @@ The `engine_config.json` file manages the global behavior of the engine, includi
 | **`max_retries`** | The number of times the "Fortress" logic will attempt to surgically heal broken LLM JSON output before halting. |
 | **`auto_polish`** | If `true`, the engine silently runs a second copy-editing LLM pass on every single turn to guarantee novel-quality prose. (Costs double tokens). |
 | **`auto_narrative_bridge`**| If `true`, the engine automatically patches missing transition prose in the background while you play. |
+| **`inline_prose_edit`** | If `true`, story prose on the active timeline card is directly editable (debounced auto-save). Disable for read-only playback or slower hardware. |
 | **`ui_scaling`** | Scales the entire application interface for 4K/high-res monitors (e.g., 1.25). Requires restart. |
 | **`prose_font_size`** | Font size for story timeline prose (pixels). |
 | **`ui_wrap_margin`** | Extra horizontal margin subtracted from wrap width for comfortable reading on wide monitors. |
@@ -222,7 +223,7 @@ These files are edited as plain text in the adventure folder or via **✎ Edit S
 A flat array of turn objects. Each turn typically includes:
 `turn`, `story_text`, `pov_character`, `location`, `choices`, `player_choice`, `narrative_bridge`, `input_type`, `is_game_over`, and optionally `inventory_and_state`, `chapter_goal_achieved`, `goal_progress`.
 
-Turn numbers form the **Master Clock**—must stay sequential (the engine auto-resyncs on load if hand-edited).
+Turn numbers form the **Master Clock**—must stay sequential. Timeline surgery (insert, delete, split, merge, import, fork) re-indexes turns, chapter bounds, and plot-ledger turn ranges via the centralized `master_clock` module; the engine also auto-resyncs on load if hand-edited files drift.
 
 ### `chapters.json`
 Array of chapter metadata: `chapter_number`, `title`, `start_turn`, `end_turn`, plus Campaign `objectives` arrays with `ACTIVE` / `LOCKED` status.
