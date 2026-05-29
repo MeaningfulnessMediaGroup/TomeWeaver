@@ -4,8 +4,11 @@ One of the greatest challenges of playing AI text adventures is the "Context Lim
 
 TomeWeaver solves this by implementing an autonomous **Retrieval-Augmented Generation (RAG) Engine**.
 
-![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
+![Memory Tab Overview](images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
 
+![Memory Tab Overview](images/rag_dashboard2.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
+
+-
 ---
 
 ## 🖥️ Memory & Lore Tab (UI Layout)
@@ -76,7 +79,7 @@ TomeWeaver allows you to create a **Local Override**. If an entity exists in *bo
 
 If you track 50 characters, feeding all 50 to the AI every single turn will instantly blow out your Context Limit. TomeWeaver uses an invisible "Auto-Decay" regex scanner to manage this.
 
-![Entity State Dropdown](../images/rag_decay.jpg "Screenshot of the state dropdown showing Active, Pinned, and Archived options.")
+![Entity State Dropdown](images/rag_decay.jpg "Screenshot of the state dropdown showing Active, Pinned, and Archived options.")
 
 *   **Active:** The entity is currently relevant and injected into the AI's prompt.
 *   📦 **Archived:** The entity has not been mentioned in the story for `X` turns (Configurable via "Memory Decay Threshold" in Global Settings). They are hidden from the AI to save tokens. **If you or the AI mention an archived entity by name, they are instantly revived and returned to Active status!**
@@ -98,7 +101,7 @@ If you edit the timeline manually or drag a story into a new Universe, you can c
 ### Granular Validation & Auto-Patching
 If you suspect a specific Plot Chunk hallucinated a detail, click the **✔️ Validate** button on its card.
 
-![Validation Report](../images/rag_validation.jpg "Screenshot of a Fidelity Score report showing missing and fabricated details, with the Auto-Patch button.")
+![Validation Report](images/rag_validation.jpg "Screenshot of a Fidelity Score report showing missing and fabricated details, with the Auto-Patch button.")
 
 1.  The engine will send the original raw turns and the summary to the AI and ask for a strict Fidelity Score (e.g., "85/100").
 2.  It generates a bulleted QA Report detailing exactly what is missing, fabricated, or inaccurate.
