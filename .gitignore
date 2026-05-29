@@ -19,3 +19,5 @@ samples/Samples
 # Logs and Exports
 *.log
 configs/instance_config.json
+
+/TomeWeaver.code-workspace

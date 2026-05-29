@@ -2700,7 +2700,7 @@ class TomeWeaverAPI:
         import requests, zipfile, io
         
         # CRITICAL: This URL must match your GitHub file name exactly (Case-Sensitive!)
-        URL = "https://github.com/dobrado76/TomeWeaver/raw/main/samples/Samples_v1.zip"
+        URL = "https://github.com/MeaningfulnessMediaGroup/TomeWeaver/raw/main/samples/Samples_v1.zip"
         
         try:
             if callback: callback("Connecting to GitHub...")

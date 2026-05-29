@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
 ![LLM](https://img.shields.io/badge/LLM-Agnostic-orange)
 
-[ ![Download Latest Release](https://img.shields.io/github/v/release/dobrado76/TomeWeaver?label=Download%20Latest%20Executables&style=for-the-badge) ](https://github.com/dobrado76/TomeWeaver/releases/latest)
+[ ![Download Latest Release](https://img.shields.io/github/v/release/MeaningfulnessMediaGroup/TomeWeaver?label=Download%20Latest%20Executables&style=for-the-badge) ](https://github.com/MeaningfulnessMediaGroup/TomeWeaver/releases/latest)
 
 
 ### AI stories that remember.
@@ -262,7 +262,7 @@ If you do not have a dedicated GPU, TomeWeaver supports cloud providers seamless
 ### Option A: Download Executable (Recommended)
 The easiest way to run TomeWeaver. No Python installation or command-line knowledge is required. We provide pre-built, portable executables for Windows, macOS, and Linux.
 
-1.  Navigate to the **[Latest Releases](https://github.com/dobrado76/TomeWeaver/releases/latest)** page on GitHub.
+1.  Navigate to the **[Latest Releases](https://github.com/MeaningfulnessMediaGroup/TomeWeaver/releases/latest)** page on GitHub.
 2.  Download the `.exe` file for your operating system.
 3.  The configurations will be saved along the .exe, it is recommended you create a folder for it.
 4.  Double-click the `TomeWeaver` executable to launch the app!
@@ -272,11 +272,11 @@ If you prefer running from source, we provide an automated setup script that cre
 
 1a. Either **Clone the repo:**
     ```cmd
-    git clone https://github.com/dobrado76/TomeWeaver.git
+    git clone https://github.com/MeaningfulnessMediaGroup/TomeWeaver.git
     cd TomeWeaver
     ```
 1b. or **Download the compressed Repo '.zip' file:**
-    **[Latest Releases](https://github.com/dobrado76/TomeWeaver/releases/latest)**
+    **[Latest Releases](https://github.com/MeaningfulnessMediaGroup/TomeWeaver/releases/latest)**
 2.  **Run the Installer:**
     Double-click the `setup.bat` file in the root directory. This will download everything needed for the GUI.
 3.  **Launch the Engine:**
@@ -290,7 +290,7 @@ If you are on a UNIX-based system or prefer setting up your environment manually
 
 1.  **Clone the Repo:**
     ```bash
-    git clone https://github.com/dobrado76/TomeWeaver.git
+    git clone https://github.com/MeaningfulnessMediaGroup/TomeWeaver.git
     cd TomeWeaver
     ```
 2.  **Create and Activate a Virtual Environment:**
@@ -428,7 +428,7 @@ TomeWeaver is released under the **Polyform Non-Commercial License 1.0.0**.
 - ✅ **Education/Research:** You can use this code for learning or academic purposes.
 - ❌ **Commercial Use:** You **cannot** sell this software, use it to power a paid service, or include it in a commercial product without a separate agreement.
 
-**For commercial licensing inquiries, please contact the author directly via [GitHub Profile](https://github.com/dobrado76).**
+**For commercial licensing inquiries, please contact the maintainers via [MeaningfulnessMediaGroup on GitHub](https://github.com/MeaningfulnessMediaGroup).**
 
 ---
 
