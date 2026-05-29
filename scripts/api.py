@@ -764,6 +764,10 @@ class TomeWeaverAPI:
                         target_file.parent.mkdir(parents=True, exist_ok=True)
                         with zipf.open(file) as source, open(target_file, "wb") as target:
                             shutil.copyfileobj(source, target)
+
+                from cartridge_format import load_cartridge_setup
+
+                load_cartridge_setup(target_dir / "setup.json")
                             
             return True, target_dir.name
         except zipfile.BadZipFile: return False, "Invalid or corrupted zip file."
@@ -1953,7 +1957,9 @@ class TomeWeaverAPI:
         if not setup_file.exists(): raise FileNotFoundError(f"setup.json missing from '{folder_name}'.")
             
         from config import load_json_safely
-        setup_data = load_json_safely(setup_file, "setup.json")
+        from cartridge_format import load_cartridge_setup
+
+        setup_data = load_cartridge_setup(setup_file)
         mode = setup_data.get("mode", "sandbox").lower()
         
         if mode == "campaign": return CampaignEngine(target_dir, setup_data)

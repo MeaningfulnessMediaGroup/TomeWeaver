@@ -161,9 +161,18 @@ class CodexTab(ctk.CTkFrame):
         
         lbl_ver = ctk.CTkLabel(ver_frame, text="Version:", font=("Arial", 14, "bold"))
         lbl_ver.pack(anchor="w", pady=(0, 2))
-        Tooltip(lbl_ver, "Useful if you update and share your cartridges.")
+        Tooltip(lbl_ver, "Your story revision (for sharing). Not the engine cartridge format — see Format below.")
         self.core_vars["version"] = ctk.StringVar(value=self.engine.setup_data.get("version", "1.0"))
         ctk.CTkEntry(ver_frame, textvariable=self.core_vars["version"], font=("Arial", 14), width=80).pack(fill="x")
+        from cartridge_format import CARTRIDGE_FORMAT_SPEC, read_cartridge_format_version
+
+        fmt_ver = read_cartridge_format_version(self.engine.setup_data)
+        ctk.CTkLabel(
+            ver_frame,
+            text=f"Format {fmt_ver} ({CARTRIDGE_FORMAT_SPEC})",
+            font=("Arial", 10),
+            text_color="gray",
+        ).pack(anchor="w", pady=(2, 0))
 
         # Column 3: Date
         date_frame = ctk.CTkFrame(av_frame, fg_color="transparent")

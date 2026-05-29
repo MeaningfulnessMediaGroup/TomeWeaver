@@ -769,7 +769,10 @@ def create_boilerplate_files(adv_dir, mode):
                 
             with open(setup_file, "w", encoding="utf-8") as f:
                 json.dump(template, f, indent=4)
-            
+
+    from cartridge_format import load_cartridge_setup
+
+    load_cartridge_setup(setup_file)
     # --- SYSTEM_PROMPT.TXT INITIALIZATION ---
     if not prompt_file.exists():
         if default_prompt.exists():

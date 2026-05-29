@@ -1,0 +1,33 @@
+---
+description: Require version bump + migration pipeline for on-disk format changes
+alwaysApply: true
+---
+
+# On-disk format versioning (mandatory)
+
+Whenever you change **file structures** or **on-disk schemas** (paths, filenames, JSON keys, manifest layout, pack layout, coupled conventions), you **must**:
+
+1. **Increment the format version** using **REFACTOR.MAJOR.MINOR** semantics:
+   - **REFACTOR** — path/layout moves, renames, folder reorganization (same data, new locations)
+   - **MAJOR** — breaking or incompatible schema changes (removed keys, changed types, new required fields)
+   - **MINOR** — backward-compatible additions (new optional keys/files; old engine can still read)
+
+2. **Add a migration step** in the appropriate registry (one step per version transition):
+   - `setup.json` / cartridges → `scripts/cartridge_format.py` (`_MIGRATIONS`, bump `CURRENT_CARTRIDGE_FORMAT_VERSION`)
+   - `runs/manifest.json` → run-tree manifest module (when introduced: same pattern as cartridge)
+   - `branch_pack.json` → `scripts/branch_pack.py` (`PACK_VERSION` + import/export migration)
+
+3. **Wire load paths** through the format loader (`load_cartridge_setup`, etc.) so upgrades run automatically on open/import.
+
+4. **Add tests** for the migration (legacy fixture → upgraded shape on disk).
+
+5. **Document** the change in `docs/CONFIG_GUIDE.md` (and user-facing docs if behavior changes).
+
+Do **not** conflate with author-facing `version` in `setup.json` (story revision metadata).
+
+**Checklist before merging a structure change:**
+- [ ] Version constant bumped (REFACTOR.MAJOR.MINOR / mapped integer)
+- [ ] `_migrate_vN_to_vN+1` (or equivalent) implemented and registered
+- [ ] Load/import paths call the format loader
+- [ ] Tests cover old → new
+- [ ] Docs updated
