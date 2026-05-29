@@ -683,6 +683,7 @@ def load_instance_config():
         "force_chapter_transition_mode": "wrap_up",  # wrap_up | immediate
         "editor_clean_prose_on_save": False,
         "editor_insert_turn_mode": "blank",
+        "run_tree_preview_open": False,
         "adventures_dir": "",
     }
     

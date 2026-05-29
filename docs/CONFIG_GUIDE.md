@@ -182,6 +182,7 @@ Separate from engine behavior, `instance_config.json` stores **per-machine sessi
 | **`last_author`** | Default author field pre-fill for new stories. |
 | **`story_bookmarks`** | Maps story paths to last-viewed turn indices for Time Travel restore. |
 | **`story_theme_preference`** | Maps story folder path → `"global"` or `"story"` (workspace appearance override). |
+| **`run_tree_preview_open`** | Whether **Run Tree → Show preview** side panel is open (remembered on this PC). |
 | **`adventures_dir`** | Absolute path to **your** story library root on this PC. Empty string uses the default ``./adventures`` folder beside the app. ``index.json`` lives inside this folder. |
 
 **Access in UI:** Dashboard → `⚙ Settings` → **Adventures Library** (Browse). Bookmarks update automatically when you scrub the timeline.

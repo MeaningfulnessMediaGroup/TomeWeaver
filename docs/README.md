@@ -140,7 +140,7 @@ When you scrub to an older turn via the Time Travel slider, a toolbar appears on
 *   **X Delete Turn** — Master Clock surgery (see [COMMAND_GUIDE.md](COMMAND_GUIDE.md)).
 *   **↔ Turn to Bridge / ↔ Bridge to Turn** — Collapse or expand transition prose.
 *   **✂ Split Chapter / ← Merge Chapter** — Chapter boundary editing (Sandbox and Campaign).
-*   **⑂ Fork Here** — (When valid) Archive the full timeline and reopen choices at this turn, creating a parent + branch pair in the Run Tree.
+*   **⑂ Fork Here** — Archive this timeline and start a new branch at this turn. On the **current card**, fork before picking a choice to explore alternatives; use **Run Tree** to switch between branches later.
 *   **✎ Edit Scene** — Open the full scene editor to manually rewrite prose, choices, location, inventory, or save a **Story Seed**. With prose lint enabled, typos and grammar issues are underlined in bridge, prose, and choice fields—right-click for fixes, **Add to dictionary**, **Ignore**, optional **Synonyms**, or **Get AI suggestions…**
 
 ### Inline prose editing & prose lint
@@ -160,7 +160,7 @@ Open **Options → Run Tree…** to manage parallel playthroughs stored in `runs
 | **Import…** | Merge a friend's branch pack into this story (compare paths side by side via Switch). |
 | **Rename / Delete** | Manage labels or remove archived snapshots. |
 
-**Fork Here** on the timeline (historical turns with a committed choice and future turns) is the primary way to create branches during play. **Restart → Save** archives the current line before a wipe. Switching never creates extra tree nodes—it only updates snapshots in place.
+**Fork Here** on the timeline is the primary way to create branches during play — including on the **current card before you choose**. Each row in **Run Tree** shows `Chapter N - Turn T - date`; hover for fork metadata, turn counts, and saved labels. Optional **Show preview** panel displays prose at the fork turn.
 
 **Sharing workflow:** Export a branch pack → friend imports into their copy of the same story → both use Run Tree to flip between local and imported timelines.
 

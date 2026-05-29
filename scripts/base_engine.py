@@ -898,14 +898,26 @@ class BaseEngine:
         return None
 
     def can_fork_at_turn(self, fork_turn_number: int) -> tuple[bool, str]:
-        """True when turn N has a committed choice and future turns exist to truncate."""
+        """True when fork @ turn N is allowed.
+
+        Historical turns need a committed ``player_choice`` and at least one turn
+        after (truncate path). The live tail is always forkable while playable —
+        including before the player picks a choice — so they can branch early.
+        """
         idx = self._turn_index(fork_turn_number)
         if idx is None:
             return False, "Turn not found."
-        if not self.history[idx].get("player_choice"):
+
+        turn = self.history[idx]
+        is_tail = idx >= len(self.history) - 1
+
+        if is_tail:
+            if str(turn.get("is_game_over", False)).lower() == "true":
+                return False, "Cannot fork on a game-over turn."
+            return True, ""
+
+        if not turn.get("player_choice"):
             return False, "This turn has no committed choice yet."
-        if idx >= len(self.history) - 1:
-            return False, "Cannot fork from the live timeline tail."
         return True, ""
 
     def _heal_after_timeline_truncate(self, fork_turn_number: int) -> None:

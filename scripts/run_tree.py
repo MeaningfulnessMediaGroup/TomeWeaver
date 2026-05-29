@@ -88,6 +88,200 @@ def turn_count_from_history(history) -> int:
     return max(int(t.get("turn", 0)) for t in history)
 
 
+def _format_run_timestamp(run: dict) -> str:
+    """Short ``YYYY-MM-DD HH:MM`` stamp from manifest ISO timestamps."""
+    raw = run.get("created_at") or run.get("updated_at") or ""
+    if not raw:
+        return "—"
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(raw)[:16]
+
+
+def _load_snapshot_history_chapters(adv_dir, run: dict) -> tuple[list, list]:
+    """Load ``history`` and ``chapters`` from a run snapshot folder."""
+    rel = run.get("snapshot_path")
+    if not rel:
+        return [], []
+    snap = _adv(adv_dir) / rel
+    history = load_json_safely(snap / "history.json", "history.json") or []
+    chapters = load_json_safely(snap / "chapters.json", "chapters.json") or []
+    return history, chapters
+
+
+def _load_run_history_chapters(adv_dir, run: dict, *, active_run_id: str | None) -> tuple[list, list]:
+    """Prefer live root files for the active timeline; otherwise read the snapshot."""
+    if active_run_id and run.get("id") == active_run_id:
+        root = _adv(adv_dir)
+        history = _load_history(adv_dir)
+        chapters = load_json_safely(root / "chapters.json", "chapters.json") or []
+        if history:
+            return history, chapters
+    return _load_snapshot_history_chapters(adv_dir, run)
+
+
+def anchor_turn_for_run(run: dict, history: list) -> int:
+    """Story anchor for display/preview: fork point, else the snapshot's last turn."""
+    fork = run.get("fork_at_turn")
+    if fork is not None:
+        return int(fork)
+    if history:
+        return int(history[-1].get("turn", len(history)))
+    return int(run.get("turn_count") or 0) or 1
+
+
+def chapter_at_turn(chapters: list, turn_number: int) -> dict | None:
+    """Return the chapter whose ``start_turn`` is at or before *turn_number*."""
+    turn_number = int(turn_number)
+    matched = None
+    matched_start = -1
+    for chap in chapters or []:
+        start = chap.get("start_turn")
+        if start is None:
+            continue
+        start = int(start)
+        if start <= turn_number and start >= matched_start:
+            matched = chap
+            matched_start = start
+    return matched
+
+
+def _turn_by_number(history: list, turn_number: int) -> dict | None:
+    for turn in history or []:
+        if int(turn.get("turn", 0)) == int(turn_number):
+            return turn
+    return None
+
+
+def _kind_description(run: dict) -> str:
+    kind = run.get("run_kind")
+    if kind == "original":
+        return "Parent timeline (archived before branch)"
+    if kind == "branch":
+        return "Alternate branch"
+    if kind == "snapshot":
+        return "Saved run"
+    return str(kind or "Timeline")
+
+
+def format_run_tree_tooltip(
+    adv_dir,
+    run: dict,
+    *,
+    anchor_turn: int | None = None,
+    active_run_id: str | None = None,
+) -> str:
+    """Full metadata for Run Tree row hovers."""
+    history, chapters = _load_run_history_chapters(adv_dir, run, active_run_id=active_run_id)
+    anchor = anchor_turn if anchor_turn is not None else anchor_turn_for_run(run, history)
+    chap = chapter_at_turn(chapters, anchor)
+    lines = [
+        run.get("label") or run.get("id", "Run"),
+        _kind_description(run),
+        f"Turn {anchor} · {run.get('turn_count', 0)} turns in snapshot",
+    ]
+    if run.get("fork_at_turn") is not None:
+        lines.append(f"Fork @ turn {run['fork_at_turn']}")
+    if chap:
+        title = (chap.get("title") or "").strip()
+        if title:
+            lines.append(f"Chapter {chap.get('chapter_number', '?')}: {title}")
+        else:
+            lines.append(f"Chapter {chap.get('chapter_number', '?')}")
+    created = run.get("created_at") or run.get("updated_at")
+    if created:
+        lines.append(f"Saved {created}")
+    return "\n".join(lines)
+
+
+def format_run_tree_ui(adv_dir, run: dict, *, active_run_id: str | None = None) -> dict:
+    """Build display line, tooltip, and anchor turn for one Run Tree row."""
+    history, chapters = _load_run_history_chapters(adv_dir, run, active_run_id=active_run_id)
+    anchor = anchor_turn_for_run(run, history)
+    chap = chapter_at_turn(chapters, anchor)
+    chap_num = chap.get("chapter_number") if chap else "?"
+    ts = _format_run_timestamp(run)
+
+    depth = int(run.get("_depth", 0))
+    indent = "    " * depth + ("↳ " if depth else "")
+    core = f"Chapter {chap_num} - Turn {anchor} - {ts}"
+    parts = [f"{indent}{core}"]
+    if run.get("id") == active_run_id:
+        parts.append("● playing now")
+
+    return {
+        "line": "  ".join(parts),
+        "tooltip": format_run_tree_tooltip(
+            adv_dir, run, anchor_turn=anchor, active_run_id=active_run_id
+        ),
+        "anchor_turn": anchor,
+    }
+
+
+def preview_run_anchor(adv_dir, run_id: str) -> str:
+    """Text preview of the anchor turn for the optional Run Tree side panel."""
+    manifest = load_manifest(adv_dir)
+    run = manifest.get("runs", {}).get(run_id)
+    if not run:
+        return ""
+
+    active_id = manifest.get("active_run_id")
+    history, chapters = _load_run_history_chapters(adv_dir, run, active_run_id=active_id)
+    anchor = anchor_turn_for_run(run, history)
+    turn = _turn_by_number(history, anchor) or (history[-1] if history else None)
+    if turn is None:
+        return "No turn data in this snapshot."
+
+    chap = chapter_at_turn(chapters, int(turn.get("turn", anchor)))
+    lines = []
+    if chap:
+        title = (chap.get("title") or "").strip()
+        header = f"Chapter {chap.get('chapter_number', '?')}"
+        if title:
+            header += f": {title}"
+        lines.append(header)
+    lines.append(f"Turn {turn.get('turn', anchor)}")
+
+    pov = (turn.get("pov_character") or "").strip()
+    loc = (turn.get("location") or "").strip()
+    if pov or loc:
+        lines.append(f"{pov or '—'} @ {loc or '—'}")
+    lines.append("")
+
+    prose = (turn.get("story_text") or "").strip()
+    if prose:
+        if len(prose) > 1400:
+            prose = prose[:1400].rstrip() + "…"
+        lines.append(prose)
+    else:
+        lines.append("(No story prose recorded for this turn.)")
+
+    choices = turn.get("choices") or []
+    choice = turn.get("player_choice")
+    if choice:
+        lines.extend(["", f"Committed choice: {choice}"])
+    elif choices:
+        lines.append("")
+        lines.append("Choices at fork point:")
+        for opt in choices[:8]:
+            lines.append(f"  • {opt}")
+        if len(choices) > 8:
+            lines.append(f"  … and {len(choices) - 8} more")
+
+    return "\n".join(lines)
+
+
+def format_run_tree_line(
+    run: dict,
+    *,
+    adv_dir,
+    active_run_id: str | None = None,
+) -> str:
+    """Human-readable single line for Run Tree UI (story-first label)."""
+    return format_run_tree_ui(adv_dir, run, active_run_id=active_run_id)["line"]
+
+
 def auto_run_label(history) -> str:
     turn = turn_count_from_history(history)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -225,26 +419,6 @@ def runs_for_tree_display(adv_dir) -> list[dict]:
     return ordered
 
 
-def format_run_tree_line(run: dict, *, active_run_id: str | None = None) -> str:
-    """Human-readable single line for Run Tree UI."""
-    depth = int(run.get("_depth", 0))
-    indent = "    " * depth + ("↳ " if depth else "")
-    label = run.get("label", run.get("id", "Run"))
-    turn_count = run.get("turn_count", 0)
-    parts = [f"{indent}{label}  ({turn_count} turns)"]
-
-    kind = run.get("run_kind")
-    if run.get("id") == active_run_id:
-        parts.append("● playing now")
-    elif kind == "branch":
-        parts.append("[alternate branch]")
-    elif kind == "original":
-        parts.append("[parent timeline]")
-    elif kind == "snapshot":
-        parts.append("[saved run]")
-    return " ".join(parts)
-
-
 def format_live_branch_line(live_branch: dict, turn_count: int) -> str:
     fork_turn = live_branch.get("forked_at_turn", "?")
     return (
@@ -363,10 +537,13 @@ def get_run_tree_rows(adv_dir) -> tuple[list[dict], str | None]:
 
     for run in runs_for_tree_display(adv_dir):
         is_active = run["id"] == active_id
+        ui = format_run_tree_ui(adv_dir, run, active_run_id=active_id)
         rows.append({
             "id": run["id"],
             "kind": "branch" if run.get("run_kind") == "branch" else "archive",
-            "line": format_run_tree_line(run, active_run_id=active_id),
+            "line": ui["line"],
+            "tooltip": ui["tooltip"],
+            "anchor_turn": ui["anchor_turn"],
             "is_live": is_active,
         })
 
@@ -424,7 +601,11 @@ def stash_current_line(adv_dir, label: str | None = None) -> tuple[str | None, s
 
 
 def list_fork_points_for_run(adv_dir, run_id: str) -> tuple[bool, list[int] | str]:
-    """Turn numbers in a snapshot where Restore & Fork is valid."""
+    """Turn numbers in a snapshot where Restore & Fork is valid.
+
+    Matches :meth:`BaseEngine.can_fork_at_turn`: historical turns with a committed
+    choice, plus the live tail when the run did not end in game over.
+    """
     manifest = load_manifest(adv_dir)
     node = manifest.get("runs", {}).get(run_id)
     if not node:
@@ -437,7 +618,10 @@ def list_fork_points_for_run(adv_dir, run_id: str) -> tuple[bool, list[int] | st
     history = load_json_safely(hist_path, "history.json") or []
     points = []
     for i, turn in enumerate(history):
-        if turn.get("player_choice") and i < len(history) - 1:
+        if str(turn.get("is_game_over", False)).lower() == "true":
+            continue
+        is_tail = i >= len(history) - 1
+        if is_tail or turn.get("player_choice"):
             points.append(int(turn.get("turn", i + 1)))
     return True, points
 

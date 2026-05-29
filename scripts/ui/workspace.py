@@ -10,7 +10,7 @@ import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, simpledialog
 
-from config import INSTANCE_CONFIG, ROOT_DIR
+from config import INSTANCE_CONFIG, ROOT_DIR, save_json_atomically
 from ui.tab_chapters import ChapterTab
 from ui.tab_codex import CodexTab
 from ui.tab_console import ConsoleTab
@@ -861,6 +861,7 @@ class WorkspaceFrame(ctk.CTkFrame):
             get_run_tree_rows,
             list_fork_points_for_run,
             load_manifest,
+            preview_run_anchor,
             rename_run,
             restore_and_fork,
             runs_for_tree_display,
@@ -873,7 +874,7 @@ class WorkspaceFrame(ctk.CTkFrame):
 
         dialog = ctk.CTkToplevel(self)
         dialog.title("Run Tree")
-        dialog.geometry("700x520")
+        dialog.geometry("700x560")
         dialog.transient(self.winfo_toplevel())
         dialog.attributes("-topmost", True)
         dialog.grab_set()
@@ -882,7 +883,22 @@ class WorkspaceFrame(ctk.CTkFrame):
 
         header = ctk.CTkFrame(dialog, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(15, 5))
-        ctk.CTkLabel(header, text="Run Tree", font=("Arial", 18, "bold")).pack(anchor="w")
+        ctk.CTkLabel(header, text="Run Tree", font=("Arial", 18, "bold")).pack(side="left", anchor="w")
+        preview_visible = ctk.BooleanVar(
+            value=bool(INSTANCE_CONFIG.get("run_tree_preview_open", False))
+        )
+        btn_preview_toggle = ctk.CTkButton(
+            header,
+            text="Show preview ▸",
+            width=120,
+            height=28,
+            font=("Arial", 11),
+            fg_color="#4A4A4A",
+            hover_color="#333333",
+        )
+        btn_preview_toggle.pack(side="right")
+        Tooltip(btn_preview_toggle, "Show a prose preview of the selected timeline at its fork turn.")
+
         ctk.CTkLabel(
             dialog,
             text=(
@@ -896,8 +912,29 @@ class WorkspaceFrame(ctk.CTkFrame):
             wraplength=640,
         ).pack(anchor="w", padx=20, pady=(0, 8))
 
-        list_frame = ctk.CTkScrollableFrame(dialog, fg_color="#2B2B2B", height=280)
-        list_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        body = ctk.CTkFrame(dialog, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=10)
+
+        list_frame = ctk.CTkScrollableFrame(body, fg_color="#2B2B2B", height=300)
+        list_frame.pack(side="left", fill="both", expand=True)
+
+        preview_frame = ctk.CTkFrame(body, fg_color="#2B2B2B", width=300)
+        ctk.CTkLabel(
+            preview_frame,
+            text="Turn preview",
+            font=("Arial", 12, "bold"),
+            text_color="#90CAF9",
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+        preview_box = ctk.CTkTextbox(
+            preview_frame,
+            width=280,
+            height=260,
+            font=("Georgia", 12),
+            wrap="word",
+            activate_scrollbars=True,
+        )
+        preview_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        preview_box.configure(state="disabled")
 
         selected_var = ctk.StringVar(value="")
         row_widgets = []
@@ -976,6 +1013,41 @@ class WorkspaceFrame(ctk.CTkFrame):
             else:
                 btn.configure(state="normal")
 
+        def update_preview(*_):
+            if not preview_visible.get():
+                return
+            run_id = selected_var.get()
+            if not run_id:
+                text = "Select a timeline to preview its fork turn."
+            else:
+                text = preview_run_anchor(self.engine.adv_dir, run_id)
+            preview_box.configure(state="normal")
+            preview_box.delete("1.0", "end")
+            preview_box.insert("1.0", text)
+            preview_box.configure(state="disabled")
+
+        def persist_preview_pref():
+            INSTANCE_CONFIG["run_tree_preview_open"] = bool(preview_visible.get())
+            save_json_atomically(INSTANCE_CONFIG, ROOT_DIR / "configs" / "instance_config.json")
+
+        def apply_preview_layout():
+            if preview_visible.get():
+                preview_frame.pack(side="right", fill="y", padx=(10, 0))
+                btn_preview_toggle.configure(text="Hide preview ◂")
+                dialog.geometry("1020x560")
+            else:
+                preview_frame.pack_forget()
+                btn_preview_toggle.configure(text="Show preview ▸")
+                dialog.geometry("700x560")
+            update_preview()
+
+        def toggle_preview_panel():
+            preview_visible.set(not preview_visible.get())
+            persist_preview_pref()
+            apply_preview_layout()
+
+        btn_preview_toggle.configure(command=toggle_preview_panel)
+
         def refresh_list():
             for w in row_widgets:
                 w.destroy()
@@ -1000,6 +1072,7 @@ class WorkspaceFrame(ctk.CTkFrame):
                 selected_var.set(default_id or rows[0]["id"])
 
             update_switch_state()
+            update_preview()
 
             for row in rows:
                 frame = ctk.CTkFrame(list_frame, fg_color="transparent")
@@ -1012,12 +1085,15 @@ class WorkspaceFrame(ctk.CTkFrame):
                     text=row["line"],
                     variable=selected_var,
                     value=row["id"],
-                    font=("Consolas", 12),
+                    font=("Arial", 12),
                     text_color=text_color,
                 )
                 rb.pack(anchor="w", padx=10, pady=4)
+                Tooltip(rb, row.get("tooltip", row["line"]))
 
         refresh_list()
+        if preview_visible.get():
+            apply_preview_layout()
 
         def on_switch():
             def _do():
@@ -1067,7 +1143,7 @@ class WorkspaceFrame(ctk.CTkFrame):
                 if not fork_points:
                     mb_showinfo(
                         "Restore & Fork",
-                        "This archive has no fork points (need a committed choice with turns after it).",
+                        "This archive has no fork points (need a playable turn with a choice committed or the last card).",
                     )
                     return
 
@@ -1242,4 +1318,5 @@ class WorkspaceFrame(ctk.CTkFrame):
         btn_switch.pack(side="right", padx=5)
         btn_switch_ref["btn"] = btn_switch
         selected_var.trace_add("write", update_switch_state)
+        selected_var.trace_add("write", update_preview)
         update_switch_state()

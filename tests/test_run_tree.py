@@ -508,13 +508,29 @@ class TestPhase1Checklist:
 class TestForkAtTurn:
     """Phase 2: fork @ turn N archives, truncates, and heals chapters/RAG."""
 
-    def test_can_fork_requires_committed_choice_and_future(self, engine_with_history):
+    def test_can_fork_historical_vs_live_tail(self, engine_with_history):
         engine = engine_with_history(4, choices_per_turn=[None, "A", "B", "C"])
 
         assert engine.can_fork_at_turn(1) == (False, "This turn has no committed choice yet.")
-        assert engine.can_fork_at_turn(4) == (False, "Cannot fork from the live timeline tail.")
+        assert engine.can_fork_at_turn(4) == (True, "")
         assert engine.can_fork_at_turn(2) == (True, "")
         assert engine.can_fork_at_turn(99) == (False, "Turn not found.")
+
+    def test_can_fork_live_tail_before_choice(self, engine_with_history):
+        engine = engine_with_history(3, choices_per_turn=[None, "A", None])
+        assert engine.history[-1]["player_choice"] is None
+        assert engine.can_fork_at_turn(3) == (True, "")
+
+        ok, msg, branch_id = engine.fork_at_turn(3)
+        assert ok is True
+        assert branch_id is not None
+        assert len(engine.history) == 3
+        assert engine.history[-1]["player_choice"] is None
+
+    def test_can_fork_rejects_game_over_tail(self, engine_with_history):
+        engine = engine_with_history(2, choices_per_turn=[None, "Quit"])
+        engine.history[-1]["is_game_over"] = True
+        assert engine.can_fork_at_turn(2) == (False, "Cannot fork on a game-over turn.")
 
     def test_fork_creates_parent_and_branch_snapshots(self, engine_with_history):
         engine = engine_with_history(5, choices_per_turn=[None, "A", "B", "C", "D"])
@@ -640,7 +656,7 @@ class TestForkAtTurn:
         reloaded = reload_engine(engine.adv_dir)
         assert len(reloaded.history) == 2
         assert reloaded.history[1]["player_choice"] is None
-        assert reloaded.can_fork_at_turn(2) == (False, "This turn has no committed choice yet.")
+        assert reloaded.can_fork_at_turn(2) == (True, "")
 
 
 class TestPhase3RestoreAndFork:
@@ -651,7 +667,7 @@ class TestPhase3RestoreAndFork:
 
         ok, points = __import__("run_tree").list_fork_points_for_run(engine.adv_dir, run_id)
         assert ok is True
-        assert points == [2, 3, 4]
+        assert points == [2, 3, 4, 5]
 
     def test_runs_for_tree_display_nests_children(self, mock_adventure_dir):
         from run_tree import format_run_tree_line, runs_for_tree_display
@@ -673,7 +689,71 @@ class TestPhase3RestoreAndFork:
         assert len(tree) == 2
         child = next(r for r in tree if r["id"] == child_id)
         assert child["_depth"] == 1
-        assert "↳" in format_run_tree_line(child)
+        assert "↳" in format_run_tree_line(child, adv_dir=mock_adventure_dir)
+
+    def test_format_run_tree_ui_story_first_label(self, mock_adventure_dir):
+        from run_tree import format_run_tree_ui, set_active_run_id
+
+        write_json(
+            mock_adventure_dir / "chapters.json",
+            [{"chapter_number": 25, "title": "The Crossing", "start_turn": 300, "end_turn": None}],
+        )
+        write_json(
+            mock_adventure_dir / "history.json",
+            [make_turn(i, player_choice=(None if i == 1 else "go")) for i in range(1, 310)],
+        )
+        parent_id, _ = archive_current_run(
+            mock_adventure_dir,
+            label="Original timeline (fork @ turn 309) — 2026-05-29 09:44",
+            fork_at_turn=309,
+            run_kind="original",
+        )
+        write_json(
+            mock_adventure_dir / "history.json",
+            [make_turn(i, player_choice=(None if i == 1 else "go")) for i in range(1, 310)],
+        )
+        branch_id, _ = archive_current_run(
+            mock_adventure_dir,
+            label="Branch (fork @ turn 309) — 2026-05-29 09:44",
+            parent_id=parent_id,
+            fork_at_turn=309,
+            run_kind="branch",
+        )
+        set_active_run_id(mock_adventure_dir, branch_id)
+
+        parent = load_manifest(mock_adventure_dir)["runs"][parent_id]
+        parent["_depth"] = 0
+        branch = load_manifest(mock_adventure_dir)["runs"][branch_id]
+        branch["_depth"] = 1
+
+        parent_ui = format_run_tree_ui(mock_adventure_dir, parent, active_run_id=branch_id)
+        branch_ui = format_run_tree_ui(mock_adventure_dir, branch, active_run_id=branch_id)
+
+        assert "Chapter 25 - Turn 309" in parent_ui["line"]
+        assert "Original timeline" in parent_ui["tooltip"]
+        assert "Fork @ turn 309" in parent_ui["tooltip"]
+        assert "309 turns" in parent_ui["tooltip"]
+        assert "The Crossing" in parent_ui["tooltip"]
+        assert "● playing now" in branch_ui["line"]
+        assert "↳" in branch_ui["line"]
+
+    def test_preview_run_anchor_shows_prose_and_choices(self, mock_adventure_dir):
+        from run_tree import preview_run_anchor
+
+        turn = make_turn(5, player_choice=None)
+        turn["story_text"] = "The river ran cold beneath the bridge."
+        turn["choices"] = ["Cross carefully", "Turn back"]
+        write_json(mock_adventure_dir / "history.json", [make_turn(1), turn])
+        run_id, _ = archive_current_run(
+            mock_adventure_dir,
+            label="Saved",
+            fork_at_turn=5,
+            run_kind="branch",
+        )
+        text = preview_run_anchor(mock_adventure_dir, run_id)
+        assert "Turn 5" in text
+        assert "river ran cold" in text
+        assert "Cross carefully" in text
 
     def test_restore_and_fork_loads_and_truncates_without_stash(self, engine_with_history):
         from run_tree import restore_and_fork

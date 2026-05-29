@@ -88,7 +88,7 @@ The Run Tree stores multiple playable timelines in one cartridge under `runs/man
 ### Creating branches
 | Action | Result |
 | :--- | :--- |
-| **⑂ Fork Here** (Timeline Editor) | Archives the full timeline as a **parent** node, truncates after turn N, creates a **branch** snapshot, clears your choice on N so you can pick again. |
+| **⑂ Fork Here** (Timeline Editor) | Archives the full timeline as a **parent** node, truncates after turn N when future turns exist, creates a **branch** snapshot, and clears your choice on N so you can pick again. Works on the **current card** before you choose. |
 | **Restart → Save** | Archives the current root line, then wipes history for a fresh start (no fork point). |
 | **Restore & Fork…** (Run Tree) | Loads an archived timeline, then forks @ a turn you specify. |
 
@@ -97,13 +97,15 @@ Forks can nest: fork again on any branch to grow a tree. Sibling timelines do no
 ### Switching timelines
 Open **Options → Run Tree…**:
 1. The **● playing now** row is your active timeline (pre-selected).
-2. Select another row and click **Switch**.
-3. The engine **saves progress in place** to the leaving timeline's snapshot, then loads the target into the cartridge root.
+2. Each row shows **`Chapter N - Turn T - YYYY-MM-DD HH:MM`** (story-first). Hover for the saved label, fork @ turn, turn count, chapter title, and run kind.
+3. Click **Show preview ▸** (top right) for an optional side panel with prose and choices at that timeline's fork turn.
+4. Select another row and click **Switch**.
+5. The engine **saves progress in place** to the leaving timeline's snapshot, then loads the target into the cartridge root.
 
 Switching does **not** create new tree nodes. Only Fork, Restart-save, and Restore & Fork add nodes.
 
 ### Restore & Fork
-Select an archived timeline (not the active row), click **Restore & Fork…**, enter a valid fork turn (committed choice with turns after it). Your current timeline is saved first; the archive loads; then the engine forks @ that turn.
+Select an archived timeline (not the active row), click **Restore & Fork…**, enter a valid fork turn (committed choice with turns after it, or the archive's last playable turn). Your current timeline is saved first; the archive loads; then the engine forks @ that turn.
 
 ### Sharing & comparing runs
 **Export branch pack:** Story card **Options → Export to .zip → Branch pack**, or **Run Tree → Export…**. Select timelines (ancestors are included automatically). Optional **Shared by** name is embedded in the pack.

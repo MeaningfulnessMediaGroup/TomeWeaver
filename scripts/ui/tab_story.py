@@ -1018,8 +1018,8 @@ class StoryTab(ctk.CTkFrame):
                 btn_fork.pack(side="right", padx=2)
                 Tooltip(
                     btn_fork,
-                    "Archive the full timeline, drop all turns after this one, "
-                    "and show this turn's choices again.",
+                    "Archive this timeline and open a new branch at this turn. "
+                    "On the current card you can fork before picking a choice.",
                 )
 
         # Build Choices Area
@@ -1549,12 +1549,30 @@ class StoryTab(ctk.CTkFrame):
             return
 
         future_count = len(self.engine.history) - turn_idx - 1
-        warn = (
-            f"Fork from Turn {turn_num}?\n\n"
-            f"The full timeline will be archived as a saved run. "
-            f"{future_count} turn(s) after this point will be removed from the active line, "
-            f"and you will choose again at the end of Turn {turn_num}."
-        )
+        turn = self.engine.history[turn_idx]
+        is_tail = turn_idx >= len(self.engine.history) - 1
+        if is_tail:
+            if turn.get("player_choice"):
+                warn = (
+                    f"Fork from Turn {turn_num}?\n\n"
+                    "The full timeline will be archived as a saved run. "
+                    f"Your pending choice on Turn {turn_num} will be cleared "
+                    "so you can pick again on a new branch."
+                )
+            else:
+                warn = (
+                    f"Fork from Turn {turn_num}?\n\n"
+                    "The full timeline will be archived as a saved run. "
+                    "You can explore a different choice on a new branch "
+                    "and switch between branches later in Run Tree."
+                )
+        else:
+            warn = (
+                f"Fork from Turn {turn_num}?\n\n"
+                f"The full timeline will be archived as a saved run. "
+                f"{future_count} turn(s) after this point will be removed from the active line, "
+                f"and you will choose again at the end of Turn {turn_num}."
+            )
         if not messagebox.askyesno("Fork Timeline", warn, icon="warning"):
             return
 
