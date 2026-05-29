@@ -1,4 +1,4 @@
-# TomeWeaver - Non-linear Narrative Orchestration Platform
+# TomeWeaver — Narrative State Machine (NSM)
 
 ![License](https://img.shields.io/badge/license-Polyform--NonCommercial-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
@@ -9,15 +9,41 @@
 
 ### AI stories that remember.
 
-TomeWeaver is a world-binding infrastructure for AI narrative. A continuity-first narrative engine for long-form AI storytelling.
+TomeWeaver is the **first canonical reference implementation of the Narrative State Machine (NSM) framework (MMG-NSM-1.0)**. 
 
 Not your typical disposable chatbot session.  
 Not a prompt toy.  
 Not a chaos simulator.
 
-TomeWeaver was built to sustain coherent campaigns, persistent worlds, evolving characters, and exportable storybooks across hundreds or thousands of turns.
+It is a state-rigorous, continuity-first narrative engine that completely decouples generative prose from absolute world state. Unlike traditional "state-anemic" chatbot transcripts, TomeWeaver treats the story as an indexed database and constrains the Large Language Model to act strictly as a rendering engine. 
+
+Instead of trusting the model to maintain reality, TomeWeaver treats the LLM as an **unsafe probabilistic coprocessor**—using it strictly to generate prose and choices, while wrapping it in deterministic Python state-logic that physically prevents unvalidated structural corruption from ever touching the ledger.
 
 **Play the game. Export the novel.**
+
+---
+
+## 🌌 Why TomeWeaver?
+
+Most AI storytelling tools eventually collapse under narrative entropy. They forget characters, lose inventory, contradict earlier events, and drift off-tone. This is not a prompting problem; it is a **state-management problem**. 
+
+TomeWeaver solves "Contextual Amnesia" through a six-layer **KERNEL** architecture:
+
+*   **Durable Causal Ledger:** Every turn is a structured JSON object bound to a sequential, relative **Master Clock**—meaning reality is governed by an unshakeable coordinate system, not a volatile chat transcript.
+*   **Dual-Tiered RAG Memory:** Automatically compresses raw history into dense Plot and Entity (Characters, Locations, Factions) ledgers. An **Auto-Decay Engine** quietly archives inactive entities to save tokens, instantly reviving them if mentioned.
+*   **Shared Universes (Multiverses):** Run multiple parallel story threads inside a single Universe. Local story scopes cleanly inherit from—and can dynamically shadow—the global, persistent World Bible.
+*   **Timeline Surgery:** The timeline is a malleable database. Insert blank transition cards, delete dead ends, or slice specific chapters out into brand new cartridges—the engine mathematically re-indexes the master clock and chapter boundaries automatically.
+*   **Non-Destructive Editing (Visual Diffs):** Ask the AI to "Polish," "Expand," or "Fix" a turn. TomeWeaver never silently overwrites your history; it generates a draft and presents a Git-style Red/Green visual diff for your approval.
+*   **The "Fortress" Sanitizer:** An indestructible I/O wrapper that uses regex-based state machine repair and targeted error feedback loops to force misbehaving local models to correct their own JSON syntax.
+
+Whether you want:
+- a persistent solo RPG,
+- a living world simulator,
+- an AI game master,
+- a branching interactive novel,
+- or a story-to-book creative pipeline,
+
+TomeWeaver provides the infrastructure to make long-form AI storytelling coherent, editable, replayable, and durable.
 
 ---
 
@@ -29,48 +55,6 @@ TomeWeaver’s design is described in **The Narrative State Machine (NSM) Archit
 *   **[LaTeX source](docs/article/main.tex)** — for citations, forks, and academic reuse
 
 **Contributions welcome:** If you spot typos, unclear wording, or minor LaTeX formatting issues while reading, pull requests that fix the article are appreciated—no need to open an issue first for small edits.
-
----
-
-# 📖 Overview
-
-Most AI storytelling tools eventually collapse under narrative entropy.
-
-They forget characters.  
-Lose inventory.  
-Contradict earlier events.  
-Skip transitions.  
-Drift off-tone.  
-Break under long campaigns.  
-
-These are not merely prompting problems.  
-They are **state-management problems**.
-
-**TomeWeaver** approaches AI storytelling differently.
-
-Instead of treating a story as a disposable chat log, TomeWeaver treats it as a structured, evolving narrative system with persistent memory, campaign-aware progression, continuity auditing, non-destructive editing, and long-term archival compression.
-
-The engine combines:
-- Stateful campaign orchestration
-- Shared Universes (Multi-threaded Multiverses)
-- Structured world lore and schema management
-- Long-term Dual-Tiered RAG memory ledgers
-- Narrative bridge generation
-- Non-destructive AI-assisted editing
-- Timeline branching, surgery, and time-travel
-- Exportable storybook compilation
-- Resilient JSON repair and recovery systems
-
-The result is an AI storytelling experience designed not merely for novelty, but for **long-form narrative continuity**.
-
-Whether you want:
-- a persistent solo RPG,
-- a living world simulator,
-- an AI game master,
-- a branching interactive novel,
-- or a story-to-book creative pipeline,
-
-TomeWeaver provides the infrastructure to make long-form AI storytelling coherent, editable, replayable, and durable.
 
 ---
 
