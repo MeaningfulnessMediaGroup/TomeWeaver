@@ -44,7 +44,14 @@ The filter bar lets you instantly narrow the library:
 ### Global Settings & Themes
 Open **⚙ Settings** to configure API keys, engine rules, and the **global Active Theme** preset.
 
+![Global Settings](images/global_settings.jpg "Screenshot of the Global Settings.")
+
+![Atmospheric Skinning Settings](images/color_schemes.jpg "Screenshot of the Atmospheric Skinning Settings.")
+
+
 **Prose lint** lives in **Prose Lint Settings…** (button in Global Settings):
+
+![Prose LINT](images/prose_ling.jpg "Screenshot of the Prose Linting Settings.")
 
 | Setting | Default | Effect |
 | :--- | :--- | :--- |
@@ -206,7 +213,7 @@ When **Log Verbose** is enabled in Global Settings, full prompts and raw LLM res
 
 The **Memory & Lore** tab is your visual interface to the long-term memory system. It is available for every story and becomes especially powerful inside Shared Universes.
 
-![Memory Tab Overview](../images/rag_dashboard.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
+![Memory Tab Overview](images/rag_dashboard2.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
 
 ### Tab Bar Navigation
 The UI is organized by **top tabs** (with live count badges):

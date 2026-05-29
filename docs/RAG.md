@@ -8,7 +8,6 @@ TomeWeaver solves this by implementing an autonomous **Retrieval-Augmented Gener
 
 ![Memory Tab Overview](images/rag_dashboard2.jpg "Screenshot of the Memory & Lore tab showing the tab bar and Plot Ledger.")
 
--
 ---
 
 ## 🖥️ Memory & Lore Tab (UI Layout)
