@@ -1621,7 +1621,7 @@ class StoryTab(ctk.CTkFrame):
 
             dialog = ctk.CTkToplevel(self)
             dialog.title("Insert Turn")
-            dialog.geometry("400x210")
+            dialog.geometry("400x225")
             dialog.resizable(False, False)
             dialog.attributes("-topmost", True)
             dialog.grab_set()
@@ -1736,7 +1736,7 @@ class StoryTab(ctk.CTkFrame):
             )
 
             mode_row = ctk.CTkFrame(dialog, fg_color="transparent")
-            mode_row.pack(pady=(0, 8), anchor="center")
+            mode_row.pack(pady=(4, 8), anchor="center")
             rb_blank = ctk.CTkRadioButton(
                 mode_row,
                 text="Blank Turn",
@@ -1744,7 +1744,7 @@ class StoryTab(ctk.CTkFrame):
                 value="blank",
                 command=persist_insert_mode,
             )
-            rb_blank.pack(anchor="w")
+            rb_blank.pack(anchor="w", pady=(0, 5))
             Tooltip(
                 rb_blank,
                 "Insert an empty placeholder card you can edit manually in Edit Scene.",
@@ -1756,7 +1756,7 @@ class StoryTab(ctk.CTkFrame):
                 value="generate",
                 command=persist_insert_mode,
             )
-            rb_generate.pack(anchor="w")
+            rb_generate.pack(anchor="w", pady=(0, 5))
             Tooltip(
                 rb_generate,
                 f"AI writes the new turn using only prior history. "

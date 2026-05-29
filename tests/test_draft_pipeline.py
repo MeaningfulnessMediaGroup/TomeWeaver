@@ -56,6 +56,36 @@ class TestDraftPipeline:
         assert engine.is_fix_mode is True
         assert engine.backup_turn_idx == 1
 
+    def test_request_expansion_selection_includes_rag_and_length_target(
+        self, engine_with_history, mock_llm_response
+    ):
+        engine = engine_with_history(2, choices_per_turn=[None, "Look around"])
+        engine.memory.setdefault("character_ledger", {})["local"] = {
+            "Hero": {
+                "state": "active",
+                "characteristics": {"Role": "protagonist"},
+                "ledger": ["Opened the door"],
+            }
+        }
+        selection = "She stepped into the cold room."
+        mock_llm_response(
+            lambda *_a, **_k: valid_turn_payload(
+                turn_num=2,
+                story_text="Paragraph one.\n\nShe stepped into the freezing room, frost biting her skin.\n\nParagraph three.",
+            )
+        )
+
+        draft = engine.request_expansion(turn_idx=1, selection_text=selection)
+        assert draft is not None
+        fix = engine.active_fix
+        assert "LONG-TERM MEMORY" in fix
+        assert "LOCAL RAG" in fix
+        assert "CURRENT TURN" in fix
+        assert selection in fix
+        assert "SELECTION EXPANSION" in fix
+        assert "substantially longer" in fix
+        assert "Hero" in fix
+
     def test_request_polish_with_selection_scopes_prompt(self, engine_with_history, mock_llm_response):
         engine = engine_with_history(2, choices_per_turn=[None, "Look around"])
         mock_llm_response(

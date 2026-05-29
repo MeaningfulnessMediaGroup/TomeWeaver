@@ -180,24 +180,26 @@ CRITICAL: Keep the 'story_text' EXACTLY the same.
 [PROMPT:USER_EXPAND]
 '''
 File: base_engine.py | Function: request_expansion
-Variables: {world_info}, {prev_story}, {selection_scope}, {original_json}
+Variables: {world_info}, {prev_story}, {rag_context}, {current_scene}, {expand_task}, {original_json}
 '''
-EDIT MODE (EXPAND): You are a literary expansion agent. Your task is to take a short 'story_text' and expand it into 3-5 rich, cinematic paragraphs.
+EDIT MODE (EXPAND): You are a literary expansion agent. Enrich prose with sensory depth and interiority while preserving plot, dialogue, and continuity.
+
+--- LONG-TERM MEMORY (RAG — use for character traits, locations, relationships, recent events) ---
+{rag_context}
 
 --- WORLD CONTEXT ---
 {world_info}
 
---- NARRATIVE CONTEXT ---
+--- NARRATIVE CONTEXT (turn immediately before the card being edited) ---
 {prev_story}
 
+--- CURRENT TURN (FULL PROSE — read for voice and continuity; see TASK for what to rewrite) ---
+{current_scene}
+
 --- TASK ---
-Expand the 'story_text' in the Original JSON below. Use the World and Narrative context above to ensure consistency in tone and continuity.
-1. USE sensory details (textures, lighting, smells) and internal character emotions.
-2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within the current scene.
-3. CRITICAL: DO NOT introduce new items or characters not mentioned in the context.
-4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.
-{selection_scope}
-Original JSON to Expand:
+{expand_task}
+
+Original JSON (return the full updated JSON; 'story_text' must follow the TASK rules):
 {original_json}
 
 

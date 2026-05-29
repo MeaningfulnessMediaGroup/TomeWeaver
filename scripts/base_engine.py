@@ -627,16 +627,225 @@ class BaseEngine:
             "Return the complete 'story_text' field with only the highlighted portion edited.\n"
         )
 
+    def _expand_task_instructions(self, selection_text):
+        """Prompt fragment for whole-turn vs selection-only expansion."""
+        selection_text = (selection_text or "").strip()
+        if not selection_text:
+            return (
+                "Expand the ENTIRE 'story_text' in the Original JSON into 4–6 rich, cinematic paragraphs.\n"
+                "1. USE sensory details (textures, lighting, smells, sound) and internal character emotions.\n"
+                "2. CRITICAL: DO NOT change the plot or resolve the current moment. Stay strictly within this scene.\n"
+                "3. CRITICAL: DO NOT introduce new items or characters not supported by RAG or context above.\n"
+                "4. CRITICAL: DO NOT touch dialogue. Leave text inside quotation marks EXACTLY as written.\n"
+                "5. The expanded 'story_text' MUST be noticeably longer than the original (roughly 2× word count or more)."
+            )
+        sel_words = len(selection_text.split())
+        target_words = max(sel_words * 3, sel_words + 100)
+        return (
+            "--- SELECTION EXPANSION (PRIMARY TASK) ---\n"
+            "The user highlighted ONLY this excerpt within the CURRENT TURN prose above:\n"
+            f"\"{selection_text}\"\n\n"
+            "RULES:\n"
+            "1. Replace ONLY this highlighted excerpt inside 'story_text'. "
+            "Leave every character outside the excerpt byte-for-byte unchanged (including paragraph breaks).\n"
+            f"2. The replacement passage MUST be substantially longer: target at least ~{target_words} words "
+            f"(roughly 2–3× the selection's ~{sel_words} words, adding at least one rich paragraph of new detail).\n"
+            "3. Read the FULL CURRENT TURN above for voice, tense, POV, and pacing — the expansion must blend seamlessly.\n"
+            "4. Use LONG-TERM MEMORY (RAG) for character traits, locations, relationships, and recent events.\n"
+            "5. DO NOT change plot beats, introduce new named characters/items, or resolve the scene.\n"
+            "6. DO NOT touch dialogue outside the selection. Quotation marks inside the selection stay faithful in meaning.\n"
+            "7. Return the complete 'story_text' field with only the highlighted portion expanded."
+        )
+
+    def _append_editor_identity_block(self, parts):
+        """Story identity lines shared by import evaluation and prose editor context."""
+        setup = self.setup_data
+        parts.append("=== STORY IDENTITY ===")
+        parts.append(f"Title: {setup.get('title', 'Unknown')}")
+        parts.append(f"Mode: {setup.get('mode', 'sandbox')}")
+        parts.append(f"Tone: {setup.get('tone', '')}")
+        parts.append(f"Main Character (canonical): {setup.get('main_character', 'Unknown')}")
+        if setup.get("goal"):
+            parts.append(f"Story Goal: {setup.get('goal')}")
+        if setup.get("setting"):
+            parts.append(f"Setting: {setup.get('setting')}")
+        if setup.get("lore_and_rules"):
+            parts.append(f"Local Lore & Rules:\n{setup.get('lore_and_rules')}")
+
+        if getattr(self, "is_universe_thread", False) and getattr(self, "master_setup_data", None):
+            master = self.master_setup_data
+            parts.append("\n=== SHARED UNIVERSE (GLOBAL) ===")
+            parts.append(f"Universe Title: {master.get('title', 'Unknown')}")
+            if master.get("tone"):
+                parts.append(f"Universe Tone: {master.get('tone')}")
+            if master.get("lore_and_rules"):
+                parts.append(f"Universe Lore & Rules:\n{master.get('lore_and_rules')}")
+
+    def _append_editor_rag_snapshot(self, parts, anchor_idx, *, history_before_anchor=False):
+        """Append chapter summaries, plot ledger, and entity RAG relative to a timeline anchor."""
+
+        def _format_ledger(scope, ledger_key, title, max_entities=25):
+            block = ""
+            ledger = self.memory.get(ledger_key, {})
+            bucket = ledger.get(scope, {}) if isinstance(ledger, dict) else {}
+            if not isinstance(bucket, dict) or not bucket:
+                return block
+
+            block += f"\n--- {title} ({scope.upper()}) ---\n"
+            count = 0
+            for name, data in bucket.items():
+                if count >= max_entities:
+                    block += f"... ({len(bucket) - max_entities} more entities omitted)\n"
+                    break
+                if not isinstance(data, dict):
+                    continue
+
+                is_global_entity = scope == "global"
+                if is_global_entity and getattr(self, "is_universe_thread", False):
+                    state = self.memory.get("global_states", {}).get(name, {}).get("state", "archived")
+                else:
+                    state = data.get("state", "active")
+                if state == "archived":
+                    continue
+
+                traits = data.get("characteristics", {})
+                trait_str = ", ".join(f"{k}: {v}" for k, v in traits.items()) if isinstance(traits, dict) else ""
+                notes = data.get("author_notes", "")
+                ledger_events = data.get("ledger", [])
+                recent = " ".join(str(e) for e in ledger_events[-2:]) if isinstance(ledger_events, list) else ""
+                block += f"- {name}"
+                if trait_str:
+                    block += f" | Traits: [{trait_str}]"
+                if recent:
+                    block += f" | Recent: {recent}"
+                if notes:
+                    block += f" | Notes: {notes}"
+                block += "\n"
+                count += 1
+            return block
+
+        chapter_ledger = self.memory.get("chapter_ledger", [])
+        if chapter_ledger:
+            parts.append("\n=== COMPLETED CHAPTERS (summaries) ===")
+            for c in chapter_ledger[-8:]:
+                parts.append(
+                    f"- Ch {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}"
+                )
+
+        plot_ledger = self.memory.get("plot_ledger", [])
+        insert_turn = 1
+        if 0 <= anchor_idx < len(self.history):
+            insert_turn = coerce_turn(self.history[anchor_idx].get("turn"), anchor_idx + 1)
+        active_chapter = next(
+            (
+                c
+                for c in reversed(self.chapters)
+                if c.get("start_turn") is not None and c["start_turn"] <= insert_turn
+            ),
+            self.chapters[0] if self.chapters else {},
+        )
+        if history_before_anchor:
+            completed = [
+                t
+                for i, t in enumerate(self.history)
+                if i < anchor_idx and t.get("player_choice") is not None
+            ]
+        else:
+            completed = [
+                t
+                for t in self.history[: anchor_idx + 1]
+                if t.get("player_choice") is not None
+            ]
+        plot_section = self.format_plot_ledger_memory_section(
+            active_chapter, completed, ENGINE_CONFIG.get("context_window", 6)
+        )
+        if plot_section:
+            parts.append(plot_section)
+        elif plot_ledger:
+            parts.append("\n=== RECENT PLOT PARTS (granular) ===")
+            parts.append("(No plot parts selected for this timeline position.)")
+
+        parts.append("\n=== LOCAL RAG (this story thread) ===")
+        for key, label in (
+            ("character_ledger", "Characters"),
+            ("location_ledger", "Locations"),
+            ("artifact_ledger", "Artifacts"),
+            ("faction_ledger", "Factions"),
+        ):
+            parts.append(_format_ledger("local", key, label))
+
+        if getattr(self, "is_universe_thread", False):
+            parts.append("\n=== GLOBAL UNIVERSE RAG (shared across threads) ===")
+            for key, label in (
+                ("character_ledger", "Characters"),
+                ("location_ledger", "Locations"),
+                ("artifact_ledger", "Artifacts"),
+                ("faction_ledger", "Factions"),
+            ):
+                parts.append(_format_ledger("global", key, label))
+
+        aliases = self.memory.get("aliases", {})
+        alias_lines = []
+        for scope in ("local", "global"):
+            scope_aliases = aliases.get(scope, {}) if isinstance(aliases, dict) else {}
+            if not isinstance(scope_aliases, dict):
+                continue
+            for ledger_type, alias_map in scope_aliases.items():
+                if not isinstance(alias_map, dict):
+                    continue
+                for alias, target in list(alias_map.items())[:20]:
+                    alias_lines.append(f"- '{alias}' -> '{target}' ({scope}/{ledger_type})")
+        if alias_lines:
+            parts.append("\n=== KNOWN NAME ALIASES ===")
+            parts.extend(alias_lines[:30])
+
+    def build_prose_editor_context(self, turn_idx):
+        """RAG + full current-turn prose for Expand/Polish-style editor calls."""
+        if not self.history or turn_idx < 0 or turn_idx >= len(self.history):
+            return ""
+        parts = []
+        self._append_editor_identity_block(parts)
+        self._append_editor_rag_snapshot(parts, turn_idx, history_before_anchor=True)
+
+        turn = self.history[turn_idx]
+        parts.append(
+            "\n=== CURRENT TURN (FULL PROSE — read for voice; expand only the selection per TASK) ==="
+        )
+        parts.append(f"Turn {turn.get('turn', '?')} | POV: {turn.get('pov_character', 'Unknown')} | Location: {turn.get('location', 'Unknown')}")
+        if turn.get("player_choice"):
+            parts.append(f"Player action on this card: {turn.get('player_choice')}")
+        parts.append(turn.get("story_text", "") or "")
+
+        active_chap = next(
+            (
+                c
+                for c in reversed(self.chapters)
+                if c.get("start_turn") is not None and c["start_turn"] <= turn.get("turn", 1)
+            ),
+            self.chapters[0] if self.chapters else None,
+        )
+        if active_chap:
+            parts.append(
+                f"\n=== ACTIVE CHAPTER ===\n"
+                f"Chapter {active_chap.get('chapter_number', '?')}: {active_chap.get('title', '')}"
+            )
+            if active_chap.get("setting"):
+                parts.append(f"Chapter Setting: {active_chap.get('setting')}")
+
+        return "\n".join(parts)
+
     def request_expansion(self, turn_idx=None, selection_text=None):
         """Endpoint: Generates a context-aware descriptive expansion DRAFT of the current turn."""
         if len(self.history) == 0: return None
         idx = turn_idx if turn_idx is not None else len(self.history) - 1
-        scope_label = " (selection)" if (selection_text or "").strip() else ""
+        selection_text = (selection_text or "").strip()
+        scope_label = " (selection)" if selection_text else ""
         print(f"\n{Fore.CYAN}▶ Action: Expand Prose (Turn {idx}){scope_label}{Style.RESET_ALL}")
         print(f"{Style.DIM}Expanding turn prose...{Style.RESET_ALL}")
         
         self.backup_turn = self.history[idx].copy()
-        self.backup_turn_idx = idx 
+        self.backup_turn_idx = idx
+        self._editor_selection_word_count = len(selection_text.split()) if selection_text else 0
         
         world_info = {
             "title": self.setup_data.get("title"),
@@ -648,14 +857,23 @@ class BaseEngine:
         prev_story = "This is the first turn of the adventure."
         if idx > 0:
             prev_turn = self.history[idx - 1]
-            prev_story = f"PREVIOUS SCENE: {prev_turn.get('story_text', '')}\nACTION TAKEN: {prev_turn.get('player_choice', '')}"
+            prev_story = (
+                f"PREVIOUS SCENE:\n{prev_turn.get('story_text', '')}\n\n"
+                f"ACTION TAKEN:\n{prev_turn.get('player_choice', '')}"
+            )
 
-        selection_scope = self._selection_scope_block(selection_text)
+        current_scene = self.history[idx].get("story_text", "") or ""
+        rag_context = self.build_prose_editor_context(idx)
+        expand_task = self._expand_task_instructions(selection_text)
         prompt = PROMPTS.get("USER_EXPAND", "")
         prompt = prompt.replace("{world_info}", json.dumps(world_info, indent=2))
         prompt = prompt.replace("{prev_story}", prev_story)
-        prompt = prompt.replace("{selection_scope}", selection_scope)
+        prompt = prompt.replace("{rag_context}", rag_context)
+        prompt = prompt.replace("{current_scene}", current_scene)
+        prompt = prompt.replace("{expand_task}", expand_task)
         prompt = prompt.replace("{original_json}", json.dumps(self.backup_turn, indent=2))
+        # Backward compatibility if an older prompt file still references selection_scope
+        prompt = prompt.replace("{selection_scope}", "")
         
         self.active_fix = prompt
         self.is_fix_mode = True
@@ -784,6 +1002,8 @@ class BaseEngine:
         self.active_fix = None
         self.is_fix_mode = False
         self.backup_turn = None
+        if hasattr(self, "_editor_selection_word_count"):
+            delattr(self, "_editor_selection_word_count")
         delattr(self, 'backup_turn_idx')
         print(f"{Fore.GREEN}✔ Draft accepted and committed to history.{Style.RESET_ALL}")
         return draft_turn
@@ -792,6 +1012,8 @@ class BaseEngine:
         """Endpoint: Discards the draft and restores the original turn state."""
         self.active_fix = None
         self.is_fix_mode = False
+        if hasattr(self, "_editor_selection_word_count"):
+            delattr(self, "_editor_selection_word_count")
         self.backup_turn = None
         if hasattr(self, 'backup_turn_idx'): delattr(self, 'backup_turn_idx')
         print(f"{Fore.YELLOW}✖ Draft discarded. Original turn retained.{Style.RESET_ALL}")
@@ -1029,137 +1251,9 @@ class BaseEngine:
 
     def build_import_evaluation_context(self, insert_after_idx):
         """Assemble story identity, timeline anchor, and RAG snapshots for import-fit checks."""
-        setup = self.setup_data
         parts = []
-
-        parts.append("=== STORY IDENTITY ===")
-        parts.append(f"Title: {setup.get('title', 'Unknown')}")
-        parts.append(f"Mode: {setup.get('mode', 'sandbox')}")
-        parts.append(f"Tone: {setup.get('tone', '')}")
-        parts.append(f"Main Character (canonical): {setup.get('main_character', 'Unknown')}")
-        if setup.get("goal"):
-            parts.append(f"Story Goal: {setup.get('goal')}")
-        if setup.get("setting"):
-            parts.append(f"Setting: {setup.get('setting')}")
-        if setup.get("lore_and_rules"):
-            parts.append(f"Local Lore & Rules:\n{setup.get('lore_and_rules')}")
-
-        if getattr(self, "is_universe_thread", False) and getattr(self, "master_setup_data", None):
-            master = self.master_setup_data
-            parts.append("\n=== SHARED UNIVERSE (GLOBAL) ===")
-            parts.append(f"Universe Title: {master.get('title', 'Unknown')}")
-            if master.get("tone"):
-                parts.append(f"Universe Tone: {master.get('tone')}")
-            if master.get("lore_and_rules"):
-                parts.append(f"Universe Lore & Rules:\n{master.get('lore_and_rules')}")
-
-        def _format_ledger(scope, ledger_key, title, max_entities=25):
-            block = ""
-            ledger = self.memory.get(ledger_key, {})
-            bucket = ledger.get(scope, {}) if isinstance(ledger, dict) else {}
-            if not isinstance(bucket, dict) or not bucket:
-                return block
-
-            block += f"\n--- {title} ({scope.upper()}) ---\n"
-            count = 0
-            for name, data in bucket.items():
-                if count >= max_entities:
-                    block += f"... ({len(bucket) - max_entities} more entities omitted)\n"
-                    break
-                if not isinstance(data, dict):
-                    continue
-
-                is_global_entity = scope == "global"
-                if is_global_entity and getattr(self, "is_universe_thread", False):
-                    state = self.memory.get("global_states", {}).get(name, {}).get("state", "archived")
-                else:
-                    state = data.get("state", "active")
-                if state == "archived":
-                    continue
-
-                traits = data.get("characteristics", {})
-                trait_str = ", ".join(f"{k}: {v}" for k, v in traits.items()) if isinstance(traits, dict) else ""
-                notes = data.get("author_notes", "")
-                ledger_events = data.get("ledger", [])
-                recent = " ".join(str(e) for e in ledger_events[-2:]) if isinstance(ledger_events, list) else ""
-                block += f"- {name}"
-                if trait_str:
-                    block += f" | Traits: [{trait_str}]"
-                if recent:
-                    block += f" | Recent: {recent}"
-                if notes:
-                    block += f" | Notes: {notes}"
-                block += "\n"
-                count += 1
-            return block
-
-        chapter_ledger = self.memory.get("chapter_ledger", [])
-        if chapter_ledger:
-            parts.append("\n=== COMPLETED CHAPTERS (summaries) ===")
-            for c in chapter_ledger[-8:]:
-                parts.append(
-                    f"- Ch {c.get('chapter_number', '?')} ({c.get('chapter_title', '')}): {c.get('summary', '')}"
-                )
-
-        plot_ledger = self.memory.get("plot_ledger", [])
-        insert_turn = 1
-        if 0 <= insert_after_idx < len(self.history):
-            insert_turn = coerce_turn(self.history[insert_after_idx].get("turn"), insert_after_idx + 1)
-        active_chapter = next(
-            (
-                c
-                for c in reversed(self.chapters)
-                if c.get("start_turn") is not None and c["start_turn"] <= insert_turn
-            ),
-            self.chapters[0] if self.chapters else {},
-        )
-        completed = [
-            t
-            for t in self.history[: insert_after_idx + 1]
-            if t.get("player_choice") is not None
-        ]
-        plot_section = self.format_plot_ledger_memory_section(
-            active_chapter, completed, ENGINE_CONFIG.get("context_window", 6)
-        )
-        if plot_section:
-            parts.append(plot_section)
-        elif plot_ledger:
-            parts.append("\n=== RECENT PLOT PARTS (granular) ===")
-            parts.append("(No plot parts selected for this timeline position.)")
-
-        parts.append("\n=== LOCAL RAG (this story thread) ===")
-        for key, label in (
-            ("character_ledger", "Characters"),
-            ("location_ledger", "Locations"),
-            ("artifact_ledger", "Artifacts"),
-            ("faction_ledger", "Factions"),
-        ):
-            parts.append(_format_ledger("local", key, label))
-
-        if getattr(self, "is_universe_thread", False):
-            parts.append("\n=== GLOBAL UNIVERSE RAG (shared across threads) ===")
-            for key, label in (
-                ("character_ledger", "Characters"),
-                ("location_ledger", "Locations"),
-                ("artifact_ledger", "Artifacts"),
-                ("faction_ledger", "Factions"),
-            ):
-                parts.append(_format_ledger("global", key, label))
-
-        aliases = self.memory.get("aliases", {})
-        alias_lines = []
-        for scope in ("local", "global"):
-            scope_aliases = aliases.get(scope, {}) if isinstance(aliases, dict) else {}
-            if not isinstance(scope_aliases, dict):
-                continue
-            for ledger_type, alias_map in scope_aliases.items():
-                if not isinstance(alias_map, dict):
-                    continue
-                for alias, target in list(alias_map.items())[:20]:
-                    alias_lines.append(f"- '{alias}' -> '{target}' ({scope}/{ledger_type})")
-        if alias_lines:
-            parts.append("\n=== KNOWN NAME ALIASES ===")
-            parts.extend(alias_lines[:30])
+        self._append_editor_identity_block(parts)
+        self._append_editor_rag_snapshot(parts, insert_after_idx, history_before_anchor=False)
 
         if insert_after_idx >= 0 and self.history:
             anchor = self.history[insert_after_idx]
@@ -1795,12 +1889,25 @@ class BaseEngine:
                     # Polish/Fix keeps roughly the same length + small buffer
                     dynamic_max_tokens = max(300, estimated_input_tokens + 250)
                 elif "EXPAND" in self.active_fix:
-                    # Expand needs massive headroom
-                    dynamic_max_tokens = max(500, estimated_input_tokens + 800)
+                    sel_words = getattr(self, "_editor_selection_word_count", 0) or 0
+                    if sel_words:
+                        # Selection expand: full turn JSON back + much longer excerpt
+                        dynamic_max_tokens = max(
+                            900,
+                            estimated_input_tokens + int(sel_words * 5 * 1.5) + 600,
+                        )
+                    else:
+                        dynamic_max_tokens = max(700, int(estimated_input_tokens * 2) + 800)
                     
-                # Never exceed the user's global hard cap
                 global_cap = ENGINE_CONFIG.get("max_tokens", 2000)
-                dynamic_max_tokens = min(global_cap, dynamic_max_tokens)
+                if "EXPAND" in self.active_fix:
+                    # Allow expand to exceed max_tokens when needed (e.g. selection on a long turn), up to 4096
+                    if dynamic_max_tokens > global_cap:
+                        dynamic_max_tokens = min(dynamic_max_tokens, 4096)
+                    else:
+                        dynamic_max_tokens = min(global_cap, dynamic_max_tokens)
+                else:
+                    dynamic_max_tokens = min(global_cap, dynamic_max_tokens)
                 
         else:
             base_messages = self.build_messages(self.get_next_turn_number())
