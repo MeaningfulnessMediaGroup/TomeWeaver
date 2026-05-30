@@ -25,5 +25,7 @@
     "chapter_tags": "Exploration, Dialogue, Puzzle, Lore",
     "track_factions": false,
     "inventory_dictionary": {},
-    "visual_theme": "Cyberpunk"
+    "visual_theme": "Cyberpunk",
+    "cartridge_format_version": 1,
+    "cartridge_format_spec": "MMG-NSM-1.0"
 }

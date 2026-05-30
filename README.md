@@ -23,6 +23,10 @@ Instead of trusting the model to maintain reality, TomeWeaver treats the LLM as 
 
 ---
 
+![Overview](images/story_timeline.jpg "Screenshot of the Story Card.")
+
+---
+
 ## 🌌 Why TomeWeaver?
 
 Most AI storytelling tools eventually collapse under narrative entropy. They forget characters, lose inventory, contradict earlier events, and drift off-tone. This is not a prompting problem; it is a **state-management problem**. 
