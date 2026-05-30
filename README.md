@@ -23,7 +23,7 @@ Instead of trusting the model to maintain reality, TomeWeaver treats the LLM as 
 
 ---
 
-![Overview](images/story_timeline.jpg "Screenshot of the Story Card.")
+![Overview](docs/images/story_timeline.jpg "Screenshot of the Story Card.")
 
 ---
 
