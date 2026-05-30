@@ -51,7 +51,7 @@ Open **⚙ Settings** to configure API keys, engine rules, and the **global Acti
 
 **Prose lint** lives in **Prose Lint Settings…** (button in Global Settings):
 
-![Prose LINT](images/prose_ling.jpg "Screenshot of the Prose Linting Settings.")
+![Prose LINT](images/prose_lint.jpg "Screenshot of the Prose Linting Settings.")
 
 | Setting | Default | Effect |
 | :--- | :--- | :--- |
