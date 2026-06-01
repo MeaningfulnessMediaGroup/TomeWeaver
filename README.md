@@ -1,10 +1,11 @@
 # TomeWeaver — Language State Machine (LSM)
 
-License
-Python
-LLM
+![License](https://img.shields.io/badge/license-Polyform--NonCommercial-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
+![LLM](https://img.shields.io/badge/LLM-Agnostic-orange)
 
- [Download Latest Release](https://github.com/MeaningfulnessMediaGroup/TomeWeaver/releases/latest) 
+[ ![Download Latest Release](https://img.shields.io/github/v/release/MeaningfulnessMediaGroup/TomeWeaver?label=Download%20Latest%20Executables&style=for-the-badge) ](https://github.com/MeaningfulnessMediaGroup/TomeWeaver/releases/latest)
+
 
 ### AI stories that remember.
 
@@ -22,7 +23,7 @@ Instead of trusting the model to maintain reality, TomeWeaver treats the LLM as 
 
 ---
 
-Overview
+![Overview](docs/images/story_timeline.jpg "Screenshot of the Story Card.")
 
 ---
 
