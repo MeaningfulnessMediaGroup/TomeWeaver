@@ -128,5 +128,7 @@
     },
     "last_compile_mode": "force",
     "auto_reconcile": true,
-    "track_factions": false
+    "track_factions": false,
+    "cartridge_format_version": 1,
+    "cartridge_format_spec": "MMG-NSM-1.0"
 }
