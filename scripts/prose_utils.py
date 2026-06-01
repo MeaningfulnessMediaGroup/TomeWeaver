@@ -33,15 +33,92 @@ def editor_story_display_text(story_text):
     return story_text or ""
 
 
+# LLM JSON/prose leak: dialogue wrapped as \" ... \" (backslash-double-quote).
+_ESCAPED_DOUBLE_QUOTE_WRAP = re.compile(r'\\"\s*(.*?)\s*\\"', re.DOTALL)
+
+
+def _strip_trailing_llm_escape_garbage(para: str) -> str:
+    """Remove stray trailing \\, \\", or \\\"\\\\ artifacts at a paragraph end."""
+    para = (para or "").rstrip()
+    while para:
+        if para.endswith('\\"\\'):
+            para = para[:-3].rstrip()
+            continue
+        if para.endswith('\\"'):
+            para = para[:-2].rstrip()
+            continue
+        if para.endswith("\\"):
+            para = para[:-1].rstrip()
+            continue
+        break
+    return para
+
+
+def sanitize_llm_prose_artifacts(text):
+    """
+    Prose sanitizer (Fortress pipeline via :func:`clean_prose`).
+
+    - Converts mistaken \\\" dialogue wrappers to single-quoted '...'.
+    - Strips paragraph-ending \\\\, \\\", and \\\"\\\\ leakage from JSON encoding.
+    """
+    if not text:
+        return ""
+    text = str(text)
+
+    def _wrap_to_single_quote(match):
+        inner = match.group(1).strip()
+        return f"'{inner}'" if inner else ""
+
+    text = _ESCAPED_DOUBLE_QUOTE_WRAP.sub(_wrap_to_single_quote, text)
+    return text
+
+
+def strip_paragraph_indentation(text):
+    """Remove leading spaces/tabs at the start of each paragraph (blocks separated by blank lines)."""
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    paragraphs = re.split(r"\n\n+", text.strip())
+    cleaned = []
+    for para in paragraphs:
+        if not para:
+            continue
+        lines = [line.lstrip(" \t") for line in para.split("\n")]
+        block = "\n".join(lines).strip()
+        block = _strip_trailing_llm_escape_garbage(block)
+        if block:
+            cleaned.append(block)
+    return "\n\n".join(cleaned)
+
+
+def clean_prose(text):
+    """
+    Format story/bridge prose for display and storage: flatten AI hard wraps,
+    normalize paragraph breaks, trim paragraph whitespace, and run the prose
+    sanitizer for LLM escape/dialogue artifacts.
+    """
+    if not text:
+        return ""
+    text = text.replace("\\n", "\n").replace("\r", "")
+    text = sanitize_llm_prose_artifacts(text)
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = strip_paragraph_indentation(text)
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
+
+
 def tidy_editor_prose_text(text):
     """Optional Edit Scene save cleanup for pasted JSON artifacts and stray whitespace."""
     if not text:
         return ""
     text = text.strip()
+    text = sanitize_llm_prose_artifacts(text)
     text = text.replace('\\"', '"')
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Drop useless indentation at line starts (e.g. "\n    TEXT" -> "\n\nTEXT")
+    # Indented line after a single newline → new paragraph (pasted layout cleanup)
     text = re.sub(r"\n[ \t]+(?=\S)", "\n\n", text)
     text = re.sub(r"^[ \t]+", "", text)
 
@@ -53,7 +130,7 @@ def tidy_editor_prose_text(text):
     if "\n" in text and "\n\n" not in text:
         text = text.replace("\n", "\n\n")
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text
+    return strip_paragraph_indentation(text)
 
 
 _TURN_HEADER_RE = re.compile(r"^\s*Turn\s+(\d+)\s*:\s*", re.IGNORECASE | re.MULTILINE)

@@ -135,29 +135,37 @@ hydrate_user_directory()
 
 def load_system_prompts():
     """
-    Parses the custom system_prompts.txt configuration file.
-    It completely ignores anything wrapped in ''' or \"\"\" to allow
-    for multi-line Python-style developer comments without breaking the prompts.
+    Parses configs/system_prompts.txt.
+
+    Headers: ``[PROMPT:KEY:JSON]`` or ``[PROMPT:KEY:TEXT]``. The third segment
+    tells the LLM layer whether to enable API JSON mode for that call site.
+    Legacy ``[PROMPT:KEY]`` (no suffix) defaults to JSON for backward compatibility.
+
+    Block comments (``'''`` / ``\"\"\"``) are stripped from prompt bodies.
     """
     if not PROMPTS_FILE.exists():
-        raise FileNotFoundError(f"Critical Error: Missing '{PROMPTS_FILE.name}' in configs folder. Cannot load engine prompts.")
-        
+        raise FileNotFoundError(
+            f"Critical Error: Missing '{PROMPTS_FILE.name}' in configs folder. Cannot load engine prompts."
+        )
+
     prompts = {}
+    kinds = {}
     with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
-        
+
     current_key = None
     current_text = []
     in_comment_block = False
     comment_marker = None
-    
-    # Regex to catch the exact header pattern [PROMPT:KEY_NAME]
-    header_pattern = re.compile(r'^\[PROMPT:([A-Z0-9_]+)\]\s*$')
+
+    header_pattern = re.compile(
+        r"^\[PROMPT:([A-Z0-9_]+)(?::(JSON|TEXT))?\]\s*$",
+        re.IGNORECASE,
+    )
 
     for line in lines:
         stripped = line.strip()
-        
-        # Check for start/end of comment blocks
+
         if stripped in ["'''", '"""']:
             if not in_comment_block:
                 in_comment_block = True
@@ -166,36 +174,55 @@ def load_system_prompts():
                 in_comment_block = False
                 comment_marker = None
             continue
-            
-        # If we are inside a block comment, ignore the line completely
+
         if in_comment_block:
             continue
-            
-        # Check if the line is a new Prompt Header
+
         match = header_pattern.match(stripped)
         if match:
-            # Save the previous prompt (if any) before starting a new one
             if current_key is not None:
                 prompts[current_key] = "".join(current_text).strip()
-                
+
             current_key = match.group(1)
+            kind_tag = (match.group(2) or "JSON").upper()
+            if kind_tag not in ("JSON", "TEXT"):
+                raise ValueError(f"Invalid prompt kind '{kind_tag}' for key {current_key}")
+            kinds[current_key] = kind_tag.lower()
             current_text = []
             continue
-            
-        # Otherwise, append the line to the current prompt (preserving internal newlines)
+
         if current_key is not None:
-            # We don't strip() here to preserve intentional line breaks and formatting
             current_text.append(line)
-            
-    # Save the very last prompt in the file
+
     if current_key is not None:
         prompts[current_key] = "".join(current_text).strip()
-        
-    return prompts
-        
-        
-# Initialize the global dictionary so it's ready on boot
-PROMPTS = load_system_prompts()
+
+    return prompts, kinds
+
+
+def prompt_expects_json(key: str) -> bool:
+    """True when the registry marks this prompt key as JSON output."""
+    return PROMPT_KINDS.get(key, "json") == "json"
+
+
+def prompt_expects_text(key: str) -> bool:
+    """True when the registry marks this prompt key as plain-text output."""
+    return PROMPT_KINDS.get(key, "json") == "text"
+
+
+def require_prompt(key: str) -> str:
+    """Return a registry prompt or raise with a clear missing-key error."""
+    try:
+        return PROMPTS[key]
+    except KeyError as exc:
+        raise KeyError(
+            f"Missing prompt '{key}' in {PROMPTS_FILE.name}. "
+            "Add a [PROMPT:KEY:JSON|TEXT] section to the bundled prompts file."
+        ) from exc
+
+
+# Initialize the global registry on boot
+PROMPTS, PROMPT_KINDS = load_system_prompts()
 
 # ---------------------------------------------------------
 # FIELD GUIDES (HELP & EXAMPLES) PARSER

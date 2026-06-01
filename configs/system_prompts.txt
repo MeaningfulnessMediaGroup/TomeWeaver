@@ -5,14 +5,15 @@
 # You may edit the wording of these prompts to improve AI performance.
 #
 # RULES:
-# 1. Do not change the [PROMPT:KEY_NAME] headers. The engine requires them.
+# 1. Do not change the [PROMPT:KEY_NAME:JSON] or [PROMPT:KEY_NAME:TEXT] headers.
+#    JSON = API json_object mode; TEXT = plain prose (no JSON mode).
 # 2. You may use Python-style block comments (''' or \"\"\") to add notes.
 #    The engine will completely ignore anything between block quotes.
 # 3. Variables like {story_text} are dynamically replaced by the engine. 
 #    Do not alter the variable names inside the curly braces.
 # ==============================================================================
 
-[PROMPT:SYS_WORLD_GEN]
+[PROMPT:SYS_WORLD_GEN:JSON]
 '''
 File: api.py | Function: create_story_from_prompt
 Description: System instruction for the AI World Generator.
@@ -22,7 +23,7 @@ You are a master world-builder and interactive fiction designer. Output ONLY a f
 
 
 
-[PROMPT:USER_WORLD_GEN]
+[PROMPT:USER_WORLD_GEN:JSON]
 '''
 File: api.py | Function: create_story_from_prompt
 Variables: {mode}, {prompt_text}, {title}, {schema}
@@ -36,7 +37,7 @@ TASK: Generate the game configuration using this EXACT JSON schema. Write highly
 
 
 
-[PROMPT:SYS_UNIVERSE_GEN]
+[PROMPT:SYS_UNIVERSE_GEN:JSON]
 '''
 File: api.py | Function: overhaul_active_universe
 Description: System instruction for generating global universe settings.
@@ -46,7 +47,7 @@ You are a master world-builder creating the foundational lore for a massive Shar
 
 
 
-[PROMPT:USER_UNIVERSE_GEN]
+[PROMPT:USER_UNIVERSE_GEN:JSON]
 '''
 File: api.py | Function: overhaul_active_universe
 Variables: {prompt_text}, {title}, {schema}
@@ -59,7 +60,7 @@ TASK: Generate the global Universe configuration using this EXACT JSON schema. F
 
 
 
-[PROMPT:SYS_RECAP]
+[PROMPT:SYS_RECAP:TEXT]
 '''
 File: llm.py | Function: generate_recap
 Variables: {adv_title}
@@ -69,7 +70,7 @@ Summarize the events of '{adv_title}'. Focus on the main plot, key events, and c
 
 
 
-[PROMPT:USER_RECAP]
+[PROMPT:USER_RECAP:TEXT]
 '''
 File: llm.py | Function: generate_recap
 Variables: {history_text}
@@ -83,7 +84,7 @@ Write the recap.
 
 
 
-[PROMPT:SYS_BRIDGE]
+[PROMPT:SYS_BRIDGE:TEXT]
 '''
 File: llm.py | Function: generate_narrative_bridge
 '''
@@ -92,7 +93,7 @@ You are a strict narrative parser. You follow instructions exactly and output on
 
 
 
-[PROMPT:USER_BRIDGE]
+[PROMPT:USER_BRIDGE:TEXT]
 '''
 File: llm.py | Function: generate_narrative_bridge
 Variables: {pov}, {action}, {c_text}
@@ -117,7 +118,7 @@ Action: climb the tree (If scene is present tense) -> Kaelen climbs the tree.
 
 
 
-[PROMPT:SYS_CHOICES]
+[PROMPT:SYS_CHOICES:JSON]
 '''
 File: llm.py | Function: generate_missing_choices
 '''
@@ -126,7 +127,7 @@ You are an interactive fiction engine. Your only job is to generate a JSON array
 
 
 
-[PROMPT:USER_CHOICES]
+[PROMPT:USER_CHOICES:JSON]
 '''
 File: llm.py | Function: generate_missing_choices
 Variables: {story_text}
@@ -149,7 +150,7 @@ EXAMPLE OUTPUT:
 
 
 
-[PROMPT:SYS_EDITOR]
+[PROMPT:SYS_EDITOR:JSON]
 '''
 File: base_engine.py | Function: _generate_turn
 Description: Replaces the standard system prompt when the user is running an Edit Draft (Fix, Polish, Expand, Redo Choices).
@@ -159,7 +160,7 @@ CRITICAL: You are acting as a professional editor. You output ONLY valid JSON ma
 
 
 
-[PROMPT:USER_REDO_CHOICES]
+[PROMPT:USER_REDO_CHOICES:JSON]
 '''
 File: base_engine.py | Function: redo_choices
 Variables: {original_json}
@@ -177,7 +178,7 @@ CRITICAL: Keep the 'story_text' EXACTLY the same.
 
 
 
-[PROMPT:USER_EXPAND]
+[PROMPT:USER_EXPAND:JSON]
 '''
 File: base_engine.py | Function: request_expansion
 Variables: {world_info}, {prev_story}, {rag_context}, {current_scene}, {expand_task}, {original_json}
@@ -205,7 +206,7 @@ Original JSON (return the full updated JSON; 'story_text' must follow the TASK r
 
 
 
-[PROMPT:USER_POLISH]
+[PROMPT:USER_POLISH:JSON]
 '''
 File: base_engine.py | Function: request_polish
 Variables: {selection_scope}, {original_json}
@@ -218,7 +219,7 @@ Original JSON:
 
 
 
-[PROMPT:USER_FIX]
+[PROMPT:USER_FIX:JSON]
 '''
 File: base_engine.py | Function: request_fix
 Variables: {instruction}, {original_json}
@@ -229,7 +230,7 @@ EDIT MODE: Apply this fix: '{instruction}'. Original JSON:
 
 
 
-[PROMPT:USER_AUTO_POLISH]
+[PROMPT:USER_AUTO_POLISH:JSON]
 '''
 File: base_engine.py | Function: _auto_polish_pass
 Variables: {original_json}
@@ -246,7 +247,7 @@ Original JSON:
 
 
 
-[PROMPT:FEEDBACK_INVALID_JSON]
+[PROMPT:FEEDBACK_INVALID_JSON:JSON]
 '''
 File: base_engine.py | Function: _generate_turn
 Variables: {error}
@@ -257,7 +258,7 @@ Your previous JSON was invalid. Error: {error}.
 
 
 
-[PROMPT:FEEDBACK_CONTROL_CHAR]
+[PROMPT:FEEDBACK_CONTROL_CHAR:JSON]
 '''
 File: base_engine.py | Function: _generate_turn
 Description: Second part of the feedback loop, triggered when the user hits 'Enter' inside a JSON string.
@@ -276,7 +277,7 @@ Description: Second part of the feedback loop, triggered when the user hits 'Ent
 # ==============================================================================
 '''
 
-[PROMPT:FRAG_INVENTORY]
+[PROMPT:FRAG_INVENTORY:JSON]
 '''
 Appended if 'track_inventory' is enabled.
 Variables: {inv_format}
@@ -293,7 +294,7 @@ CRITICAL FORMATTING: Keep values extremely brief (1-5 words max). Use comma-sepa
 
 
 
-[PROMPT:FRAG_CAN_DIE]
+[PROMPT:FRAG_CAN_DIE:JSON]
 '''
 Appended if 'can_die' is enabled.
 '''
@@ -304,7 +305,7 @@ The player is not invincible. If they make a fatal mistake, you MUST explicitly 
 
 
 
-[PROMPT:FRAG_NO_DIE]
+[PROMPT:FRAG_NO_DIE:JSON]
 '''
 Appended if 'can_die' is disabled.
 '''
@@ -315,7 +316,7 @@ The protagonist CANNOT be killed. If the player makes a terrible mistake, they m
 
 
 
-[PROMPT:FRAG_TEST_MODE]
+[PROMPT:FRAG_TEST_MODE:JSON]
 '''
 Injected during Autopilot testing.
 '''
@@ -325,7 +326,7 @@ Injected during Autopilot testing.
 
 
 
-[PROMPT:FRAG_FINAL_CHAPTER]
+[PROMPT:FRAG_FINAL_CHAPTER:JSON]
 '''
 Appended in campaigns during the final chapter.
 '''
@@ -335,7 +336,7 @@ NOTE: This is the FINAL CHAPTER of the campaign. When the GOAL is met, you MUST 
 
 
 
-[PROMPT:FRAG_STATE_RULE]
+[PROMPT:FRAG_STATE_RULE:JSON]
 '''
 Campaign state stability rule.
 '''
@@ -345,7 +346,7 @@ The JSON keys 'location', 'inventory_and_state', and 'objective_achieved' MUST r
 
 
 
-[PROMPT:FRAG_REQ_KEYS]
+[PROMPT:FRAG_REQ_KEYS:JSON]
 '''
 Variables: {keys}
 '''
@@ -354,7 +355,7 @@ Variables: {keys}
 
 
 
-[PROMPT:FRAG_EPILOGUE_MODE]
+[PROMPT:FRAG_EPILOGUE_MODE:JSON]
 '''
 Campaign Epilogue logic flag.
 '''
@@ -365,7 +366,7 @@ The campaign is over. The protagonist has survived and won! You MUST set 'is_gam
 
 
 
-[PROMPT:FRAG_EPILOGUE_EXPAND]
+[PROMPT:FRAG_EPILOGUE_EXPAND:JSON]
 '''
 Variables: {epilogue_content}, {req_str}
 '''
@@ -377,7 +378,7 @@ CRITICAL: Set 'objective_achieved' to true and 'is_game_over' to true.{req_str} 
 
 
 
-[PROMPT:FRAG_EPILOGUE_GENERATE]
+[PROMPT:FRAG_EPILOGUE_GENERATE:JSON]
 '''
 Variables: {req_str}
 '''
@@ -388,7 +389,7 @@ CRITICAL: Set 'objective_achieved' to true and 'is_game_over' to true.{req_str} 
 
 
 
-[PROMPT:FRAG_CAMPAIGN_EXPAND]
+[PROMPT:FRAG_CAMPAIGN_EXPAND:JSON]
 '''
 Variables: {expand_txt}, {test_rule}, {req_str}, {objective_text}, {win_choice}
 '''
@@ -402,7 +403,7 @@ Provide 3 to 6 choices.{test_rule}{req_str}
 
 
 
-[PROMPT:FRAG_CAMPAIGN_TURN]
+[PROMPT:FRAG_CAMPAIGN_TURN:JSON]
 '''
 Variables: {test_rule}, {req_str}, {objective_text}, {win_choice}
 '''
@@ -411,7 +412,7 @@ Generate the next turn in JSON format. Write 3 to 5 paragraphs. Provide 3 to 6 c
 
 
 
-[PROMPT:SYS_AUDITOR]
+[PROMPT:SYS_AUDITOR:JSON]
 '''
 File: llm.py | Function: evaluate_campaign_objective
 '''
@@ -420,7 +421,7 @@ You are a strict game logic auditor. Your job is to evaluate if a player has com
 
 
 
-[PROMPT:USER_AUDITOR]
+[PROMPT:USER_AUDITOR:JSON]
 '''
 File: llm.py | Function: evaluate_campaign_objective
 Variables: {goal}, {obstacles}, {context}
@@ -447,7 +448,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:SYS_IMPORT_EVAL]
+[PROMPT:SYS_IMPORT_EVAL:JSON]
 '''
 File: api.py | Function: evaluate_import_integration
 '''
@@ -462,7 +463,7 @@ You MUST weigh:
 Output ONLY valid JSON. No markdown fences. Score 0-100 where 100 = seamless integration, 0 = completely incompatible.
 
 
-[PROMPT:USER_IMPORT_EVAL]
+[PROMPT:USER_IMPORT_EVAL:JSON]
 '''
 File: api.py | Function: evaluate_import_integration
 Variables: {story_context}, {import_text}, {splice_turn}
@@ -499,7 +500,7 @@ Verdict must be one of: "good_fit", "moderate_fit", "poor_fit", "critical_mismat
 
 
 
-[PROMPT:FRAG_CAMPAIGN_COLD_OPEN]
+[PROMPT:FRAG_CAMPAIGN_COLD_OPEN:JSON]
 '''
 Variables: {chapter_number}, {chapter_title}, {req_str}
 '''
@@ -510,7 +511,7 @@ CRITICAL JSON RULES:
 
 
 
-[PROMPT:FRAG_PROLOGUE_EXPAND]
+[PROMPT:FRAG_PROLOGUE_EXPAND:JSON]
 '''
 Variables: {prologue_content}, {chapter_title}
 '''
@@ -520,7 +521,7 @@ CRITICAL: Set 'input_type' to 'choice' and 'choices' to ONLY ['Start Chapter 1: 
 
 
 
-[PROMPT:FRAG_PROLOGUE_GENERATE]
+[PROMPT:FRAG_PROLOGUE_GENERATE:JSON]
 '''
 Variables: {chapter_title}
 '''
@@ -529,7 +530,7 @@ PROLOGUE MODE: Generate a sweeping, atmospheric introduction (5-8 paragraphs) fo
 
 
 
-[PROMPT:FRAG_DIRECTOR_NOTE]
+[PROMPT:FRAG_DIRECTOR_NOTE:JSON]
 '''
 Campaign Director's Warning (Appended to the end of history).
 '''
@@ -544,7 +545,7 @@ Campaign Director's Warning (Appended to the end of history).
 
 
 
-[PROMPT:FRAG_SANDBOX_EXPAND]
+[PROMPT:FRAG_SANDBOX_EXPAND:JSON]
 '''
 Variables: {expand_txt}, {test_rule}, {req_str}
 '''
@@ -558,7 +559,7 @@ CRITICAL OVERRIDE (EXPANSION MODE): Expand the following author notes into 3-5 p
 
 
 
-[PROMPT:FRAG_SANDBOX_TURN]
+[PROMPT:FRAG_SANDBOX_TURN:JSON]
 '''
 Variables: {test_rule}, {req_str}
 '''
@@ -571,7 +572,7 @@ Based on the latest action, generate exactly ONE next turn as a single JSON obje
 
 
 
-[PROMPT:FRAG_SANDBOX_INSERT_BRIDGE]
+[PROMPT:FRAG_SANDBOX_INSERT_BRIDGE:JSON]
 '''
 Variables: {prev_turn_num}, {next_turn_num}, {next_preview}, {test_rule}, {req_str}
 Used when the Director inserts a generated turn between two existing cards (bridge-the-gap mode).
@@ -584,7 +585,7 @@ Write 3 to 5 detailed paragraphs. Provide 3 to 6 choices.{test_rule}{req_str}
 
 
 
-[PROMPT:FRAG_SANDBOX_INSERT_CONTINUE]
+[PROMPT:FRAG_SANDBOX_INSERT_CONTINUE:JSON]
 '''
 Variables: {target_turn}, {test_rule}, {req_str}
 Used when the Director inserts a generated turn to extend the story (continue mode).
@@ -602,7 +603,7 @@ Continue the narrative naturally from the latest story prose. Advance flow, tone
 
 
 
-[PROMPT:FRAG_SANDBOX_COLD_OPEN]
+[PROMPT:FRAG_SANDBOX_COLD_OPEN:JSON]
 '''
 Variables: {chapter_number}, {chapter_title}, {test_rule}, {req_str}, {time_jump}
 '''
@@ -612,7 +613,7 @@ CRITICAL JSON RULE: You MUST update the 'location' and 'pov_character' JSON keys
 
 
 
-[PROMPT:FRAG_SANDBOX_PROLOGUE_EXPAND]
+[PROMPT:FRAG_SANDBOX_PROLOGUE_EXPAND:JSON]
 '''
 Variables: {prologue_content}, {chapter_title}
 '''
@@ -623,7 +624,7 @@ Establishing the scene. CRITICAL: Set 'input_type' to 'choice' and 'choices' to 
 
 
 
-[PROMPT:FRAG_SANDBOX_PROLOGUE_GENERATE]
+[PROMPT:FRAG_SANDBOX_PROLOGUE_GENERATE:JSON]
 '''
 Variables: {chapter_title}
 '''
@@ -632,7 +633,7 @@ PROLOGUE OVERRIDE: Generate an atmospheric opening narrative (5-8 paragraphs) ba
 
 
 
-[PROMPT:FRAG_SANDBOX_DIRECTOR_NOTE]
+[PROMPT:FRAG_SANDBOX_DIRECTOR_NOTE:JSON]
 '''
 Sandbox Director's Warning (Appended to the end of history).
 '''
@@ -648,7 +649,7 @@ Sandbox Director's Warning (Appended to the end of history).
 
 
 
-[PROMPT:SYS_SINGLE_CHOICE]
+[PROMPT:SYS_SINGLE_CHOICE:JSON]
 '''
 File: llm.py | Function: generate_single_choice
 '''
@@ -657,7 +658,7 @@ You are an interactive fiction engine. Your only job is to generate a JSON array
 
 
 
-[PROMPT:USER_SINGLE_CHOICE]
+[PROMPT:USER_SINGLE_CHOICE:JSON]
 '''
 File: llm.py | Function: generate_single_choice
 Variables: {story_text}, {current_choices}
@@ -682,7 +683,7 @@ EXAMPLE OUTPUT:
 
 
 
-[PROMPT:USER_CONDENSE]
+[PROMPT:USER_CONDENSE:JSON]
 '''
 File: base_engine.py | Function: request_condense
 Variables: {selection_scope}, {original_json}
@@ -699,7 +700,7 @@ Original JSON:
 
 
 
-[PROMPT:USER_REDO_BRIDGE]
+[PROMPT:USER_REDO_BRIDGE:JSON]
 '''
 File: base_engine.py | Function: redo_turn
 Variables: {bridge}
@@ -711,7 +712,7 @@ You MUST begin your 'story_text' by smoothly continuing from that exact transiti
 
 
 
-[PROMPT:SYS_FIELD_GEN]
+[PROMPT:SYS_FIELD_GEN:TEXT]
 '''
 File: api.py | Function: generate_field_data
 '''
@@ -721,7 +722,7 @@ You are an expert world-builder and interactive fiction writer. Output only the 
 
 
 
-[PROMPT:USER_FIELD_REROLL]
+[PROMPT:USER_FIELD_REROLL:TEXT]
 '''
 File: api.py | Function: generate_field_data
 Variables: {context}, {field_name}, {length_constraint}
@@ -738,7 +739,7 @@ Output ONLY the requested text. Do not include labels like "Title:" or "Tone:".
 
 
 
-[PROMPT:USER_FIELD_INSPIRE]
+[PROMPT:USER_FIELD_INSPIRE:TEXT]
 '''
 File: api.py | Function: generate_field_data
 Variables: {context}, {field_name}, {shorthand}, {length_constraint}
@@ -757,7 +758,7 @@ Output ONLY the requested text. Do not include labels like "Title:" or "Tone:".
 
 
 
-[PROMPT:SYS_SCHEMA_GEN]
+[PROMPT:SYS_SCHEMA_GEN:JSON]
 '''
 File: api.py | Function: generate_schema_data
 Description: Used when the AI needs to generate Lists or Dictionaries for the World Builder.
@@ -767,7 +768,7 @@ You are an expert game designer. Output ONLY valid JSON matching the requested s
 
 
 
-[PROMPT:USER_INV_REROLL]
+[PROMPT:USER_INV_REROLL:JSON]
 '''
 File: api.py | Function: generate_schema_data
 Variables: {context}
@@ -791,7 +792,7 @@ CRITICAL JSON SCHEMA:
 
 
 
-[PROMPT:USER_INV_INSPIRE]
+[PROMPT:USER_INV_INSPIRE:JSON]
 '''
 File: api.py | Function: generate_schema_data
 Variables: {context}, {shorthand}
@@ -815,7 +816,7 @@ CRITICAL JSON SCHEMA:
 
 
 
-[PROMPT:USER_LIST_GEN]
+[PROMPT:USER_LIST_GEN:JSON]
 '''
 File: api.py | Function: generate_schema_data
 Variables: {context}, {field_name}, {shorthand}
@@ -833,7 +834,7 @@ EXAMPLE SCHEMA:
 
 
 
-[PROMPT:USER_DICT_GEN]
+[PROMPT:USER_DICT_GEN:JSON]
 '''
 File: api.py | Function: generate_schema_data
 Variables: {context}, {field_name}, {shorthand}
@@ -851,7 +852,7 @@ EXAMPLE SCHEMA:
 
 
 
-[PROMPT:USER_AUTO_STYLE]
+[PROMPT:USER_AUTO_STYLE:JSON]
 '''
 File: api.py | Function: autofill_inventory_styles
 Variables: {inventory_json}
@@ -870,7 +871,7 @@ INVENTORY JSON:
 
 
 
-[PROMPT:SYS_CHAP_GEN]
+[PROMPT:SYS_CHAP_GEN:JSON]
 '''
 File: api.py | Function: generate_chapter_data
 '''
@@ -879,7 +880,7 @@ You are an expert campaign writer. Output ONLY a flat JSON Dictionary matching t
 
 
 
-[PROMPT:USER_CHAP_GEN]
+[PROMPT:USER_CHAP_GEN:JSON]
 '''
 File: api.py | Function: generate_chapter_data
 Variables: {context}, {prev_chap_context}, {shorthand}
@@ -906,7 +907,7 @@ CRITICAL JSON SCHEMA:
 
 
 
-[PROMPT:SYS_BRIDGE_EDIT]
+[PROMPT:SYS_BRIDGE_EDIT:TEXT]
 '''
 File: api.py | Function: edit_narrative_bridge
 '''
@@ -915,7 +916,7 @@ You are a professional copy-editor. Output ONLY the rewritten transition sentenc
 
 
 
-[PROMPT:USER_BRIDGE_POLISH]
+[PROMPT:USER_BRIDGE_POLISH:TEXT]
 '''
 File: api.py | Function: edit_narrative_bridge
 Variables: {bridge}
@@ -928,7 +929,7 @@ TRANSITION SENTENCE:
 
 
 
-[PROMPT:USER_BRIDGE_EXPAND]
+[PROMPT:USER_BRIDGE_EXPAND:TEXT]
 '''
 File: api.py | Function: edit_narrative_bridge
 Variables: {bridge}
@@ -942,8 +943,20 @@ TRANSITION PROSE:
 
 
 
+[PROMPT:USER_BRIDGE_CONDENSE:TEXT]
+'''
+File: api.py | Function: edit_narrative_bridge
+Variables: {bridge}
+'''
+Concisely summarize and shorten the following transition sentence while preserving the core action and meaning.
 
-[PROMPT:SYS_MEMORY_PLOT]
+TRANSITION SENTENCE:
+"{bridge}"
+
+
+
+
+[PROMPT:SYS_MEMORY_PLOT:TEXT]
 '''
 File: api.py | Function: generate_plot_summary
 '''
@@ -951,7 +964,7 @@ You are an expert archivist. Your job is to read chronological gameplay logs and
 
 
 
-[PROMPT:USER_MEMORY_PLOT]
+[PROMPT:USER_MEMORY_PLOT:TEXT]
 '''
 File: api.py | Function: generate_plot_summary
 Variables: {chunk_text}, {start_turn}, {end_turn}
@@ -975,7 +988,7 @@ FORMAT TEMPLATE:
 CRITICAL: Do not end with any text after the turn ledger. No [ISOLATION_KEY: UID] or [END OF LEDGER] or any other text after the last Turn {end_turn} summary.
 
 
-[PROMPT:SYS_MEMORY_ENTITY]
+[PROMPT:SYS_MEMORY_ENTITY:JSON]
 You are an AI Memory Compiler.
 Read the RAW TEXT CHUNK and extract ANY new status changes, injuries, acquisitions, or relationship changes for Entities.
 
@@ -990,48 +1003,7 @@ If nothing happened to a category, output an empty object {}. Do NOT hallucinate
 
 
 
-[PROMPT:USER_MEMORY_ENTITY]
-'''
-File: api.py | Function: extract_entity_updates
-Variables: {chunk_text}, {known_chars}, {known_locs}
-'''
-Read the following RAW GAMEPLAY LOG. 
-
-TASK:
-Identify any NEW significant events, or newly revealed static traits (age, appearance, personality, quirks) that occurred to characters or locations.
-CRITICAL: DO NOT GUESS. If a trait (like age or appearance) is not explicitly stated in the text, DO NOT invent one. Leave it out.
-Do NOT repeat traits or events already listed in the KNOWN blocks. If a new important character or location is introduced, add them.
-
-KNOWN CHARACTERS (For Context):
-{known_chars}
-
-KNOWN LOCATIONS (For Context):
-{known_locs}
-
-RAW GAMEPLAY LOG:
-{chunk_text}
-
-CRITICAL JSON SCHEMA:
-Output a nested JSON object with EXACTLY two root keys: "Characters" and "Locations". 
-Inside each, the key is the Entity's Name. The value MUST be an object containing "event" (a 1-sentence update of what happened, or null) and "traits" (a dictionary of any NEWLY revealed static characteristics, or an empty dict {}).
-Here is an example of structure to usage precisely (don't output these values, REPLACE these values by appropriate memory where applicable, if they are mentioned at all):
-{
-  "Characters": {
-    "Character Name": {
-      "event": "An important event that happen to the character.",
-      "traits": {"Age": "34", "Appearance": "Wears a dark shadow cloak", "Quirks": "Hates dogs"}
-    }
-  },
-  "Locations": {
-    "Name of location": {
-      "event": "Description of that location.",
-      "traits": {"Architecture": "Massive iron portcullis", "Faction": "City Watch"}
-    }
-  }
-}
-
-
-[PROMPT:USER_MEMORY_ENTITY]
+[PROMPT:USER_MEMORY_ENTITY:JSON]
 '''
 File: api.py | Function: extract_entity_updates
 Variables: {chunk_text}, {known_chars}, {known_locs}, {known_arts}
@@ -1082,7 +1054,7 @@ Here is an example of structure to usage precisely (don't output these values, R
 
 
 
-[PROMPT:SYS_MEMORY_SEED]
+[PROMPT:SYS_MEMORY_SEED:JSON]
 '''
 File: api.py | Function: seed_initial_memory
 '''
@@ -1091,7 +1063,7 @@ You are an expert data-extraction engine. Your job is to extract static characte
 
 
 
-[PROMPT:USER_MEMORY_SEED]
+[PROMPT:USER_MEMORY_SEED:JSON]
 '''
 File: api.py | Function: seed_initial_memory
 Variables: {world_doc}
@@ -1130,7 +1102,7 @@ Inside each, the key is the Entity's Name. The value MUST be an object containin
 
 
 
-[PROMPT:USER_MEMORY_ENTITY_FACTIONS]
+[PROMPT:USER_MEMORY_ENTITY_FACTIONS:JSON]
 '''
 File: api.py | Function: extract_entity_updates
 '''
@@ -1170,7 +1142,7 @@ Here is an example of structure to usage precisely (don't output these values, R
 
 
 
-[PROMPT:SYS_MEMORY_DEEP_SCAN]
+[PROMPT:SYS_MEMORY_DEEP_SCAN:JSON]
 '''
 File: api.py | Function: deep_scan_entity
 '''
@@ -1178,7 +1150,7 @@ You are an AI Memory Compiler performing a highly targeted extraction. Output ON
 
 
 
-[PROMPT:USER_MEMORY_DEEP_SCAN]
+[PROMPT:USER_MEMORY_DEEP_SCAN:JSON]
 '''
 File: api.py | Function: deep_scan_entity
 Variables: {entity_name}, {current_profile}, {chunk_text}
@@ -1204,7 +1176,7 @@ Output a single JSON object containing "event" (a 1-sentence update of what happ
 }
 
 
-[PROMPT:USER_MEMORY_SEED_FACTIONS]
+[PROMPT:USER_MEMORY_SEED_FACTIONS:JSON]
 '''
 File: api.py | Function: seed_initial_memory
 '''
@@ -1232,7 +1204,7 @@ Here is an example of structure to usage precisely (don't output these values, R
 
 
 
-[PROMPT:SYS_MEMORY_RECONCILE]
+[PROMPT:SYS_MEMORY_RECONCILE:JSON]
 '''
 File: api.py | Function: reconcile_aliases
 '''
@@ -1241,7 +1213,7 @@ You are an intelligent data-reconciliation engine. Output ONLY a valid JSON dict
 
 
 
-[PROMPT:USER_MEMORY_RECONCILE]
+[PROMPT:USER_MEMORY_RECONCILE:JSON]
 '''
 File: api.py | Function: reconcile_aliases
 Variables: {entities_context}
@@ -1266,7 +1238,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:SYS_MEMORY_VERIFY]
+[PROMPT:SYS_MEMORY_VERIFY:JSON]
 '''
 File: api.py | Function: verify_memory_integrity
 '''
@@ -1274,7 +1246,7 @@ You are an expert continuity editor and logic checker. Output ONLY a valid JSON 
 
 
 
-[PROMPT:USER_MEMORY_VERIFY]
+[PROMPT:USER_MEMORY_VERIFY:JSON]
 '''
 File: api.py | Function: verify_memory_integrity
 Variables: {plot_context}, {lore_context}
@@ -1303,7 +1275,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:SYS_MEMORY_CHAPTER]
+[PROMPT:SYS_MEMORY_CHAPTER:JSON]
 '''
 File: api.py | Function: generate_chapter_summary
 '''
@@ -1312,7 +1284,7 @@ Output ONLY a valid JSON dictionary containing the summary and thematic tags. Do
 
 
 
-[PROMPT:SYS_MEMORY_CHAPTER_TAGS]
+[PROMPT:SYS_MEMORY_CHAPTER_TAGS:JSON]
 '''
 File: api.py | Function: generate_chapter_tags
 '''
@@ -1320,7 +1292,7 @@ You are an expert literary archivist. Output ONLY a valid JSON array of strings 
 
 
 
-[PROMPT:USER_MEMORY_CHAPTER_TAGS]
+[PROMPT:USER_MEMORY_CHAPTER_TAGS:JSON]
 '''
 File: api.py | Function: generate_chapter_tags
 Variables: {summary_text}, {tag_list}
@@ -1340,7 +1312,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:USER_MEMORY_CHAPTER]
+[PROMPT:USER_MEMORY_CHAPTER:JSON]
 '''
 File: api.py | Function: generate_chapter_summary
 Variables: {parts_text}
@@ -1364,7 +1336,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:USER_MEMORY_CHAPTER_VALIDATE]
+[PROMPT:USER_MEMORY_CHAPTER_VALIDATE:JSON]
 '''
 File: api.py | Function: validate_chapter_chunk
 Variables: {raw_text}, {summary_text}
@@ -1390,7 +1362,7 @@ Output a JSON dictionary with "score" (a string like "85/100") and "report" (a d
 
 
 
-[PROMPT:USER_MEMORY_CHAPTER_PATCH]
+[PROMPT:USER_MEMORY_CHAPTER_PATCH:JSON]
 '''
 File: api.py | Function: patch_chapter_chunk
 Variables: {raw_text}, {current_summary}, {qa_report}
@@ -1419,7 +1391,7 @@ CRITICAL SCHEMA:
 
 
 
-[PROMPT:SYS_MEMORY_VALIDATE]
+[PROMPT:SYS_MEMORY_VALIDATE:JSON]
 '''
 File: api.py | Function: validate_plot_chunk
 '''
@@ -1427,7 +1399,7 @@ You are a strict narrative auditor and Quality Assurance tester. Your job is to 
 
 
 
-[PROMPT:USER_MEMORY_VALIDATE]
+[PROMPT:USER_MEMORY_VALIDATE:JSON]
 '''
 File: api.py | Function: validate_plot_chunk
 Variables: {raw_text}, {summary_text}
@@ -1459,7 +1431,7 @@ Output a JSON dictionary with "score" (a string like "85/100") and "report" (a h
 
 
 
-[PROMPT:SYS_MEMORY_PATCH]
+[PROMPT:SYS_MEMORY_PATCH:JSON]
 '''
 File: api.py | Function: patch_plot_chunk
 '''
@@ -1467,7 +1439,7 @@ You are an expert editor. Your job is to fix a plot summary based on a Quality A
 
 
 
-[PROMPT:USER_MEMORY_PATCH]
+[PROMPT:USER_MEMORY_PATCH:JSON]
 '''
 File: api.py | Function: patch_plot_chunk
 Variables: {raw_text}, {current_summary}, {qa_report}
@@ -1493,7 +1465,7 @@ You MUST format your output as a strict list, explicitly declaring the Turn Numb
 
 
 
-[PROMPT:FRAG_SANDBOX_FORCE_CHAPTER]
+[PROMPT:FRAG_SANDBOX_FORCE_CHAPTER:JSON]
 '''
 Variables: {chapter_desc}, {test_rule}, {req_str}
 '''
@@ -1506,7 +1478,7 @@ CRITICAL DIRECTOR OVERRIDE: A NEW CHAPTER BEGINS NOW.
 
 
 
-[PROMPT:SYS_LOCATION_INFER]
+[PROMPT:SYS_LOCATION_INFER:TEXT]
 '''
 File: api.py | Function: infer_location
 '''
@@ -1514,7 +1486,7 @@ You are an expert game master. Your job is to read a scene and determine the exa
 
 
 
-[PROMPT:USER_LOCATION_INFER]
+[PROMPT:USER_LOCATION_INFER:TEXT]
 '''
 File: api.py | Function: infer_location
 Variables: {scene_text}, {prev_loc_context}
@@ -1529,7 +1501,7 @@ Based on the text above, where is the protagonist currently located?
 Output ONLY a short, descriptive string. Do not include quotes, markdown, or any conversational text.
 
 
-[PROMPT:SYS_SPELL_AI]
+[PROMPT:SYS_SPELL_AI:TEXT]
 '''
 File: spell_ai.py | Function: fetch_ai_word_suggestions
 Description: Tiny prompt for right-click "Get AI suggestions" in prose lint menus.
@@ -1537,7 +1509,7 @@ Description: Tiny prompt for right-click "Get AI suggestions" in prose lint menu
 You are a fast spelling assistant for fiction prose. Reply with ONLY up to 5 replacement words or short phrases, one per line. If the flagged text is intentional (name, slang, fantasy term), reply NONE. No explanations.
 
 
-[PROMPT:USER_SPELL_AI]
+[PROMPT:USER_SPELL_AI:TEXT]
 '''
 File: spell_ai.py | Function: fetch_ai_word_suggestions
 Variables: {word}, {context}, {locale}

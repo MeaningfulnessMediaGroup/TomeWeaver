@@ -306,6 +306,25 @@ Flat JSON written by `save_state()`. Contains `plot_ledger`, `chapter_ledger`, e
 
 ---
 
+## 📝 System prompt registry (`configs/system_prompts.txt`)
+
+All framework LLM prompts (world generator, RAG memory, bridge tools, editor fragments, spell-check suggestions, etc.) live in this single file. The engine parses it at startup into `PROMPTS` and `PROMPT_KINDS`.
+
+**Header format:** `[PROMPT:KEY:JSON]` or `[PROMPT:KEY:TEXT]`
+
+| Suffix | Meaning |
+| :--- | :--- |
+| **JSON** | The call site expects structured JSON in the reply. Cloud APIs (OpenAI, OpenRouter, Groq, etc.) may also get `response_format: json_object`. **LM Studio / localhost never receive that field** — they only allow `json_schema` or `text`; the engine still parses JSON via prompts + the Fortress sanitizer. |
+| **TEXT** | Plain prose or a single string; JSON mode is not enabled. |
+
+**Rules:** Do not rename keys. You may edit prompt wording. Block comments (`'''` … `'''`) inside a section are stripped and are for author notes only. Placeholders like `{story_text}` must stay unchanged.
+
+**Per-story prompts:** Turn generation still uses each cartridge’s `system_prompt.txt`; `FRAG_*` entries from this file are appended to that system message for mode-specific behavior.
+
+**Customization:** On first run, the bundled file is copied to your user `configs/` folder. Merge new keys from app updates manually if you heavily customized your copy.
+
+---
+
 ## ⚠️ Known Limitations (Configuration)
 
 *   **Editing JSON by hand** can trigger integrity warnings on next load; the engine quarantines corrupted entity entries but may reset malformed ledgers.

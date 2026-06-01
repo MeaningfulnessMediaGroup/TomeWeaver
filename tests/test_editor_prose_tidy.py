@@ -4,6 +4,7 @@ from prose_utils import (
     DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER,
     DIRECTOR_INSERT_CONTINUE_ACTION,
     clamp_single_turn_prose,
+    clean_prose,
     editor_story_display_text,
     is_hidden_card_player_choice,
     tidy_editor_prose_text,
@@ -38,13 +39,50 @@ class TestTidyEditorProseText:
         raw = "Word\t\twith  extra   spaces"
         assert tidy_editor_prose_text(raw) == "Word with extra spaces"
 
-    def test_unescapes_json_quotes(self):
+    def test_converts_escaped_dialogue_wrappers_on_save(self):
         raw = 'He said \\"hello\\".'
-        assert tidy_editor_prose_text(raw) == 'He said "hello".'
+        assert tidy_editor_prose_text(raw) == "He said 'hello'."
 
     def test_promotes_single_newlines_to_paragraphs(self):
         raw = "Line one.\nLine two."
         assert tidy_editor_prose_text(raw) == "Line one.\n\nLine two."
+
+    def test_strips_leading_whitespace_between_paragraphs(self):
+        raw = "First paragraph.\n\n\tSecond has a tab.\n\n   Third has spaces."
+        assert tidy_editor_prose_text(raw) == (
+            "First paragraph.\n\nSecond has a tab.\n\nThird has spaces."
+        )
+
+
+class TestCleanProse:
+    def test_strips_paragraph_indentation_after_blank_line(self):
+        raw = "Opening line.\n\n    Indented second paragraph.\n\n\tTabbed third."
+        assert clean_prose(raw) == "Opening line.\n\nIndented second paragraph.\n\nTabbed third."
+
+    def test_flattens_single_newlines_and_trims_paragraphs(self):
+        raw = "Line one\nLine two\n\n   New paragraph."
+        assert clean_prose(raw) == "Line one Line two\n\nNew paragraph."
+
+    def test_strips_trailing_backslash_and_escaped_quote(self):
+        assert clean_prose("The door creaked.\\") == "The door creaked."
+        assert clean_prose('The door creaked.\\"') == "The door creaked."
+        assert clean_prose('The door creaked.\\"\\') == "The door creaked."
+
+    def test_strips_trailing_garbage_per_paragraph(self):
+        raw = "First para.\\\"\n\nSecond para.\\"
+        assert clean_prose(raw) == "First para.\n\nSecond para."
+
+    def test_converts_escaped_double_quote_wrappers_to_single_quotes(self):
+        raw = 'He said \\"hello there\\" and left.'
+        assert clean_prose(raw) == "He said 'hello there' and left."
+
+    def test_converts_wrapped_paragraph_dialogue(self):
+        raw = '\\"Get out of here.\\"'
+        assert clean_prose(raw) == "'Get out of here.'"
+
+    def test_multiple_wrappers_in_one_paragraph(self):
+        raw = '\\"Hi,\\" she said. \\"Goodbye.\\"'
+        assert clean_prose(raw) == "'Hi,' she said. 'Goodbye.'"
 
 
 class TestClampSingleTurnProse:

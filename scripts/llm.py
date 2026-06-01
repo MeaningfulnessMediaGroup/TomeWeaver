@@ -13,7 +13,7 @@ import time
 import random
 
 from colorama import Fore, Style
-from config import ENGINE_CONFIG, PROMPTS
+from config import ENGINE_CONFIG, PROMPTS, require_prompt
 from logger import log_llm_interaction
 
 # ---------------------------------------------------------
@@ -172,18 +172,12 @@ def validate_turn_schema(data, prev_turn=None, is_campaign=False, track_inventor
     missing_keys = [k for k in required_keys if k not in data]
     if missing_keys: return None, f"Missing required JSON keys: {missing_keys}"
     
-    # --- THE PROSE FLATTENER (Hard-Return Removal) ---
-    # Many LLMs artificially wrap text at 80 characters by inserting single \n tags mid-sentence.
-    # We strip single newlines into spaces to allow the GUI to wrap dynamically, but preserve \n\n as paragraphs.
-    for text_key in ["story_text", "narrative_bridge"]:
+    # --- PROSE SANITIZER + FLATTENER (escape artifacts, hard wraps, paragraphs) ---
+    from prose_utils import clean_prose
+
+    for text_key in ("story_text", "narrative_bridge"):
         if text_key in data and isinstance(data[text_key], str):
-            # 1. Normalize all massive gaps (3+ newlines) down to exactly 2
-            cleaned_text = re.sub(r'\n{3,}', '\n\n', data[text_key])
-            # 2. Replace single newlines (that aren't part of a double newline) with a space
-            cleaned_text = re.sub(r'(?<!\n)\n(?!\n)', ' ', cleaned_text)
-            # 3. Clean up any double spaces created by the previous step
-            cleaned_text = re.sub(r' {2,}', ' ', cleaned_text).strip()
-            data[text_key] = cleaned_text
+            data[text_key] = clean_prose(data[text_key])
         
     # --- THE CHOICE SCRUBBER ---
     if isinstance(data.get("choices"), list):
@@ -559,7 +553,109 @@ def translate_api_error(exception=None, response=None):
             
     return "Unknown Generation Error."
 
-    
+
+def supports_openai_json_object_mode(api_url: str | None = None) -> bool:
+    """
+    True only for cloud APIs that accept response_format type json_object.
+
+    LM Studio and most local OpenAI-compatible servers only allow json_schema
+    or text — sending json_object causes HTTP 400. Prompts still request JSON
+    in prose; the Fortress sanitizer handles parsing without this field.
+    """
+    url = (api_url if api_url is not None else ENGINE_CONFIG.get("api_url") or "").lower()
+    if not url:
+        return False
+    if "generativelanguage.googleapis.com" in url:
+        return False
+    if "localhost" in url or "127.0.0.1" in url or "0.0.0.0" in url:
+        return False
+    # Common local bind ports (LM Studio default 1234, Ollama 11434, etc.)
+    if re.search(r":(?:1234|11434|8080|5000|8000)(?:/|$)", url):
+        return False
+    cloud_hosts = (
+        "api.openai.com",
+        "openrouter.ai",
+        "api.groq.com",
+        "api.together.xyz",
+        "api.deepseek.com",
+        "api.mistral.ai",
+        "api.perplexity.ai",
+        "api.x.ai",
+    )
+    return any(host in url for host in cloud_hosts)
+
+
+def apply_json_response_format(payload: dict) -> None:
+    """Set response_format json_object when the active API profile supports it."""
+    if not supports_openai_json_object_mode():
+        return
+    payload["response_format"] = {"type": "json_object"}
+
+
+def _chat_headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    api_key = (ENGINE_CONFIG.get("api_key") or "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def post_chat(
+    messages,
+    *,
+    expect_json: bool = False,
+    temperature: float = 0.5,
+    max_tokens=None,
+    timeout: int = 60,
+    adv_dir=None,
+    attempt: int = 1,
+):
+    """
+    POST to the configured chat-completions endpoint.
+
+    Returns (content, error_message). When expect_json is True, sets
+    response_format to json_object on supported providers.
+    """
+    if max_tokens is None:
+        max_tokens = ENGINE_CONFIG.get("max_tokens", 2000)
+
+    payload = {
+        "model": ENGINE_CONFIG.get("model", "loaded-model"),
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    api_url = ENGINE_CONFIG.get("api_url", "")
+    if "generativelanguage.googleapis.com" not in api_url:
+        payload["frequency_penalty"] = 0.3
+        payload["presence_penalty"] = 0.4
+    if expect_json:
+        apply_json_response_format(payload)
+
+    try:
+        enforce_rate_limit()
+        response = requests.post(
+            api_url, headers=_chat_headers(), json=payload, timeout=timeout
+        )
+        if response.status_code != 200:
+            err_msg = translate_api_error(response=response)
+            log_llm_interaction(
+                adv_dir, messages, response.text, error=err_msg, attempt=attempt
+            )
+            return None, err_msg
+
+        content = response.json()["choices"][0]["message"]["content"].strip()
+        log_llm_interaction(adv_dir, messages, content, attempt=attempt)
+        return content, None
+    except requests.exceptions.RequestException as e:
+        err_msg = translate_api_error(exception=e)
+        log_llm_interaction(adv_dir, messages, "NETWORK_ERROR", error=err_msg, attempt=attempt)
+        return None, err_msg
+    except Exception as e:
+        log_llm_interaction(adv_dir, messages, "INTERNAL_ENGINE_CRASH", error=str(e), attempt=attempt)
+        return None, f"Internal Engine Crash: {str(e)}"
+
+
 def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mode=False, is_campaign=False, track_inventory=False, can_die=False, is_test_mode=False, inv_schema=None, override_tokens=None, override_temp=None):
     """
     Master API request function. Handles payload construction, dynamic 
@@ -598,14 +694,11 @@ def get_llm_response(messages, attempt, adv_dir, prev_story_text=None, is_fix_mo
     if "generativelanguage.googleapis.com" not in api_url:
         payload["frequency_penalty"] = 0.3
         payload["presence_penalty"] = 0.4
-    
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-    
+    apply_json_response_format(payload)
+
     try:
         enforce_rate_limit()
-        response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        response = requests.post(api_url, headers=_chat_headers(), json=payload, timeout=60)
         
         if response.status_code != 200:
             err_msg = translate_api_error(response=response)
@@ -666,28 +759,20 @@ def generate_recap(setup_data, history):
     history_text = "".join([f"{t.get('story_text', '')}\nPlayer Action: {t.get('player_choice', '')}\n\n" for t in history[:-1]])[-15000:]
     adv_title = setup_data.get('title', 'The Adventure')
     
-    sys_prompt = PROMPTS.get("SYS_RECAP", "").replace("{adv_title}", adv_title)
-    user_prompt = PROMPTS.get("USER_RECAP", "").replace("{history_text}", history_text)
-    
-    messages =[
+    sys_prompt = require_prompt("SYS_RECAP").replace("{adv_title}", adv_title)
+    user_prompt = require_prompt("USER_RECAP").replace("{history_text}", history_text)
+
+    messages = [
         {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_prompt}
+        {"role": "user", "content": user_prompt},
     ]
-    
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip(): headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-    payload = {"model": ENGINE_CONFIG.get("model", "loaded-model"), "messages": messages, "temperature": 0.5, "max_tokens": ENGINE_CONFIG.get("max_tokens", 2000)}
-    
-    try:
-        enforce_rate_limit()
-        response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
-        
-        if response.status_code != 200:
-            return f"API Error ({response.status_code}): {extract_api_error(response)}"
-            
-        return response.json()['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        return f"Failed to generate recap: {str(e)}"
+
+    content, err = post_chat(
+        messages, expect_json=False, temperature=0.5, timeout=120, adv_dir=None, attempt=1
+    )
+    if err:
+        return f"Failed to generate recap: {err}"
+    return content
         
         
 
@@ -711,8 +796,8 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
         # We now simply print to the UI Console tab
         print(f"{Style.DIM}Bridging Turn {turn_num}: {msg}{Style.RESET_ALL}")
 
-    system_prompt = PROMPTS.get("SYS_BRIDGE", "")
-    user_prompt = PROMPTS.get("USER_BRIDGE", "")
+    system_prompt = require_prompt("SYS_BRIDGE")
+    user_prompt = require_prompt("USER_BRIDGE")
     user_prompt = user_prompt.replace("{pov}", pov)
     user_prompt = user_prompt.replace("{action}", action)
     user_prompt = user_prompt.replace("{c_text}", c_text)
@@ -722,24 +807,22 @@ def generate_narrative_bridge(prev_turn, action, current_turn):
         {"role": "user", "content": user_prompt}
     ]
 
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-    
     max_attempts = 5
     for attempt in range(max_attempts):
         log_status(f"Converting action to prose (Attempt {attempt+1}/{max_attempts})...")
-        
-        payload = {
-            "model": ENGINE_CONFIG.get("model"),
-            "messages": messages,
-            "temperature": 0.1 + (attempt * 0.2), # Slightly increase temp on retries
-            "max_tokens": 60 
-        }
 
         try:
-            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
-            raw_bridge = response.json()['choices'][0]['message']['content'].strip()
+            raw_bridge, err = post_chat(
+                messages,
+                expect_json=False,
+                temperature=0.1 + (attempt * 0.2),
+                max_tokens=60,
+                timeout=30,
+                attempt=attempt + 1,
+            )
+            if err or raw_bridge is None:
+                time.sleep(1)
+                continue
             
             if "[OK]" in raw_bridge.upper():
                 log_status(f"{Fore.GREEN}[OK] Already seamless")
@@ -850,30 +933,28 @@ def generate_missing_choices(story_text, turn_num):
     
     print(f"{Style.DIM}Generating missing choices for Turn {turn_num}...{Style.RESET_ALL}")
 
-    system_prompt = PROMPTS.get("SYS_CHOICES", "")
-    user_prompt = PROMPTS.get("USER_CHOICES", "").replace("{story_text}", story_text)
+    system_prompt = require_prompt("SYS_CHOICES")
+    user_prompt = require_prompt("USER_CHOICES").replace("{story_text}", story_text)
 
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
 
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-    
     max_attempts = 3
     for attempt in range(max_attempts):
-        payload = {
-            "model": ENGINE_CONFIG.get("model", "loaded-model"),
-            "messages": messages,
-            "temperature": 0.6 + (attempt * 0.1), # Warm temp for varied choices
-            "max_tokens": 150 
-        }
-
         try:
-            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
-            raw = response.json()['choices'][0]['message']['content'].strip()
+            raw, err = post_chat(
+                messages,
+                expect_json=True,
+                temperature=0.6 + (attempt * 0.1),
+                max_tokens=150,
+                timeout=30,
+                attempt=attempt + 1,
+            )
+            if err or raw is None:
+                time.sleep(1)
+                continue
             
             # Use the existing regex to aggressively extract the array
             array_match = re.search(r'\[([\s\S]*?)\]', raw)
@@ -913,10 +994,10 @@ def generate_single_choice(story_text, current_choices):
     
     print(f"{Style.DIM}Generating single replacement choice...{Style.RESET_ALL}")
 
-    sys_prompt = PROMPTS.get("SYS_SINGLE_CHOICE", "You are an interactive fiction engine. Output ONLY a JSON array containing one string.")
-    
+    sys_prompt = require_prompt("SYS_SINGLE_CHOICE")
+
     choices_str = "\n".join([f"- {c}" for c in current_choices])
-    user_prompt = PROMPTS.get("USER_SINGLE_CHOICE", "SCENE:\n{story_text}\n\nAVOID THESE CHOICES:\n{current_choices}\n\nOutput ONLY a raw JSON array containing ONE new choice string.")
+    user_prompt = require_prompt("USER_SINGLE_CHOICE")
     user_prompt = user_prompt.replace("{story_text}", story_text)
     user_prompt = user_prompt.replace("{current_choices}", choices_str)
 
@@ -925,22 +1006,20 @@ def generate_single_choice(story_text, current_choices):
         {"role": "user", "content": user_prompt}
     ]
 
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-    
     max_attempts = 3
     for attempt in range(max_attempts):
-        payload = {
-            "model": ENGINE_CONFIG.get("model", "loaded-model"),
-            "messages": messages,
-            "temperature": 0.7 + (attempt * 0.1), # Warm temp for creativity
-            "max_tokens": 50 
-        }
-
         try:
-            response = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
-            raw = response.json()['choices'][0]['message']['content'].strip()
+            raw, err = post_chat(
+                messages,
+                expect_json=True,
+                temperature=0.7 + (attempt * 0.1),
+                max_tokens=50,
+                timeout=30,
+                attempt=attempt + 1,
+            )
+            if err or raw is None:
+                time.sleep(1)
+                continue
             
             # Aggressively extract the single string from the array
             array_match = re.search(r'\[([\s\S]*?)\]', raw)
@@ -980,8 +1059,8 @@ def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir, ol
     goal = active_obj.get("goal", "Survive")
     obs = active_obj.get("obstacles", "None")
     
-    sys_prompt = PROMPTS.get("SYS_AUDITOR", "You are a strict game logic auditor. Output ONLY valid JSON.")
-    user_prompt = PROMPTS.get("USER_AUDITOR", "").replace("{context}", ctx_text)
+    sys_prompt = require_prompt("SYS_AUDITOR")
+    user_prompt = require_prompt("USER_AUDITOR").replace("{context}", ctx_text)
     user_prompt = user_prompt.replace("{goal}", goal).replace("{obstacles}", obs)
     
     # Inject current inventory for the auditor to update
@@ -989,30 +1068,29 @@ def evaluate_campaign_objective(context_turns, new_turn, active_obj, adv_dir, ol
         user_prompt += f"\n\nCURRENT INVENTORY/STATE:\n{old_inventory}\n\nTASK: Update the inventory string based on the LATEST SCENE. If an item was found, add it. If used or lost, remove it. If health/status changed, update it. Keep the format exactly the same."
 
     messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-        
+
     for attempt in range(2):
-        payload = {
-            "model": ENGINE_CONFIG.get("model", "loaded-model"),
-            "messages": messages, "temperature": 0.1, "max_tokens": 300
-        }
         try:
-            enforce_rate_limit()
-            resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
-            if resp.status_code == 200:
-                raw = resp.json()['choices'][0]['message']['content'].strip()
-                from llm import sanitize_json
-                clean_json = sanitize_json(raw)
-                data = json.loads(clean_json, strict=False)
-                
-                res = {
-                    "achieved": str(data.get("objective_achieved", False)).lower() == "true",
-                    "reason": data.get("reasoning", "No reason provided."),
-                    "inventory": data.get("inventory_and_state", old_inventory)
-                }
-                return res
+            raw, err = post_chat(
+                messages,
+                expect_json=True,
+                temperature=0.1,
+                max_tokens=300,
+                timeout=30,
+                attempt=attempt + 1,
+            )
+            if err or not raw:
+                time.sleep(1)
+                continue
+            clean_json = sanitize_json(raw)
+            data = json.loads(clean_json, strict=False)
+
+            res = {
+                "achieved": str(data.get("objective_achieved", False)).lower() == "true",
+                "reason": data.get("reasoning", "No reason provided."),
+                "inventory": data.get("inventory_and_state", old_inventory),
+            }
+            return res
         except Exception:
             time.sleep(1)
     

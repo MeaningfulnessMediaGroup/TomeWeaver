@@ -29,6 +29,63 @@ _REPEAT_ALLOW = frozenset({"ha", "la", "na", "oh", "um", "uh"})
 
 _CLOSING_QUOTES = "'\"\u2019\u201d"
 
+# Pronoun contractions ending in 's — not possessive nouns (Carl's, men's).
+_APOSTROPHE_S_CONTRACTIONS = frozenset(
+    {
+        "it's",
+        "he's",
+        "she's",
+        "that's",
+        "there's",
+        "here's",
+        "what's",
+        "who's",
+        "where's",
+        "when's",
+        "how's",
+        "why's",
+        "let's",
+    }
+)
+
+_WORD_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'")
+_APOSTROPHE_CHARS = "'\u2019\u2018`"
+
+
+def _normalize_apostrophe(text: str) -> str:
+    return (text or "").replace("\u2019", "'").replace("\u2018", "'").replace("`", "'")
+
+
+def is_noun_possessive(word: str) -> bool:
+    """True for noun possessives (men's, Carl's); false for it's/he's contractions."""
+    w = _normalize_apostrophe((word or "").strip())
+    if not w or len(w) < 3:
+        return False
+    lower = w.lower()
+    if not lower.endswith("'s"):
+        return False
+    if lower in _APOSTROPHE_S_CONTRACTIONS:
+        return False
+    if re.search(r"(?i)'(?:re|ve|ll|d|m|t)\b", lower):
+        return False
+    if lower.endswith("n't"):
+        return False
+    stem = lower[:-2]
+    return bool(stem and re.match(r"^[a-z][a-z'-]*$", stem))
+
+
+def _word_at_index(text: str, index: int) -> tuple[str, int, int]:
+    """Return (word, start, end) spanning letters/apostrophes around *index*."""
+    if not text or index < 0 or index >= len(text):
+        return "", index, index
+    left = index
+    while left > 0 and text[left - 1] in _WORD_CHARS:
+        left -= 1
+    right = index
+    while right < len(text) and text[right] in _WORD_CHARS:
+        right += 1
+    return text[left:right], left, right
+
 
 def _issue(start, end, message, replacement=None, rule_id=""):
     return {
@@ -59,7 +116,7 @@ def _is_ellipsis_period(text, period_index):
 
 
 def _rule_repeated_words(text, issues, seen):
-    for match in re.finditer(r"(?i)\b([a-z']{2,})\s+\1\b", text):
+    for match in re.finditer(r"(?i)\b([a-z]+(?:'[a-z]+)?)\s+\1\b", text):
         word = match.group(1).lower()
         if word in _REPEAT_ALLOW:
             continue
@@ -124,6 +181,9 @@ def _rule_lowercase_after_sentence_end(text, issues, seen):
     for match in re.finditer(r'(?<=[.!?])\s+([a-z])', text):
         period_index = match.start() - 1
         if _is_ellipsis_period(text, period_index):
+            continue
+        word, _, _ = _word_at_index(text, match.start(1))
+        if is_noun_possessive(word):
             continue
         letter = match.group(1)
         _add_issues(

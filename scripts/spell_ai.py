@@ -10,11 +10,8 @@ from __future__ import annotations
 import re
 import time
 
-import requests
-
-from config import ENGINE_CONFIG, PROMPTS
-from llm import enforce_rate_limit
-from logger import log_llm_interaction
+from config import ENGINE_CONFIG, require_prompt
+from llm import post_chat
 
 
 def extract_local_context(text, start, end, window=120):
@@ -67,14 +64,8 @@ def fetch_ai_word_suggestions(
     if not api_url:
         return False, "No LLM API configured. Set an active profile in Dashboard → Settings."
 
-    sys_prompt = (
-        PROMPTS.get("SYS_SPELL_AI", "").strip()
-        or "You suggest spelling or wording fixes. Reply with up to 5 replacements, one per line, or NONE."
-    )
-    user_tpl = PROMPTS.get(
-        "USER_SPELL_AI",
-        'Flagged text: "{word}"\nNearby prose: "{context}"\nPreferred locale: {locale}',
-    )
+    sys_prompt = require_prompt("SYS_SPELL_AI").strip()
+    user_tpl = require_prompt("USER_SPELL_AI")
     user_prompt = (
         user_tpl.replace("{word}", word or "")
         .replace("{context}", (context or "")[:500])
@@ -87,36 +78,24 @@ def fetch_ai_word_suggestions(
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    headers = {"Content-Type": "application/json"}
-    if ENGINE_CONFIG.get("api_key", "").strip():
-        headers["Authorization"] = f"Bearer {ENGINE_CONFIG['api_key']}"
-
-    payload = {
-        "model": ENGINE_CONFIG.get("model", "loaded-model"),
-        "messages": messages,
-        "temperature": 0.2,  # Low variance — we want direct replacements, not prose.
-        "max_tokens": 80,
-    }
 
     last_err = "LLM request failed."
     for attempt in range(2):
-        try:
-            enforce_rate_limit()
-            resp = requests.post(api_url, headers=headers, json=payload, timeout=20)
-            if resp.status_code != 200:
-                last_err = resp.text[:200] or f"HTTP {resp.status_code}"
-                time.sleep(1)
-                continue
-            raw = resp.json()["choices"][0]["message"]["content"].strip()
-            if adv_dir:
-                log_llm_interaction(adv_dir, messages, raw, attempt=attempt + 1)
-            return True, parse_ai_suggestion_lines(raw)
-        except requests.exceptions.RequestException as exc:
-            last_err = str(exc)
+        raw, err = post_chat(
+            messages,
+            expect_json=False,
+            temperature=0.2,
+            max_tokens=80,
+            timeout=20,
+            adv_dir=adv_dir,
+            attempt=attempt + 1,
+        )
+        if err:
+            last_err = err
             time.sleep(1)
-        except (KeyError, IndexError, ValueError) as exc:
-            last_err = f"Unexpected LLM response: {exc}"
-            break
+            continue
+        if raw:
+            return True, parse_ai_suggestion_lines(raw)
     return False, last_err
 
 

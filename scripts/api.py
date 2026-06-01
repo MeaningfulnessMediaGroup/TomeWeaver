@@ -16,6 +16,7 @@ from pathlib import Path
 from sandbox import SandboxEngine
 from campaign import CampaignEngine
 from config import create_boilerplate_files, get_adventures_dir
+from llm import apply_json_response_format
 
 def get_adv_dir():
     """Resolved adventures library root (see ``config.get_adventures_dir``)."""
@@ -1043,6 +1044,7 @@ class TomeWeaverAPI:
             }
             
             try:
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = f"API Error {resp.status_code}"
@@ -1298,6 +1300,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(
                     ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90
                 )
@@ -1392,6 +1395,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code != 200:
                     from llm import translate_api_error
@@ -1444,7 +1448,7 @@ class TomeWeaverAPI:
             for k in ["title", "setting", "objectives"]:
                 if prev_chapter.get(k): prev_str += f"{k.title()}: {prev_chapter[k]}\n"
 
-        sys_prompt = PROMPTS.get("SYS_CHAP_GEN", "You are an expert campaign writer. Output ONLY a flat JSON Dictionary matching the chapter schema.")
+        sys_prompt = PROMPTS.get("SYS_CHAP_GEN", "")
         # Explicitly mandate the Sequential Array format so it generates 2 to 4 micro-objectives
         sys_prompt += '\n\nREQUIRED FORMAT:\n{\n  "title": "Chapter Title",\n  "setting": "Base Location",\n  "pov": "POV",\n  "time": "Time jump",\n  "objectives": [\n    {"goal": "Step 1 micro-objective", "obstacles": "Threats", "setting": "Location", "pov": "POV"},\n    {"goal": "Step 2 micro-objective", "obstacles": "Threats", "setting": "Location", "pov": "POV"}\n  ]\n}\nNOTE: You MUST provide 2 to 4 sequential micro-objectives.'
         
@@ -1469,6 +1473,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code != 200:
                     from llm import translate_api_error
@@ -1561,6 +1566,7 @@ class TomeWeaverAPI:
             }
             
             try:
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = f"API Error {resp.status_code}"
@@ -1653,7 +1659,7 @@ class TomeWeaverAPI:
         import requests, re, time
         
         # USE THE NEW UNIVERSE-SPECIFIC PROMPTS
-        sys_prompt = PROMPTS.get("SYS_UNIVERSE_GEN", "You are a master world-builder. Output ONLY valid JSON.")
+        sys_prompt = PROMPTS.get("SYS_UNIVERSE_GEN", "")
         
         schema = "{\n"
         schema += '  "universe_title": "A catchy, compelling name for this entire universe",\n'
@@ -1689,6 +1695,7 @@ class TomeWeaverAPI:
             }
             
             try:
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = f"API Error {resp.status_code}"
@@ -1739,7 +1746,7 @@ class TomeWeaverAPI:
         from llm import sanitize_json, enforce_rate_limit
         import requests, time, json
         
-        sys_prompt = PROMPTS.get("SYS_SCHEMA_GEN", "You are an expert game designer. Output ONLY valid JSON.")
+        sys_prompt = PROMPTS.get("SYS_SCHEMA_GEN", "")
         user_prompt = PROMPTS.get("USER_AUTO_STYLE", "")
         user_prompt = user_prompt.replace("{inventory_json}", json.dumps(inventory_dict, indent=2))
 
@@ -1758,6 +1765,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=30)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2054,7 +2062,7 @@ class TomeWeaverAPI:
         if edit_type == "polish":
             user_prompt = PROMPTS.get("USER_BRIDGE_POLISH", "").replace("{bridge}", bridge_text)
         elif edit_type == "condense":
-            user_prompt = PROMPTS.get("USER_BRIDGE_CONDENSE", "Concisely summarize and shorten this transition sentence:\n'{bridge}'").replace("{bridge}", bridge_text)
+            user_prompt = PROMPTS.get("USER_BRIDGE_CONDENSE", "").replace("{bridge}", bridge_text)
         else:
             user_prompt = PROMPTS.get("USER_BRIDGE_EXPAND", "").replace("{bridge}", bridge_text)
 
@@ -2185,6 +2193,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2237,6 +2246,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2288,6 +2298,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2335,6 +2346,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2376,6 +2388,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2419,6 +2432,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2465,6 +2479,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = translate_api_error(response=resp)
@@ -2524,6 +2539,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = translate_api_error(response=resp)
@@ -2573,6 +2589,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=60)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2609,6 +2626,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=90)
                 if resp.status_code == 200:
                     raw = resp.json()['choices'][0]['message']['content'].strip()
@@ -2667,6 +2685,7 @@ class TomeWeaverAPI:
             }
             try:
                 enforce_rate_limit()
+                apply_json_response_format(payload)
                 resp = requests.post(ENGINE_CONFIG["api_url"], headers=headers, json=payload, timeout=120)
                 if resp.status_code != 200:
                     err = translate_api_error(response=resp)

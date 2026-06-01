@@ -100,3 +100,19 @@ class TestValidateTurnSchema:
         assert err is None
         assert "Line one Line two continues" in data["story_text"]
         assert "New paragraph." in data["story_text"]
+
+    def test_strips_leading_whitespace_on_paragraphs(self):
+        payload = _minimal_turn(
+            story_text="First para.\n\n\tSecond para.\n\n   Third para."
+        )
+        data, err = validate_turn_schema(payload, is_test_mode=True)
+        assert err is None
+        assert data["story_text"] == "First para.\n\nSecond para.\n\nThird para."
+
+    def test_sanitizes_escaped_quote_dialogue_in_story_text(self):
+        payload = _minimal_turn(
+            story_text='She whispered \\"not yet\\" and turned away.\\"'
+        )
+        data, err = validate_turn_schema(payload, is_test_mode=True)
+        assert err is None
+        assert data["story_text"] == "She whispered 'not yet' and turned away."

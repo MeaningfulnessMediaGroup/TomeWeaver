@@ -33,7 +33,7 @@ IGNORE_WORDS = frozenset(
     }
 )
 
-from grammar_lint import GRAMMAR_ERROR_TAG, scan_grammar
+from grammar_lint import GRAMMAR_ERROR_TAG, is_noun_possessive, scan_grammar
 
 _SPELL_TAG = "spell_error"
 
@@ -594,12 +594,26 @@ class OfflineSpellChecker:
                 return True
         return False
 
+    def _possessive_valid(self, lower):
+        """Accept men's, Carl's, etc. when the stem is a known word."""
+        if not is_noun_possessive(lower):
+            return False
+        stem = normalize_apostrophe(lower)[:-2]
+        if self._base_known(stem):
+            return True
+        for candidate in singular_candidates(stem):
+            if self._base_known(candidate):
+                return True
+        return False
+
     def is_correct(self, word):
         token = normalize_token(word)
         if not token:
             return True
         lower = normalize_apostrophe(token.lower())
         if self._contraction_valid(lower):
+            return True
+        if self._possessive_valid(lower):
             return True
         if self._base_known(lower):
             return True

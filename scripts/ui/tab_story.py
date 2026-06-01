@@ -13,6 +13,7 @@ from tkinter import messagebox
 from ui.tooltip import Tooltip
 from prose_utils import (
     DIRECTOR_BLANK_TURN_STORY_PLACEHOLDER,
+    clean_prose,
     editor_story_display_text,
     is_director_blank_turn_placeholder,
     is_hidden_card_player_choice,
@@ -99,18 +100,6 @@ class CTkFlowFrame(ctk.CTkFrame):
             pill.master = current_row
             pill.pack(side="left", padx=(0, pad_x))
             current_width += w + pad_x
-
-
-def clean_prose(text):
-    """Aggressively formats text for professional e-reader line spacing."""
-    if not text: return ""
-    # 1. Convert all literal newlines to spaces to completely flatten the AI's artificial wrapping
-    text = text.replace("\\n", "\n").replace("\r", "")
-    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
-    # 2. Convert 3+ newlines to exactly 2 (standard paragraph break)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    # 3. Clean up double spaces
-    return re.sub(r' {2,}', ' ', text).strip()
 
 
 class StoryTab(ctk.CTkFrame):
@@ -539,7 +528,7 @@ class StoryTab(ctk.CTkFrame):
             self._prose_dirty_turn_idx = None
             return True
 
-        new_text = self._get_inline_prose_text()
+        new_text = clean_prose(self._get_inline_prose_text())
         if new_text == self._prose_loaded_text:
             self._prose_dirty = False
             self._prose_dirty_turn_idx = None

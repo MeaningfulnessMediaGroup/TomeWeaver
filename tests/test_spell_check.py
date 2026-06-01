@@ -122,6 +122,22 @@ def test_common_contractions_accepted(text):
     assert checker.scan_text(text) == [], f"Unexpected flags in: {text!r}"
 
 
+@pytest.mark.parametrize(
+    "word",
+    ["men's", "women's", "children's", "Carl's", "dog's", "James's"],
+)
+def test_noun_possessives_accepted(word):
+    checker = OfflineSpellChecker()
+    assert checker.is_correct(word)
+    assert checker.scan_text(f"She studied {word} health.") == []
+
+
+def test_noun_possessive_prose_scan():
+    checker = OfflineSpellChecker()
+    text = "Carl's car carried men's supplies and women's gear."
+    assert checker.scan_text(text) == []
+
+
 def test_contraction_expansion_lookup():
     from spell_check import contraction_expansions
 

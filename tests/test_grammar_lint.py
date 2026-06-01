@@ -95,3 +95,24 @@ def test_prose_with_quoted_dialogue_and_ellipsis():
 def test_real_sentence_end_still_flags_lowercase():
     issues = scan_grammar("End. the next")
     assert any(i["rule_id"] == "lowercase_after_sentence" for i in issues)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "men's baldness",
+        "Carl's car",
+        "the dog's food",
+        "He left. men's baldness returned.",
+        "She agreed. Carl's car was gone.",
+        "women's rights",
+        "children's books",
+    ],
+)
+def test_noun_possessives_not_flagged(text):
+    assert scan_grammar(text) == []
+
+
+def test_lowercase_after_sentence_still_flags_non_possessive():
+    issues = scan_grammar("Done. the dog barked.")
+    assert any(i["rule_id"] == "lowercase_after_sentence" for i in issues)
