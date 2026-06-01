@@ -33,10 +33,10 @@
 \setlength{\parskip}{0.2em} % Slightly tighter paragraph spacing
 
 \title{
-    \Large \textbf{The Narrative State Machine (NSM) Architecture} \\
+    \Large \textbf{The Language State Machine (LSM) Architecture} \\
     \large A Reference Framework for Stateful AI Narrative Orchestration \\
     \vspace{1em}
-    \small Protocol ID: \texttt{MMG-NSM-1.0} \\
+    \small Protocol ID: \texttt{MMG-LSM-1.0} \\
     \small \textbf{Status:} \textit{Systems Specification for Persistent Generative Realities}
 }
 
@@ -65,11 +65,11 @@
 
 \begin{abstract}
 \noindent
-Large Language Models (LLMs) are fundamentally stateless functions. When applied to long-form interactive fiction, relying exclusively on the model's context window for state management leads to a structural failure we term \textit{Contextual Amnesia}---the inevitable decay of established world facts over long sessions. This paper proposes the Narrative State Machine (NSM), a software architecture that decouples generative prose from absolute world state. By treating the story as an indexed database rather than a chat transcript, we constrain the LLM to act strictly as a rendering engine. We introduce TomeWeaver as a reference implementation, detailing its six-layer KERNEL architecture, its dual-tiered Retrieval-Augmented Generation (RAG) memory system, and its approach to non-destructive timeline editing. Ultimately, we argue that narrative coherence is not a prompting problem, but an architectural one: the LLM must be treated not as an authoritative record of reality, but as a \textbf{probabilistic coprocessor} orchestrated by a deterministic state machine, preventing unvalidated structural corruption while keeping narrative truth under the Director's active control.
+Large Language Models (LLMs) are fundamentally stateless functions. When applied to long-form interactive fiction, relying exclusively on the model's context window for state management leads to a structural failure we term \textit{Contextual Amnesia}---the inevitable decay of established world facts over long sessions. This paper proposes the Language State Machine (LSM), a software architecture that decouples generative prose from absolute world state. By treating the story as an indexed database rather than a chat transcript, we constrain the LLM to act strictly as a rendering engine. We introduce TomeWeaver as a reference implementation, detailing its six-layer KERNEL architecture, its dual-tiered Retrieval-Augmented Generation (RAG) memory system, and its approach to non-destructive timeline editing. Ultimately, we argue that narrative coherence is not a prompting problem, but an architectural one: the LLM must be treated not as an authoritative record of reality, but as a \textbf{probabilistic coprocessor} orchestrated by a deterministic state machine, preventing unvalidated structural corruption while keeping narrative truth under the Director's active control.
 \end{abstract}
 
 \vspace{0.5em}
-\noindent\textbf{Keywords:} Narrative State Machines, Retrieval-Augmented Generation, Interactive Fiction, LLM Systems Design, State Management.
+\noindent\textbf{Keywords:} Language State Machines, Retrieval-Augmented Generation, Interactive Fiction, LLM Systems Design, State Management.
 
 \vspace{1em}
 \noindent
@@ -92,7 +92,7 @@ Large Language Models (LLMs) are fundamentally stateless functions. When applied
 \fancyhf{}
 \renewcommand{\sectionmark}[1]{\markboth{#1}{}}
 \renewcommand{\subsectionmark}[1]{}
-\fancyhead[L]{\footnotesize MMG-NSM-1.0}
+\fancyhead[L]{\footnotesize MMG-LSM-1.0}
 \fancyhead[R]{\footnotesize \nouppercase{\leftmark}}
 \cfoot{
     Page \thepage\ of \pageref{LastPage}
@@ -119,26 +119,26 @@ This paper is not about how to write a more desperate, thousand-word system prom
 
 The architectural question we have to answer is blunt: \textit{where should narrative state live, and who is actually allowed to mutate it while the LLM is generating?}
 
-\subsection{The Narrative State Machine}
+\subsection{The Language State Machine}
 
 The solution is to stop treating the story as a disposable chat log and start treating it as a state machine. 
 
-I propose the \textbf{Narrative State Machine (NSM)} architecture. It is a strict decoupling of generative prose from absolute world state. The LLM shouldn't own your reality. It should simply be the rendering engine that paints it. 
+I propose the \textbf{Language State Machine (LSM)} architecture. It is a strict decoupling of generative prose from absolute world state. The LLM shouldn't own your reality. It should simply be the rendering engine that paints it. 
 
-To prove this is not just academic theory, I built \textbf{TomeWeaver}. It is a working, open-source reference implementation of the NSM pattern. It utilizes a layered architecture to physically isolate the LLM from the actual game state, wrapping the model in deterministic Python logic that prevents hallucinated facts from automatically corrupting the ledger. By treating the active turn as a mutable, provisional draft, the system prevents unvalidated structural corruption of the ledger, keeping narrative truth under the Director's active control before any state is permanently committed.
+To prove this is not just academic theory, I built \textbf{TomeWeaver}. It is a working, open-source reference implementation of the LSM pattern. It utilizes a layered architecture to physically isolate the LLM from the actual game state, wrapping the model in deterministic Python logic that prevents hallucinated facts from automatically corrupting the ledger. By treating the active turn as a mutable, provisional draft, the system prevents unvalidated structural corruption of the ledger, keeping narrative truth under the Director's active control before any state is permanently committed.
 
 \subsection{Scope and Contributions}
 
 This paper makes three specific contributions to the field of computational narratology:
 \begin{enumerate}
-    \item It defines the Narrative State Machine as a reference architecture that any developer can implement in whole or in part. 
+    \item It defines the Language State Machine as a reference architecture that any developer can implement in whole or in part. 
     \item It offers the \textbf{KERNEL} decomposition: six inspectable layers of narrative state management that prevent developers from collapsing their architecture back into a monolithic prompt string.
     \item It provides a worked reference implementation (TomeWeaver) complete with on-disk cartridge formats, a headless engine, and automated tests.
 \end{enumerate}
 
 To be explicit about the scope of this work: this is a systems design and architecture paper, not an empirical benchmark report. The evaluation metrics proposed in Section \ref{sec:falsifiability} define future comparative work, while TomeWeaver serves as the working reference implementation used to demonstrate the computational feasibility of the pattern.
 
-By decoupling the generative capabilities of the LLM from the storage of reality, this methodology addresses a growing crisis in commercial AI deployment: trust. Systems that cannot be deterministically audited cannot be trusted with persistent data. While current literature heavily focuses on multi-agent debate or chain-of-thought reasoning to improve accuracy from \textit{within} the prompt, we argue that structural scaffolding at the \textit{application layer} yields far more reliable and computationally efficient results. The NSM framework shifts the burden of coherence from the probabilistic model to the deterministic engine.
+By decoupling the generative capabilities of the LLM from the storage of reality, this methodology addresses a growing crisis in commercial AI deployment: trust. Systems that cannot be deterministically audited cannot be trusted with persistent data. While current literature heavily focuses on multi-agent debate or chain-of-thought reasoning to improve accuracy from \textit{within} the prompt, we argue that structural scaffolding at the \textit{application layer} yields far more reliable and computationally efficient results. The LSM framework shifts the burden of coherence from the probabilistic model to the deterministic engine.
 
 Although long-form interactive fiction serves as the proving ground for this architecture, the underlying pattern generalizes to any persistent generative simulation where probabilistic outputs must be reconciled with durable state (e.g., multi-agent ecosystems or AI-assisted game engines).
 
@@ -188,7 +188,7 @@ The truth of the world is held externally by the engine---in schemas, chronologi
 \small
 \begin{tabular}{@{}p{0.20\textwidth}p{0.36\textwidth}p{0.36\textwidth}@{}}
 \toprule
-\textbf{Dimension} & \textbf{State-Anemic (Chatbots)} & \textbf{State-Rigorous (NSM)} \\
+\textbf{Dimension} & \textbf{State-Anemic (Chatbots)} & \textbf{State-Rigorous (LSM)} \\
 \midrule
 \textbf{Primary Artifact} & Plaintext chat transcript & Cartridge: Schema + Ledger + Memory \\
 \textbf{Long Memory} & Context-window stuffing & Compiled RAG + Scoped Injection \\
@@ -207,7 +207,7 @@ But if you are building an engine for \textit{sustained campaigns}---stories tha
 
 \subsection{The Necessity of Structural Scaffolding}
 
-A common counter-argument in the generative AI space is that models will eventually "reason" their way out of hallucination if given enough time and parameter count. This perspective treats coherence as a cognitive goal for the model to achieve. The NSM framework rejects this as an unreliable systems-engineering path. Coherence is not a cognitive task; it is a structural one.
+A common counter-argument in the generative AI space is that models will eventually "reason" their way out of hallucination if given enough time and parameter count. This perspective treats coherence as a cognitive goal for the model to achieve. The LSM framework rejects this as an unreliable systems-engineering path. Coherence is not a cognitive task; it is a structural one.
 
 By providing external scaffolding---hardcoded schemas for inventory, sequential master clocks for time, and fidelity-scored ledgers for memory---we relieve the model of the burden of maintaining reality. This allows the prose engine to focus entirely on its greatest strength: linguistic creativity. In this model, the engine's "intellect" is not found in the latent space of the model, but in the structural integrity of the application surrounding it. We move from hoping for a smarter AI to architecting a more durable reality.
 
@@ -218,7 +218,7 @@ This structural scaffolding creates what we term \textbf{Ontological Anchoring}.
 \begin{figure}[hbt!]
     \centering
     \includegraphics[width=1\textwidth]{images/fig_topology.png}
-    \caption{Data topology comparison. State-anemic systems (left) rely on a volatile, linear context window subject to attention dilution and truncation. The NSM architecture (right) compartmentalizes data into discrete, queryable ledgers, assembling context deterministically at runtime.}
+    \caption{Data topology comparison. State-anemic systems (left) rely on a volatile, linear context window subject to attention dilution and truncation. The LSM architecture (right) compartmentalizes data into discrete, queryable ledgers, assembling context deterministically at runtime.}
     \label{fig:topology}
 \end{figure}
 
@@ -235,7 +235,7 @@ This structural scaffolding creates what we term \textbf{Ontological Anchoring}.
 
 Every piece of software that allows a user to edit a long, complex document eventually has to define what the word "edit" actually means. In the Chatbot Era, an edit is treated as a localized overwrite. You scrub the text, replace it, and the old reality simply ceases to exist.
 
-When you are trying to orchestrate a complex, branching narrative, overwrite-based editing is toxic. It leads to what we term \textbf{Cumulative Hallucination}. If the model hallucinates a factual error on Turn 10, and the user manually "fixes" the text without correcting the underlying RAG memory or ledger state, the system enters a state of internal contradiction. The model continues to reference the error (which still exists in its latent memory), while the user sees the correction. This destroys forensic traceability. If the story stops making sense at Turn 50, you cannot look back and see \textit{why} the plot derailed if you've been silently overwriting the evidence for the last 40 turns. 
+When orchestrating a complex, branching narrative, overwrite-based editing is toxic, leading to \textbf{Cumulative Hallucination}. If the model hallucinates a factual error on Turn 10, and the user manually "fixes" the prose without correcting the underlying RAG or ledger state, the system enters an internal contradiction: the model continues to reference the error in its latent memory while the user sees the correction. This destroys forensic traceability. If the narrative derails at Turn 50, tracing the causal error is impossible if the intervening states have been silently overwritten.
 
 TomeWeaver operates on a fundamentally different principle: \textbf{Non-Destructive Orchestration}.
 
@@ -243,7 +243,7 @@ TomeWeaver operates on a fundamentally different principle: \textbf{Non-Destruct
     \textit{The past is evidence, not draft material. Creative revision must preserve causal traceability.}
 \end{center}
 
-To enforce this, the engine relies on a \textbf{Master Clock}---a strict, sequential integer index assigned by the Python backend to every generated turn. We must distinguish between \textit{Latent Time} (the model's unreliable internal perception of event sequence) and \textit{Engine Time} (the deterministic coordinate system of the ledger). LLMs are notoriously incapable of tracking absolute time or counting accurately over long contexts. By externalizing the temporal axis into the Master Clock, the engine provides a persistent coordinate system for reality. This ensures that every fact, item discovery, or character death is timestamped and immutable once committed.
+To enforce this, the engine relies on a \textbf{Master Clock}---a strict, sequential integer index assigned by the Python backend to every generated turn. We must distinguish between \textit{Latent Time} (the model's unreliable internal perception of event sequence) and \textit{Engine Time} (the deterministic coordinate system of the ledger). LLMs are notoriously incapable of tracking absolute time or counting accurately over long contexts. By externalizing the temporal axis into the Master Clock, the engine guarantees that causality only flows in one direction. This relative temporal coordinate system ensures that every fact, item discovery, or character death is timestamped and, once committed, \textbf{immutable from the perspective of the AI} (the model is physically locked out of altering history, while the human Director retains full administrative editing rights).
 
 Within this model, we introduce the distinction between the \textbf{Provisional Active Turn} and the \textbf{Committed Past}. When the engine generates Turn $N$ (the active turn), it is written to disk for persistence, but it remains in an open, mutable state. Because no downstream decisions depend on it yet, the Director can freely edit, polish, or reroll this active turn without causal consequence. The turn is only "committed" to the immutable past the exact moment the Director submits an action to generate Turn $N+1$. 
 
@@ -258,7 +258,7 @@ Non-Destructive Orchestration isn't just an academic philosophy; it dictates the
 
 \begin{itemize}
     \item \textbf{Narrative Bridging:} In standard AI interfaces, player actions suffer from the "Jump Cut" problem. If a player types "Walk to the tavern," the AI immediately generates prose describing the interior of the tavern, skipping the physical transition. TomeWeaver provides a highly configurable narrative bridging pipeline. When enabled (or triggered on-demand by the Director), the engine intercepts the generation loop and asks the AI to generate a single, specific \textit{narrative bridge} sentence linking the action to the consequence (e.g., "Pulling his cloak tight against the wind, he pushed through the heavy oak doors."). This bridge is stored as metadata. The original, curated scene prose remains untouched, preventing jarring grammatical shifts.
-    \item \textbf{Visual Diffs:} When you ask an LLM to "expand" or "polish" a scene, you are introducing unmanaged systemic risk. The model might fix your grammar, or it might randomly decide to kill off a side character in the process. During AI-assisted draft editing (such as expansion or polishing), TomeWeaver never silently overwrites your text. It generates a draft in memory, runs a Python sequence-matcher, and presents the Director with a Git-style Red/Green diff viewer. You see exactly what the AI proposes to insert, replace, or delete before you authorize the commit.
+    \item \textbf{Visual Diffs:} When you ask an LLM to "expand" or "polish" a scene, you are introducing unmanaged systemic risk. The model might fix your grammar, or it might randomly decide to kill off a side character in the process. During AI-assisted draft editing (such as expansion, condensation, polishing, or manual fixes), TomeWeaver never silently overwrites your text. It generates a draft in memory, runs a Python sequence-matcher, and presents the Director with a Git-style Red/Green diff viewer. You see exactly what the AI proposes to insert, replace, or delete before you authorize the commit.
     \item \textbf{Timeline Surgery:} Because the engine treats history as an indexed array of JSON objects rather than a text file, time travel is trivial. You can insert a blank turn directly between Turn 14 and Turn 15. The engine mechanically right-shifts the master clock, updates the chapter bounding integers, and migrates the causality of the player's previous choice so the narrative chain doesn't snap.
     \item \textbf{RAG Auto-Patching:} When the background memory compiler summarizes a chapter, it occasionally hallucinates. Instead of forcing the user to manually rewrite the summary, the engine provides an integrity-check tool. It pits the LLM against itself, generating a fidelity score between the raw turns and the summary. If contradictions are found, the Director clicks "Auto-Patch," and the AI rewrites the summary to fix its own logical errors, leaving a verifiable QA report behind.
     
@@ -282,7 +282,7 @@ To execute Non-Destructive Orchestration, you have to physically isolate the lan
 TomeWeaver achieves this separation through a six-layer stack. I call this the \textbf{KERNEL} architecture. It is a design mnemonic, not a rigid dependency tree. You do not need to clone my specific Python files to use this pattern. You just need to respect the boundaries between the layers.
 
 \begin{enumerate}
-    \item \textbf{K -- Narrative Kernel (\texttt{setup.json}):} The initial schema of the world. This file holds immutable rules, the campaign tone, mortality flags, and the starting inventory. It acts as the absolute baseline context for every prompt.
+    \item \textbf{K -- Narrative Kernel (\texttt{setup.json}):} The initial schema of the world. This file holds immutable rules, the campaign tone, mortality flags, and the inventory rules (when tracking is enabled).
     \item \textbf{E -- Causal Ledger (\texttt{history.json}):} A chronological array of turns. Instead of a flat string, each turn is a distinct JSON object tracking location, POV, player action, AI prose, and mechanical flags (e.g., \texttt{is\_game\_over}).
     \item \textbf{R -- Resonance Compiler:} A background worker that mathematically chunks older turns and calls the LLM to summarize them into queryable memory (RAG).
     \item \textbf{N -- Narration Adapter:} The I/O layer that communicates with the LLM. It assembles the prompt, handles API rate limits, and sanitizes the returned JSON.
@@ -312,21 +312,21 @@ The engine uses this schema to assemble the prompt dynamically at runtime, injec
 
 Every turn generated by the engine is a structured record, not a string of text. The Causal Ledger (\texttt{history.json}) tracks the player's choice, the generated prose, the location string, an optional snapshot of the inventory (where tracking is enabled), and any terminal flags (like \texttt{is\_game\_over}).
 
-Crucially, every record is bound to the \textbf{Master Clock}---a strict, sequential integer index assigned by the Python backend (Turn 1, Turn 2, etc.). LLMs are notoriously incapable of tracking absolute time or counting accurately over long contexts. By externalizing the temporal axis into the Master Clock, the engine guarantees that causality only flows in one direction, ensuring that every committed turn is structurally \textbf{immutable from the perspective of the AI} (the model is physically locked out of altering history, while the human Director retains full administrative editing rights).
+Crucially, every record is bound to the \textbf{Master Clock}---a strict, relative temporal coordinate system assigned by the Python backend. LLMs are notoriously incapable of tracking absolute time or counting accurately over long contexts. By externalizing the temporal axis into the Master Clock, the engine guarantees that causality only flows in one direction, ensuring that every committed turn is structurally \textbf{immutable from the perspective of the AI} (the model is physically locked out of altering history, while the human Director retains full administrative editing rights).
 
 There is a common misconception about ledgers: people assume they must be strictly append-only (immutable). In this architecture, that is false. We define "immutability" not as the restriction of human administrative edits (the Director possesses full sovereign rights to execute surgery), but as the complete lockout of the AI from modifying past states. Once a turn is committed, the stochastic Prose Engine can never alter it. The integrity of the ledger comes from ensuring that every mutation is an explicit, named operation that triggers a deterministic re-indexing of the Master Clock, rather than silently deleting lines in a text file.
 
 \subsection{Component III: Fault-Tolerant Narrative Processing}
 \label{subsec:prose}
 
-I cannot stress this enough: The LLM is an untrusted, probabilistic black box. In the NSM architecture, the language model is demoted. It is treated as an \textbf{unsafe probabilistic coprocessor}. The Narration Adapter is the deterministic CPU built to contain it. The Adapter's job is to assemble the context, request a structured JSON payload from the API, and aggressively validate the response before allowing it to touch the Causal Ledger.
+I cannot stress this enough: The LLM is an untrusted, probabilistic black box. In the LSM architecture, the language model is demoted. It is treated as an \textbf{unsafe probabilistic coprocessor}. The Narration Adapter is the deterministic CPU built to contain it. The Adapter's job is to assemble the context, request a structured JSON payload from the API, and aggressively validate the response before allowing it to touch the Causal Ledger.
 
 The Sanitizer expects failure. It looks for rogue dialogue quotes breaking the JSON structure, patches missing array delimiters using error coordinates, and attempts regex recovery if the generation truncates mid-bracket. If all mechanical repairs fail, the engine translates the specific syntax error into a feedback prompt and forces the LLM to try again.
 
 \subsubsection{Bounded Stochasticity}
-In a state-rigorous system, hallucination is downgraded from a fatal system error to \textbf{Safeguarded Divergence}. This shift contributes to \textbf{Hardware Democratization} by reducing dependence on frontier-scale models. While these large scale models (400+ Billion parameters) exhibit high inherent reliability, TomeWeaver is optimized for consumer-grade hardware. The NSM framework allows smaller, locally-hosted models (typically with 12 Billion parameters or fewer), which are naturally more prone to structural syntax errors, to function as dependable engines. 
+In a state-rigorous system, hallucination is downgraded from a fatal system error to \textbf{Safeguarded Divergence}. This shift contributes to \textbf{Hardware Democratization} by reducing dependence on frontier-scale models. While these large scale models (400+ Billion parameters) exhibit high inherent reliability, TomeWeaver is optimized for consumer-grade hardware. The LSM framework allows smaller, locally-hosted models (typically with 12 Billion parameters or fewer), which are naturally more prone to structural syntax errors, to function as dependable engines. 
 
-In a standard chat UI, developers are often forced to drop the model's temperature to near zero to ensure "safety," which results in repetitive, sterile prose. In an NSM architecture, we achieve \textbf{Bounded Stochasticity} by separating the pipeline's temperature parameters: while internal evaluation passes (RAG summarization and campaign auditing) are locked to a deterministic 0.1, the creative prose pass operates at a standard 0.8. Crucially, the Director is granted manual control over this generative envelope during "Fix" operations, scaling the model's creative freedom from a strict 0.1 to a highly divergent 0.9. Even if a high-temperature generation fails, the structural boundaries of the Fortress ensure the ledger remains uncorrupted.
+In a standard chat UI, developers are often forced to drop the model's temperature to near zero to ensure "safety," which results in repetitive, sterile prose. In an LSM architecture, we achieve \textbf{Bounded Stochasticity} by separating the pipeline's temperature parameters: while internal evaluation passes (RAG summarization and campaign auditing) are locked to a deterministic 0.1, the creative prose pass operates at a standard 0.8. Crucially, the Director is granted manual control over this generative envelope during "Fix" operations, scaling the model's creative freedom from a strict 0.1 to a highly divergent 0.9. Even if a high-temperature generation fails, the structural boundaries of the Fortress ensure the ledger remains uncorrupted.
 
 
 \subsection{Component IV: The Experience Renderer}
@@ -339,7 +339,7 @@ The renderer is entirely replaceable. TomeWeaver ships with a Python/CustomTkint
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{images/fig_execution.png}
-    \caption{The NSM Runtime Choreography. This sequence illustrates the lifecycle of a single turn. Notice that the state machine is locked prior to prompt assembly, and the generated payload must survive the sanitization and audit gates before it is committed to the Causal Ledger.}
+    \caption{The LSM Runtime Choreography. This sequence illustrates the lifecycle of a single turn. Notice that the state machine is locked prior to prompt assembly, and the generated payload must survive the sanitization and audit gates before it is committed to the Causal Ledger.}
     \label{fig:execution}
 \end{figure}
 
@@ -360,7 +360,7 @@ Because capacity is not the same as comprehension.
 
 Even when a model \textit{can} hold a hundred thousand words in memory, feeding it that much raw data on every single turn introduces massive API latency, exorbitant token costs, and---for local users---a VRAM requirement that prices out 90\% of consumer hardware. More importantly, massive prompts suffer from attention dilution. Facts buried in the middle of a 500-turn transcript get ignored just as often as facts missing entirely. 
 
-The NSM pattern is not just about remembering; it is about computational efficiency. Extending the principles of Retrieval-Augmented Generation \citep{lewis2020rag}, we compress raw history into \textbf{Ontological Resonance Layers}---dense, queryable memory fragments injected at prompt-build time---while the raw turns remain untouched on disk for human auditing.
+The LSM pattern is not just about remembering; it is about computational efficiency. Extending the principles of Retrieval-Augmented Generation \citep{lewis2020rag}, we compress raw history into \textbf{Ontological Resonance Layers}---dense, queryable memory fragments injected at prompt-build time---while the raw turns remain untouched on disk for human auditing.
 
 \textit{Scope Honesty:} In the context of this implementation, Retrieval-Augmented Generation (RAG) refers to targeted, deterministic retrieval from structured JSON ledgers rather than vector-similarity search. By using explicit aliases, exact-match scoping, and chronological chunking, the engine guarantees that narrative facts are reliably injected without the stochastic failure rates inherent to calculating embedding distances.
 
@@ -369,7 +369,7 @@ The NSM pattern is not just about remembering; it is about computational efficie
 TomeWeaver achieves this compression by running two distinct memory ledgers in parallel:
 
 \begin{enumerate}
-    \item \textbf{The Plot Ledger (Chronological Memory):} The Plot Ledger (Chronological Memory): During standard play, the Experience Renderer automatically monitors milestones on turn resolution, calling the Resonance Compiler in a background thread to silently chunk past turns (typically using the default \texttt{context\_window} size of 10 turns) and asking the LLM to summarize the narrative arc. When a chapter concludes, these Part Summaries are further condensed into a high-level Chapter Summary. This tiered compression preserves the overarching plot while slashing token costs by orders of magnitude.
+    \item \textbf{The Plot Ledger (Chronological Memory):} During standard play, the Experience Renderer automatically monitors milestones on turn resolution, calling the Resonance Compiler in a background thread to silently chunk past turns (typically using the default \texttt{context\_window} size of 10 turns) and asking the LLM to summarize the narrative arc. When a chapter concludes, these Part Summaries are further condensed into a high-level Chapter Summary. This tiered compression preserves the overarching plot while slashing token costs by orders of magnitude.
     \item \textbf{The Entity Ledger (Stateful Memory):} This is an object-oriented memory bank tracking Characters, Locations, Artifacts, and Factions. During compilation, the engine extracts new traits and chronological events, appending them to specific entity profiles. Entities are not continually re-invented by the LLM; they are retrieved from the database.
 \end{enumerate}
 
@@ -461,7 +461,7 @@ To prevent this, TomeWeaver implements the \textbf{Ledger Lock Protocol}. While 
 
 The lock is not elegant theoretical computer science; it is the blunt, necessary difference between an engine you can trust and one that silently corrupts its own causal graph.
 
-\textit{Scope Honesty:} The reference lock in TomeWeaver is UI-level and designed for single-session local play. If you were to adapt the NSM architecture for a server-side application with multiple concurrent users, Layer L would need to be upgraded with strict database transactions or optimistic concurrency tokens.
+\textit{Scope Honesty:} The reference lock in TomeWeaver is UI-level and designed for single-session local play. If you were to adapt the LSM architecture for a server-side application with multiple concurrent users, Layer L would need to be upgraded with strict database transactions or optimistic concurrency tokens.
 
 
 \newpage
@@ -475,7 +475,7 @@ The lock is not elegant theoretical computer science; it is the blunt, necessary
 
 In the Chatbot Era, the user is a \textit{Prompter}. Their primary verb is negotiation. They type a request into a box, cross their fingers, and beg the model to honor the constraints of the world. 
 
-The Narrative State Machine transforms the operator into a \textbf{Director}. In TomeWeaver, the Director does not negotiate with the language model; they govern the state machine. They author the Narrative Kernel, trigger memory compilations, authorize timeline surgery, accept or reject visual diffs, and set the scoping rules for shared universes.
+The Language State Machine transforms the operator into a \textbf{Director}. In TomeWeaver, the Director does not negotiate with the language model; they govern the state machine. They author the Narrative Kernel, trigger memory compilations, authorize timeline surgery, accept or reject visual diffs, and set the scoping rules for shared universes.
 
 This shift in control topology is what I call \textbf{Asymmetric Co-Creation}. You and the AI are not equal co-authors. The human owns the state; the machine owns the syntax. The Director commits absolute facts to the ontological ledger, and the Prose Engine is merely permitted to propose candidate prose subject to validation, review, and lock discipline. 
 
@@ -489,7 +489,7 @@ We define the user in this capacity as an \textbf{Ontological Agent}. Their leve
 
 \subsection{Sandbox vs. Campaign Constraints}
 
-The NSM architecture supports different levels of generative constraint, which TomeWeaver exposes as two distinct game modes:
+The LSM architecture supports different levels of generative constraint, which TomeWeaver exposes as two distinct game modes:
 
 \begin{itemize}
     \item \textbf{Sandbox Mode:} Designed for emergent, open-ended simulation. The Director exercises maximum sovereignty, manually forcing scene shifts, time jumps, and POV changes. The Prose Engine is constrained only by the static world lore and the active memory ledgers.
@@ -500,9 +500,9 @@ Both modes share the exact same cartridge discipline, the same RAG compilation, 
 
 \subsection{The Director as the Ultimate Arbiter}
 
-A fundamental constraint of generative simulation is the gap between \textit{structural validity} and \textit{narrative resonance}. While the Fortress Sanitizer (Section 4.3) can mathematically guarantee that an LLM’s output is a well-formed JSON object, it cannot verify if that output is actually \textit{good}. It can confirm that a "Choices" array contains four strings, but it cannot judge if those choices offer the player meaningful agency or if they are narratively non-sequiturs. 
+A fundamental constraint of generative simulation is the gap between \textit{structural validity} and \textit{narrative resonance}. While the Fortress Sanitizer (Section 4.3) can mathematically guarantee that an LLM’s output is a well-formed JSON object, it cannot verify if that output is actually \textit{good}. It can confirm that a "Choices" array contains a series of strings, but it cannot judge if those choices offer the player meaningful agency or if they are narratively non-sequiturs.
 
-In the NSM framework, we acknowledge that while the machine is the master of syntax, the human Director is the \textbf{Sole Judge of Meaning}. The Director functions as a "Human-in-the-loop" governor who prevents the simulation from collapsing into a valley of technically valid but irrelevant prose. This role is not merely as a passive reader, but as a judicial authority over the Causal Ledger. Every turn proposed by the Prose Engine is treated as a \textit{candidate state} until the Director authorizes the commit.
+In the LSM framework, we acknowledge that while the machine is the master of syntax, the human Director is the \textbf{Sole Judge of Meaning}. The Director functions as a "Human-in-the-loop" governor who prevents the simulation from collapsing into a valley of technically valid but irrelevant prose. This role is not merely as a passive reader, but as a judicial authority over the Causal Ledger. Every turn proposed by the Prose Engine is treated as a \textit{candidate state} until the Director authorizes the commit.
 
 This judicial authority is exercised through a specialized set of orchestration verbs that allow the Director to sculpt the narrative without advancing the Master Clock:
 \begin{itemize}
@@ -511,17 +511,17 @@ This judicial authority is exercised through a specialized set of orchestration 
     \item \textbf{Polish:} A linguistic refinement pass. The Director corrects mechanical errors---typos, tense inconsistencies, or clunky phrasing---that the LLM might have introduced, ensuring the exported storybook maintains professional literary standards.
 \end{itemize}
 
-One might argue that these judgements could be off-loaded to a secondary layer of "Auditor" LLMs. However, the NSM architecture rejects this as a viable solo solution due to the \textbf{Economic Paradox of Orchestration}. Each additional layer of AI verification adds superlinear increases to token costs, API latency, and "Context Bleed," while offering diminishing returns in creative judgement. The human Director remains the most computationally efficient and narratively accurate tool for assessing the "soul" of a story. The Fortress was built to catch badly formed data; the human was kept in the loop to catch badly formed meaning.
+One might argue that these judgements could be off-loaded to a secondary layer of "Auditor" LLMs. However, the LSM architecture rejects this as a viable solo solution due to the \textbf{Economic Paradox of Orchestration}. Each additional layer of AI verification adds superlinear increases to token costs, API latency, and "Context Bleed," while offering diminishing returns in creative judgement. The human Director remains the most computationally efficient and narratively accurate tool for assessing the "soul" of a story. The Fortress was built to catch badly formed data; the human was kept in the loop to catch badly formed meaning.
 
 \subsection{Ontological Stewardship and Operational Ethics}
 
-The transition from "Prompter" to "Director" introduces a new form of creative responsibility which we term \textbf{Ontological Stewardship}. In state-anemic systems, narrative is disposable; if a story contradicts itself, the user simply abandons the session and starts a new one. The NSM architecture, by contrast, creates durable realities. Because the Causal Ledger is persistent and the Entity Ledger is cumulative, the Director’s choices have long-term "gravity." 
+The transition from "Prompter" to "Director" introduces a new form of creative responsibility which we term \textbf{Ontological Stewardship}. In state-anemic systems, narrative is disposable; if a story contradicts itself, the user simply abandons the session and starts a new one. The LSM architecture, by contrast, creates durable realities. Because the Causal Ledger is persistent and the Entity Ledger is cumulative, the Director’s choices have long-term "gravity." 
 
 This durability necessitates an operational ethic. Stewardship requires the Director to maintain the \textit{Internal Veracity} of the simulation, even when the coprocessor offers "easy" or "convenient" hallucinations that advance the plot but break the world's logic. If the Director accepts a turn where a character magically recovers from a fatal wound without a mechanical reason, they are committing \textbf{Ontological Pollution} to the ledger. This pollution will eventually degrade the RAG Resonance Layers, leading to a cascade of further hallucinations.
 
-The NSM architecture provides the tools for this stewardship, but it cannot enforce it. The "Time Travel" slider and the Timeline Surgery tools (Section 6) are the Director’s primary instruments for forensic cleanup. Curation is an act of maintenance. By treating the story as a database, the framework encourages a shift in user behavior: moving away from the "disposable output" culture of standard AI chat and toward a culture of "durable world-building." The Director is not merely telling a story; they are maintaining the health of a structured reality.
+The LSM architecture provides the tools for this stewardship, but it cannot enforce it. The "Time Travel" slider and the Timeline Surgery tools (Section 6) are the Director’s primary instruments for forensic cleanup. Curation is an act of maintenance. By treating the story as a database, the framework encourages a shift in user behavior: moving away from the "disposable output" culture of standard AI chat and toward a culture of "durable world-building." The Director is not merely telling a story; they are maintaining the health of a structured reality.
 
-Ultimately, the goal of the Ontological Agent is to achieve \textbf{Narrative Synthesis}---the point where the stochastic brilliance of the LLM and the deterministic rigor of the ledger are so perfectly balanced that the simulation feels both emergent and inevitable. This synthesis is the highest state of the Narrative State Machine. It represents the successful transition from probabilistic noise to meaningful, persistent experience.
+Ultimately, the goal of the Ontological Agent is to achieve \textbf{Narrative Synthesis}---the point where the stochastic brilliance of the LLM and the deterministic rigor of the ledger are so perfectly balanced that the simulation feels both emergent and inevitable. This synthesis is the highest state of the Language State Machine. It represents the successful transition from probabilistic noise to meaningful, persistent experience.
 
 
 \newpage
@@ -531,7 +531,7 @@ Ultimately, the goal of the Ontological Agent is to achieve \textbf{Narrative Sy
 \section{Implementing and Extending the Architecture}
 \label{sec:implement}
 
-To bridge the gap between theoretical architecture and working software, Table \ref{tab:implementation} maps the abstract NSM concepts directly to their concrete implementations in the TomeWeaver codebase (at the time of this publication). 
+To bridge the gap between theoretical architecture and working software, Table \ref{tab:implementation} maps the abstract LSM concepts directly to their concrete implementations in the TomeWeaver codebase (at the time of this publication). 
 
 \begin{table}[hbt!]
 \centering
@@ -540,7 +540,7 @@ To bridge the gap between theoretical architecture and working software, Table \
 \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{p{0.35\textwidth} p{0.55\textwidth}}
 \toprule
-\textbf{NSM Concept} & \textbf{TomeWeaver Implementation} \\
+\textbf{LSM Concept} & \textbf{TomeWeaver Implementation} \\
 \midrule
 Narrative Kernel & \texttt{setup.json} \\
 Causal Ledger & \texttt{history.json} \\
@@ -575,7 +575,7 @@ To prevent catastrophic data collisions when merging a foreign timeline into a l
 
 \subsection{Extension Points}
 
-TomeWeaver is a reference implementation, not a walled garden. Developers building upon the NSM architecture are encouraged to swap or extend the KERNEL layers:
+TomeWeaver is a reference implementation, not a walled garden. Developers building upon the LSM architecture are encouraged to swap or extend the KERNEL layers:
 
 \begin{itemize}
     \item \textbf{Resonance Compiler:} Replace the LLM summarization pass with deterministic rules, vector embeddings, or hybrid retrieval systems.
@@ -587,9 +587,9 @@ TomeWeaver is a reference implementation, not a walled garden. Developers buildi
 
 \subsection{Headless Validation and the Simulation Sandbox}
 
-A critical requirement for any production-grade narrative engine is the ability to validate system logic without a human interface. TomeWeaver achieves this through a strictly \textbf{Headless Core}. The engine logic resides entirely within the \texttt{BaseEngine} class and its derivatives, which communicate via standard Python dictionaries. This decoupling allows for the execution of the \texttt{Run\_Tests.bat} suite, a collection of more than 200 automated tests that mathematically prove the integrity of the Master Clock, the safety of timeline surgery, and the precision of the JSON "Fortress" Sanitizer.
+A critical requirement for any production-grade narrative engine is the ability to validate system logic without a human interface. TomeWeaver achieves this through a strictly \textbf{Headless Core}. The engine logic resides entirely within the \texttt{BaseEngine} class and its derivatives, which communicate via standard Python dictionaries. This decoupling allows for the execution of the \texttt{Run\_Tests.bat} suite, a collection of more than 250 automated tests that mathematically prove the integrity of the Master Clock, the safety of timeline surgery, the precision of the JSON "Fortress" Sanitizer, and various other parts of the software (unit testing).
 
-Furthermore, the framework supports \textbf{Closed-Loop Convergence Testing} (Autopilot) via the presentation layer. The Director can trigger an automated, closed-loop traversal of the active timeline, forcing the engine to automatically select the primary choice on every turn. This serves as an automated "stress-test" to verify path convergence: demonstrating whether the campaign's chapter exit-nodes and final victory/termination states can be reached over long sessions without the timeline entering dead ends. By treating the campaign as a testable software object, the NSM framework moves generative narrative out of the realm of "prompt-guessing" and into the realm of verifiable systems engineering. These backend patterns are designed to be portable to any environment---from web servers to 3D game engines---without requiring the porting of the CustomTkinter graphical interface.
+Furthermore, the framework supports \textbf{Closed-Loop Convergence Testing} (Autopilot) via the presentation layer. The Director can trigger an automated, closed-loop traversal of the active timeline, forcing the engine to automatically select the primary choice on every turn. This serves as an automated, exploratory stress-test: allowing the Director to observe how the campaign’s chapter exit-nodes and final victory/termination states respond to repeated turn transitions over long sessions. By treating the campaign as an empirically testable software object, the LSM framework moves generative narrative out of the realm of "prompt-guessing" and into the realm of verifiable systems engineering. These backend patterns are designed to be portable to any environment---from web servers to 3D game engines---without requiring the porting of the CustomTkinter graphical interface.
 
 
 \newpage
@@ -599,10 +599,10 @@ Furthermore, the framework supports \textbf{Closed-Loop Convergence Testing} (Au
 \section{Proposed Evaluation Metrics}
 \label{sec:falsifiability}
 
-We state the following as \textbf{research hypotheses} for comparative study. They are explicitly framed as falsifiable metrics for anyone who wishes to benchmark NSM sessions against standard transcript baselines.
+We state the following as \textbf{research hypotheses} for comparative study. They are explicitly framed as falsifiable metrics for anyone who wishes to benchmark LSM sessions against standard transcript baselines.
 
 \begin{description}
-    \item[H1: Continuity Half-Life.] Define a contradiction rate (via manual audit or automated entity cross-checking) plotted against turn count. \textit{Hypothesis:} State-anemic baselines will exhibit a contradiction rate that grows superlinearly as the context window fills. NSM sessions with active RAG compilation will exhibit a bounded, stable contradiction rate over the same turn count, holding the base model and token budget constant.
+    \item[H1: Continuity Half-Life.] Define a contradiction rate (via manual audit or automated entity cross-checking) plotted against turn count. \textit{Hypothesis:} State-anemic baselines will exhibit a contradiction rate that grows superlinearly as the context window fills. LSM sessions with active RAG compilation will exhibit a bounded, stable contradiction rate over the same turn count, holding the base model and token budget constant.
 
     \item[H2: Recovery Cost.] Measure the time (or number of edit operations) required for a human operator to fix an injected continuity error. \textit{Hypothesis:} Explicit timeline surgery and visual diffs require significantly less recovery time than regenerate-and-scroll workflows in chat interfaces.
 
@@ -628,7 +628,7 @@ By standardizing these evaluations, the community can begin to rank models not j
 
 The AI industry keeps asking: \textit{How do we prompt the model to remember better?} 
 
-The NSM pattern asks a ruder question: \textit{Why should the model be the memory at all?} 
+The LSM pattern asks a ruder question: \textit{Why should the model be the memory at all?} 
 
 Declarative rules belong in the Kernel. Committed events belong in the Ledger. Compressed recall belongs in the Resonance Compiler. The LLM simply proposes candidate wording; the wrapper decides what becomes canon. That separation of concerns sounds like boring, boilerplate computer science---until you have spent a week trying to debug a 300-turn RPG campaign that violated it. 
 
@@ -636,37 +636,37 @@ Declarative rules belong in the Kernel. Committed events belong in the Ledger. C
 
 State-anemic tools offer zero-interest storytelling. They are effortless to start, but their narrative value rarely compounds. Each session begins from a thin transcript, and Turn 200 pays roughly the same amnesia tax as Turn 20. 
 
-The NSM pattern demands \textbf{Axiomatic Investment}---the upfront, sometimes tedious labor of defining schemas, scopes, ledgers, and compilation policies. But it yields \textbf{Compounding Narrative Returns}. Every turn played enriches the Ontological Resonance Layers. Entity histories deepen. Plot summaries stack. Universe substrates accumulate canon. Turn 500 can be richer, more historically accurate, and more texturally dense than Turn 1, not despite the machinery, but because of it. 
+The LSM pattern demands \textbf{Axiomatic Investment}---the upfront, sometimes tedious labor of defining schemas, scopes, ledgers, and compilation policies. But it yields \textbf{Compounding Narrative Returns}. Every turn played enriches the Ontological Resonance Layers. Entity histories deepen. Plot summaries stack. Universe substrates accumulate canon. Turn 500 can be richer, more historically accurate, and more texturally dense than Turn 1, not despite the machinery, but because of it. 
 
 Short improvisational sessions may not amortize that setup cost; a multi-chapter campaign or a shared world usually will.
 
 \subsection{Relation to Prior Work}
 
-The Narrative State Machine sits at the intersection of classical hyper-narrative theory and modern probabilistic inference. Our architectural goals align closely with the four essential properties of digital environments defined by \citet{murray1997}: they must be \textit{procedural}, \textit{participatory}, \textit{spatial}, and \textit{encyclopedic}. 
+The Language State Machine sits at the intersection of classical hyper-narrative theory and modern probabilistic inference. Our architectural goals align closely with the four essential properties of digital environments defined by \citet{murray1997}: they must be \textit{procedural}, \textit{participatory}, \textit{spatial}, and \textit{encyclopedic}. 
 
 Standard state-anemic chatbots often fail Murray's "procedural" requirement; while they generate text, they lack the underlying engine rules to resolve a player's action with consistency. By externalizing state into the Narrative Kernel and Causal Ledger, we provide the procedural scaffolding necessary for a "Cyberbard" to function reliably. Furthermore, our tiered RAG architecture (Section 5) fulfills the "encyclopedic" property, allowing the narrative to draw upon a deep, structured repository of world lore that exceeds the capacity of a simple chat transcript.
 
-This framework also builds upon historic experiments like \textit{Façade} \citep{mateas2003}, which introduced narrative state machines but relied on hand-authored dialogue "beats" rather than Large Language Models. While the concept of an AI "Drama Manager" is well documented \citep{weydhraad2001}, earlier implementations usually relied on rigid Finite State Machines \citep{buckland2001}. The NSM architecture modernizes these concepts, replacing hardcoded transitions with \textbf{Safeguarded Divergence} (Section 4.3.1), allowing for the emergent creativity of contemporary agents \citep{park2023agents} without sacrificing the structural discipline required for long-form continuity. This technical rigor serves not merely as an engineering safeguard, but as the prerequisite for a broader shift in our conceptual understanding of what it means to build and sustain a digital reality.
+This framework also builds upon historic experiments like \textit{Façade} \citep{mateas2003}, which introduced narrative state machines but relied on hand-authored dialogue "beats" rather than Large Language Models. While the concept of an AI "Drama Manager" is well documented \citep{weydhraad2001}, earlier implementations usually relied on rigid Finite State Machines \citep{buckland2001}. The LSM architecture modernizes these concepts, replacing hardcoded transitions with \textbf{Safeguarded Divergence} (Section 4.3.1), allowing for the emergent creativity of contemporary agents \citep{park2023agents} without sacrificing the structural discipline required for long-form continuity. This technical rigor serves not merely as an engineering safeguard, but as the prerequisite for a broader shift in our conceptual understanding of what it means to build and sustain a digital reality.
 
 
 \subsection{The Evolution of Speculative Modeling}
 
-The Narrative State Machine represents a significant shift in the management of generative narrative; it moves beyond the linear storytelling traditions that have largely governed digital expression. Recent advances in generative systems now provide a substrate capable of unprecedented improvisational flair. However, as we have argued, flair without structural discipline is insufficient for sustained simulation. 
+The Language State Machine represents a significant shift in the management of generative narrative; it moves beyond the linear storytelling traditions that have largely governed digital expression. Recent advances in generative systems now provide a substrate capable of unprecedented improvisational flair. However, as we have argued, flair without structural discipline is insufficient for sustained simulation. 
 
-The NSM framework, alongside its macro-sociological sibling, the \textbf{Speculative Ontological Engine (SOE)} \citep{bee2025soe}, establishes a methodology we term \textbf{Generative Realism}. Both frameworks operate on a shared philosophical axiom: \textit{reality is a ledger}, and narrative is a subjective rendering of that ledger's state. 
+The LSM framework, alongside its macro-sociological sibling, the \textbf{Speculative Ontological Engine (SOE)} \citep{bee2025soe}, establishes a methodology we term \textbf{Generative Realism}. Both frameworks operate on a shared philosophical axiom: \textit{reality is a ledger}, and narrative is a subjective rendering of that ledger's state. 
 
-While the SOE operates at the macro-scale---modeling the trajectories of civilizations across centuries---the NSM operates at the micro-scale of the turn-by-turn experience. Together, they form a recursive hierarchy of stateful simulation. In this paradigm, the role of the human operator shifts from "Authoring Prose" to \textbf{Architecting Invariants}. The primary creative act is no longer the manual scripting of every interaction, but the definition of the physical, social, and ontological laws of the world, followed by the orchestration of the AI’s probabilistic exploration of that space.
+While the SOE operates at the macro-scale---modeling the trajectories of civilizations across centuries---the LSM operates at the micro-scale of the turn-by-turn experience. Together, they form a recursive hierarchy of stateful simulation. In this paradigm, the role of the human operator shifts from "Authoring Prose" to \textbf{Architecting Invariants}. The primary creative act is no longer the manual scripting of every interaction, but the definition of the physical, social, and ontological laws of the world, followed by the orchestration of the AI’s probabilistic exploration of that space.
 
 \subsubsection{Architectural Portability: Beyond Narratology}
 
-The implications of this state-rigorous architecture extend to any domain where persistent probabilistic systems require durable state governance. By treating the Large Language Model as a coprocessor within a deterministic framework, the NSM pattern can be applied to complex modeling scenarios outside of interactive fiction:
+The implications of this state-rigorous architecture extend to any domain where persistent probabilistic systems require durable state governance. By treating the Large Language Model as a coprocessor within a deterministic framework, the LSM pattern can be applied to complex modeling scenarios outside of interactive fiction:
 \begin{itemize}
     \item \textbf{Jurisprudence and Policy:} Utilizing the "Causal Ledger" to track the long-term, cascading effects of variable policy changes within a persistent simulation of a legal environment.
     \item \textbf{Counterfactual Research:} Reconciling divergent causal branches in historical or strategic modeling by modifying the "Narrative Kernel" and auditing the system's response.
     \item \textbf{Organizational Dynamics:} Maintaining "invariant constraints" (resources, logistical limits, morale) in high-stakes training simulations where the AI manages the dialogue but the engine enforces the reality.
 \end{itemize}
 
-We are entering a phase where the distinction between "Fiction" and "Simulation" becomes increasingly porous. The NSM provides the skeletal integrity required for these virtual realities to maintain coherence over long durations. Whether the objective is literary or analytical, the requirement for \textbf{Ontological Stewardship} remains constant: the machine must be caged by state, and the human must remain the final arbiter of meaning.
+We are entering a phase where the distinction between "Fiction" and "Simulation" becomes increasingly porous. The LSM provides the skeletal integrity required for these virtual realities to maintain coherence over long durations. Whether the objective is literary or analytical, the requirement for \textbf{Ontological Stewardship} remains constant: the machine must be caged by state, and the human must remain the final arbiter of meaning.
 
 
 \subsection{Limitations (Explicit)}
@@ -698,19 +698,19 @@ Furthermore, the TomeWeaver reference implementation is licensed under Polyform 
 
 Throughout this paper, we have used the vocabulary of interactive fiction: stories, chapters, protagonists, and prose. However, interactive fiction is merely a proving ground. Text is simply the most computationally efficient substrate for stress-testing state-management logic. 
 
-When the architecture is abstracted, it becomes clear that the Narrative State Machine is not limited to text adventures. It is a generalized architecture for persistent generative simulation systems.
+When the architecture is abstracted, it becomes clear that the Language State Machine is not limited to text adventures. It is a generalized architecture for persistent generative simulation systems.
 
 \subsection{AI-Assisted Game State Orchestration}
 
-If we swap the Experience Renderer from a desktop text UI to a 3D spatial engine like Unity or Unreal, the NSM pattern remains entirely intact. The Causal Ledger functions as the game's save file. The Ontological Resonance Layers allow non-player characters (NPCs) to possess computationally cheap, practically infinite memory of the player's past actions. The LLM is no longer generating a paragraph of text; it is generating a JSON payload containing dialogue arrays, animation triggers, and pathfinding coordinates, all validated by the Fortress Sanitizer before rendering.
+If we swap the Experience Renderer from a desktop text UI to a 3D spatial engine like Unity or Unreal, the LSM pattern remains entirely intact. The Causal Ledger functions as the game's save file. The Ontological Resonance Layers allow non-player characters (NPCs) to possess computationally cheap, practically infinite memory of the player's past actions. The LLM is no longer generating a paragraph of text; it is generating a JSON payload containing dialogue arrays, animation triggers, and pathfinding coordinates, all validated by the Fortress Sanitizer before rendering.
 
 \subsection{Persistent Multi-Agent Realities}
-While systems like Generative Agents \citep{park2023agents} proved that autonomous NPCs can simulate complex societies, prompting dozens of agents simultaneously is too heavy and token-expensive for long-term consumer use. By applying the NSM's Substrate Scoping and Auto-Decay rules, a system could simulate a persistent town of hundreds of agents. The engine tracks their interactions deterministically in the background ledgers, only invoking the Prose Engine to render the exact dialogue or actions of the agents the human user is actively observing. 
+While systems like Generative Agents \citep{park2023agents} proved that autonomous NPCs can simulate complex societies, prompting dozens of agents simultaneously is too heavy and token-expensive for long-term consumer use. By applying the LSM's Substrate Scoping and Auto-Decay rules, a system could simulate a persistent town of hundreds of agents. The engine tracks their interactions deterministically in the background ledgers, only invoking the Prose Engine to render the exact dialogue or actions of the agents the human user is actively observing. 
 
 \subsection{Procedural Lore Auditing}
-In massive multiplayer games or tabletop franchises, lore often contradicts itself over years of expansions. An NSM could be deployed purely as a headless continuity auditor for human writers. Utilizing the Pre-Commit Validation pipeline (Section \ref{sec:memory}), new writing could be mechanically scored against established Global Entity ledgers, ensuring that new expansions do not violate the established World Bible.
+In massive multiplayer games or tabletop franchises, lore often contradicts itself over years of expansions. An LSM could be deployed purely as a headless continuity auditor for human writers. Utilizing the Pre-Commit Validation pipeline (Section \ref{sec:memory}), new writing could be mechanically scored against established Global Entity ledgers, ensuring that new expansions do not violate the established World Bible.
 
-By decoupling state from generation, the NSM pattern establishes a framework where AI is no longer treated as a volatile magic trick, but as a reliable, integrated component of complex systems engineering.
+By decoupling state from generation, the LSM pattern establishes a framework where AI is no longer treated as a volatile magic trick, but as a reliable, integrated component of complex systems engineering.
 
 
 
@@ -720,7 +720,7 @@ By decoupling state from generation, the NSM pattern establishes a framework whe
 % -------------------
 \section{Conclusion}
 
-The Narrative State Machine externalizes story state into inspectable layers: a schema kernel, a causal ledger, compiled memory, validated narration, and explicit operational locks. TomeWeaver demonstrates that this pattern is implementable today---on disk, headless, and testable---without waiting for a monolithic, multi-million token context window to save us from our own bad architecture. 
+The Language State Machine externalizes story state into inspectable layers: a schema kernel, a causal ledger, compiled memory, validated narration, and explicit operational locks. TomeWeaver demonstrates that this pattern is implementable today---on disk, headless, and testable---without waiting for a monolithic, multi-million token context window to save us from our own bad architecture. 
 
 This document is meant as a buildable reference. Take the layers you need. Swap the renderer. Fork the compiler. Measure continuity if you are skeptical.
 
@@ -821,7 +821,7 @@ Young, G. (2010). \textit{CQRS Documents}. \url{https://cqrs.files.wordpress.com
 \section{Feature-to-Vocabulary Mapping}
 \label{app:mapping}
 
-The primary utility of the NSM framework is its \textbf{substrate-agnosticism}. By defining a portable vocabulary, we ensure that the logical state of a simulation can be migrated between different software environments without loss of causal integrity. For example, a Causal Ledger generated in a Python-based research tool can be interpreted by a C-sharp game engine or a TypeScript web-service, provided both systems adhere to the same architectural mapping. The following table serves as the "Rosetta Stone" for the reference implementation, allowing developers to maintain a consistent \textit{Interoperability Handshake} across diverse technology stacks.
+The primary utility of the LSM framework is its \textbf{substrate-agnosticism}. By defining a portable vocabulary, we ensure that the logical state of a simulation can be migrated between different software environments without loss of causal integrity. For example, a Causal Ledger generated in a Python-based research tool can be interpreted by a C-sharp game engine or a TypeScript web-service, provided both systems adhere to the same architectural mapping. The following table serves as the "Rosetta Stone" for the reference implementation, allowing developers to maintain a consistent \textit{Interoperability Handshake} across diverse technology stacks.
 
 \vspace{1em}
 \begin{table}[h!]
@@ -886,7 +886,7 @@ Imagine the user creates a third thread: a flashback story set ten years prior. 
 The user defines a Local Override profile for the tavern, setting its state to \texttt{prosperous}. During prompt assembly for this specific thread, the engine detects the collision between the Local and Global ledgers and explicitly shadows the Global canon. The LLM receives the \texttt{prosperous} state. The present-day Detective thread remains unaffected. Divergent profiles, a single universe root, and absolutely no destructive overwriting.
 
 \subsection{Lesson for Implementors}
-Cross-thread drama is a data propagation problem, not an AI cognition problem. If you build your own NSM, document exactly when updates become visible to other threads (e.g., on save, on compile, on next prompt). Do not imply real-time synchronization to your users unless your lock layer and storage backend actually support it.
+Cross-thread drama is a data propagation problem, not an AI cognition problem. If you build your own LSM, document exactly when updates become visible to other threads (e.g., on save, on compile, on next prompt). Do not imply real-time synchronization to your users unless your lock layer and storage backend actually support it.
 
 \subsection{Forensic Traceability}
 The most significant outcome of this case study is the ability to perform a \textbf{post-mortem audit} of narrative drift. If the Detective in Thread B suddenly behaves as if the tavern is intact, the analyst does not need to guess why. They can compare the local \texttt{history.json} against the universe \texttt{shared\_memory.json}. Because the substrate hierarchy is explicit, the system provides an evidentiary trail for every state change. This is the difference between an AI that "forgets" and a system that can be \textit{debugged}.
@@ -898,25 +898,25 @@ The most significant outcome of this case study is the ability to perform a \tex
 
 \newpage
 % -------------------
-% Appendix C - NSM Architectural Notation
+% Appendix C - LSM Architectural Notation
 % -------------------
-\section{NSM Architectural Notation}
+\section{LSM Architectural Notation}
 \label{app:notation}
 
-As the Narrative State Machine architecture introduces complex concepts such as Substrate Scoping, Causal Revisionism, and Dual-Tiered RAG, relying strictly on prose to describe state transitions becomes inefficient. 
+As the Language State Machine architecture introduces complex concepts such as Substrate Scoping, Causal Revisionism, and Dual-Tiered RAG, relying strictly on prose to describe state transitions becomes inefficient. 
 
 Throughout this paper, we utilize an emerging visual semantic language. This notation is designed to be infrastructural rather than decorative, allowing developers to map visual glyphs directly to underlying data structures and execution rules. As generative systems move from simple chat-completion to complex, multi-layered state management, textual descriptions of "Substrate Shadowing" or "Asynchronous RAG Compilation" become computationally cumbersome for the human architect to track. 
 
 We propose that a standardized visual grammar is a prerequisite for the \textbf{Cognitive Ergonomics} of simulation design (see Figure 5, on the following page). By mapping color semantics to data topology (e.g., using Green strictly for Schema constraints and Blue for Stateful events), an architect can instantly identify "Entropy Leaks" where untrusted probabilistic data has bypassed a sanitization gate. 
 
-If you are diagramming your own NSM implementations, we propose the following canonical iconography and color semantics to maintain clarity across the ecosystem. The goal is to move the industry toward a common \textbf{Diagrammatic Standard}, ensuring that these "Societal Flight Simulators" can be peer-reviewed and audited with the same visual precision as a VLSI circuit diagram or a UML state-chart.
+If you are diagramming your own LSM implementations, we propose the following canonical iconography and color semantics to maintain clarity across the ecosystem. The goal is to move the industry toward a common \textbf{Diagrammatic Standard}, ensuring that these "Societal Flight Simulators" can be peer-reviewed and audited with the same visual precision as a VLSI circuit diagram or a UML state-chart.
 
 \vspace{2em}
 \begin{figure}[hbt!]
     \centering
     % TODO: Create 'images/fig_notation.png' based on the Art Direction
     \includegraphics[width=0.94\textwidth]{images/fig_notation.png}
-    \caption{The NSM Architectural Notation. Operational glyphs encode system behavior (e.g., the Puzzle Piece denotes modular prompt assembly, whereas the Shadowing 'X' denotes scoped data masking). Colors are strictly mapped to data topology (Green for Schema, Blue for State, Orange for Sanitization, Red for Entropy).}
+    \caption{The LSM Architectural Notation. Operational glyphs encode system behavior (e.g., the Puzzle Piece denotes modular prompt assembly, whereas the Shadowing 'X' denotes scoped data masking). Colors are strictly mapped to data topology (Green for Schema, Blue for State, Orange for Sanitization, Red for Entropy).}
     \label{fig:notation}
 \end{figure}
 
@@ -966,14 +966,14 @@ If you are diagramming your own NSM implementations, we propose the following ca
     \item[Narrative Kernel] \label{def:kernel}
     The declarative T-Zero schema (e.g., \texttt{setup.json}) establishing the baseline rules, entity definitions, tone, and campaign goals before a simulation begins.
 
-    \item[Narrative State Machine (NSM)] \label{def:nsm}
+    \item[Language State Machine (LSM)] \label{def:nsm}
     A software architecture that decouples absolute world state from generative prose, treating the LLM as an untrusted rendering engine gated by deterministic logic.
 
     \item[Non-Destructive Orchestration] \label{def:ndo}
     The design principle requiring that all timeline revisions be explicit, named state transitions, ensuring that the causal path remains forensically auditable.
 
     \item[Ontological Agent] \label{def:agent}
-    The role of the human operator in an NSM architecture, characterized by governing world rules and auditing memory rather than simply typing conversational prompts.
+    The role of the human operator in an LSM architecture, characterized by governing world rules and auditing memory rather than simply typing conversational prompts.
 
     \item[Ontological Anchoring] \label{def:anchoring}
     The process of binding generative prose to deterministic state objects (Master Clocks, Schemas, Inventory Pills). This ensures that even if the prose engine diverges, the "anchor" of reality remains fixed in the ledger.
@@ -1000,7 +1000,7 @@ If you are diagramming your own NSM implementations, we propose the following ca
     The ruleset governing the merging of local thread data and global universe data during prompt assembly.
 
     \item[Unsafe Probabilistic Coprocessor] \label{def:coprocessor}
-    The demoted role of the Large Language Model in an NSM architecture; it is treated as a high-performance but untrusted component that calculates probabilities rather than absolute truths.
+    The demoted role of the Large Language Model in an LSM architecture; it is treated as a high-performance but untrusted component that calculates probabilities rather than absolute truths.
 
 \end{description}
 \end{document}

@@ -21,8 +21,8 @@ from pathlib import Path
 # Increment when setup.json (or coupled cartridge conventions) change incompatibly.
 CURRENT_CARTRIDGE_FORMAT_VERSION = 1
 
-# Human-readable link to the NSM systems spec (documentation only).
-CARTRIDGE_FORMAT_SPEC = "MMG-NSM-1.0"
+# Human-readable link to the LSM systems spec (documentation only).
+CARTRIDGE_FORMAT_SPEC = "MMG-LSM-1.0"
 
 SETUP_FORMAT_KEY = "cartridge_format_version"
 SETUP_SPEC_KEY = "cartridge_format_spec"

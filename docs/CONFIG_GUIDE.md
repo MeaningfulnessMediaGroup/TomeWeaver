@@ -128,7 +128,7 @@ Separate from the author **Version** field in the World Builder:
 | Key | Purpose |
 | :--- | :--- |
 | **`cartridge_format_version`** | Integer schema revision for this cartridge (currently **`1`**). Used for deterministic upgrades when TomeWeaver changes on-disk layout. Auto-stamped on load if missing. |
-| **`cartridge_format_spec`** | Documentation label for the spec family (currently **`MMG-NSM-1.0`**). |
+| **`cartridge_format_spec`** | Documentation label for the spec family (currently **`MMG-LSM-1.0`**). |
 | **`version`** | *Your* story/cartridge revision string (e.g. `"1.0"`, `"2.3-beta"`) — author metadata only. |
 
 Legacy cartridges without `cartridge_format_version` are treated as **format 0** and upgraded to **1** on first load (no field renames today). Future engine releases register step migrations in `scripts/cartridge_format.py`.

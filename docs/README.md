@@ -8,7 +8,7 @@ TomeWeaver features a modern, dark-mode desktop GUI built on `CustomTkinter`. Th
 *   [Long-Term Memory / RAG (RAG.md)](RAG.md)
 *   [LM Studio Setup (LM_STUDIO_CONFIG.md)](LM_STUDIO_CONFIG.md)
 *   [Future Roadmap (FUTURE.md)](FUTURE.md)
-*   [NSM Architecture Article (PDF)](article/MMG-NSM-1.0%20-%20The%20Narrative%20State%20Machine.pdf) — [LaTeX source](article/main.tex)
+*   [LSM Architecture Article (PDF)](article/MMG-LSM-1.0%20-%20The%20Language%20State%20Machine.pdf) — [LaTeX source](article/main.tex)
 *   [Root README — full feature list & Known Limitations](../README.md)
 
 ---
